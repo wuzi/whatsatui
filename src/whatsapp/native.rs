@@ -192,8 +192,7 @@ async fn command_once(
                     )
                     .await
                     {
-                        Ok(Ok(_)) => SendState::Sent,
-                        Ok(Err(e)) => encode::classify_send_error(&e),
+                        Ok(result) => encode::classify_transport_result(&result),
                         Err(_) => SendState::Unconfirmed,
                     },
                 }

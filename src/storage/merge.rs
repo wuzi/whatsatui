@@ -270,14 +270,28 @@ fn expire_in_transaction(
         .into_iter()
         .map(|m| MessageChange::Expire { key: m.key })
         .collect();
-    worker::apply(
+    let mut change = worker::apply(
         c,
         MessageBatch {
             account: a.clone(),
             source: MessageSource::History,
             changes,
         },
-    )
+    )?;
+    // One runtime tick handles acknowledgement deadlines without a task per send.
+    let pending: Vec<MessageRecord> = rows(
+        c,
+        "SELECT data FROM messages WHERE account=? AND created_at_ms <= ? AND json_extract(data,'$.send_state')='Sending'",
+        &[&a.0, &now.saturating_sub(30_000).to_string()],
+    )?;
+    for message in pending {
+        change
+            .chats
+            .extend(worker::set_state(c, &message.key, SendState::Unconfirmed)?.chats);
+    }
+    change.chats.sort();
+    change.chats.dedup();
+    Ok(change)
 }
 
 pub(super) fn merge_alias(

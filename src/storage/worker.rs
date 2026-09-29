@@ -165,10 +165,12 @@ pub(super) fn monotonic(old: Option<SendState>, new: SendState) -> SendState {
         SendState::Read => 4,
         SendState::Delivered => 3,
         SendState::Sent => 2,
+        SendState::Failed => 1,
         _ => 0,
     };
 
     match old {
+        Some(o) if new == SendState::Sending => o,
         Some(o) if rank(o) > rank(new) => o,
         _ => new,
     }

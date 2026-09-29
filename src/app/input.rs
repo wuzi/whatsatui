@@ -6,4 +6,5 @@ pub enum Input {
     Backend(BackendEvent),
     Store(StoreCompletion),
     Tick(i64),
+    TimelineViewport(super::TimelineViewport),
 }

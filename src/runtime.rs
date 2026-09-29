@@ -31,6 +31,9 @@ pub enum AppError {
 pub trait Screen {
     fn draw(&mut self, view: &ViewModel, config: &Config) -> std::io::Result<()>;
     fn finish(&mut self) -> std::io::Result<()>;
+    fn timeline_viewport(&self) -> Option<crate::app::TimelineViewport> {
+        None
+    }
 }
 use crate::{
     app::{Effect, Input, StoreCompletion},
@@ -114,15 +117,21 @@ where
 struct TerminalScreen {
     terminal: ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>,
     guard: crate::terminal::TerminalGuard,
+    viewport: Option<crate::app::TimelineViewport>,
 }
 impl Screen for TerminalScreen {
     fn draw(&mut self, view: &ViewModel, config: &Config) -> std::io::Result<()> {
-        self.terminal
-            .draw(|frame| crate::ui::render(frame, view, config))?;
+        self.terminal.draw(|frame| {
+            self.viewport = crate::ui::timeline_viewport(frame.area(), view, config);
+            crate::ui::render(frame, view, config);
+        })?;
         Ok(())
     }
     fn finish(&mut self) -> std::io::Result<()> {
         self.guard.restore()
+    }
+    fn timeline_viewport(&self) -> Option<crate::app::TimelineViewport> {
+        self.viewport.clone()
     }
 }
 pub async fn run(mut app: App, store: Store, backend: BackendHandle) -> Result<(), AppError> {
@@ -132,7 +141,11 @@ pub async fn run(mut app: App, store: Store, backend: BackendHandle) -> Result<(
     let truecolor = std::env::var("COLORTERM").is_ok_and(|s| s == "truecolor" || s == "24bit")
         || std::env::var("TERM").is_ok_and(|s| s.contains("direct"));
     app.set_truecolor(truecolor);
-    let mut screen = TerminalScreen { terminal, guard };
+    let mut screen = TerminalScreen {
+        terminal,
+        guard,
+        viewport: None,
+    };
     run_with_screen(
         app,
         store,
@@ -325,6 +338,7 @@ where
     let mut control = Some(control);
     let mut pending = VecDeque::new();
     let mut jobs = JoinSet::new();
+    let mut command_jobs = 0usize;
     let mut closing = false;
     let mut input_closed = false;
     let mut events_closed = false;
@@ -338,23 +352,34 @@ where
     let mut last_second = chrono::Utc::now().timestamp();
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     loop {
+        // Control is independent of effect slots. Reserve storage slots so a
+        // full command channel can never prevent the pre-quit draft flush.
+        if let Some(index) = pending.iter().position(|e| matches!(e, Effect::Shutdown)) {
+            pending.remove(index);
+            closing = true;
+            if let Some(control) = control.take() {
+                shutdown = Some(Box::pin(control.shutdown()));
+            }
+        }
         while jobs.len() < 16 {
-            let Some(effect) = pending.pop_front() else {
+            let Some(index) = pending
+                .iter()
+                .position(|e| command_jobs < 12 || !uses_commands(e))
+            else {
                 break;
             };
-            if matches!(effect, Effect::Shutdown) {
-                closing = true;
-                if let Some(control) = control.take() {
-                    shutdown = Some(Box::pin(control.shutdown()));
-                }
-                continue;
-            }
+            let effect = pending.remove(index).expect("queued effect");
+            let command = uses_commands(&effect);
+            command_jobs += usize::from(command);
             let store = store.clone();
             let commands = commands.clone();
-            jobs.spawn(execute(effect, store, commands));
+            jobs.spawn(async move { (command, execute(effect, store, commands).await) });
         }
         if dirty {
             screen.draw(&app.view(), &app.config)?;
+            if let Some(viewport) = screen.timeline_viewport() {
+                pending.extend(app.update(Input::TimelineViewport(viewport), Instant::now()));
+            }
             dirty = false;
         }
         if closing && shutdown_done && events_closed && jobs.is_empty() && pending.is_empty() {
@@ -366,9 +391,9 @@ where
             return shutdown_error.map_or(Ok(()), |e| Err(AppError::Backend(e)));
         }
         let next = tokio::select! {
-            event=input.next(),if !closing&&!input_closed&&pending.len()<48=>match event{Some(Ok(event))=>Some(Input::Terminal(event)),Some(Err(e))=>return Err(e.into()),None=>{input_closed=true;pending.extend(app.request_shutdown());None}},
-            event=events.recv(),if !events_closed&&pending.len()<48=>match event{Some(event)=>Some(Input::Backend(event)),None=>{events_closed=true;Some(Input::Backend(BackendEvent::Stopped))}},
-            completion=jobs.join_next(),if !jobs.is_empty()=>match completion{Some(Ok(event))=>event,Some(Err(_))=>return Err(AppError::Backend(BackendError::Stopped)),None=>None},
+            event=input.next(),if !closing&&!input_closed=>match event{Some(Ok(event))=>Some(Input::Terminal(event)),Some(Err(e))=>return Err(e.into()),None=>{input_closed=true;pending.extend(app.request_shutdown());None}},
+            event=events.recv(),if !events_closed&&(closing||pending.len()<48)=>match event{Some(event)=>Some(Input::Backend(event)),None=>{events_closed=true;Some(Input::Backend(BackendEvent::Stopped))}},
+            completion=jobs.join_next(),if !jobs.is_empty()=>match completion{Some(Ok((command,event)))=>{command_jobs-=usize::from(command);event},Some(Err(_))=>return Err(AppError::Backend(BackendError::Stopped)),None=>None},
             result=async{shutdown.as_mut().expect("shutdown future exists").await},if closing&&!shutdown_done=>{if let Err(e)=result{shutdown_error=Some(e);}shutdown_done=true;None},
             _=tick.tick(),if !closing=>{let epoch=chrono::Utc::now().timestamp_millis();if epoch/1000!=last_second{dirty=true;last_second=epoch/1000;}Some(Input::Tick(epoch))},
             _=tokio::signal::ctrl_c(),if !closing=>{pending.extend(app.request_shutdown());None},
@@ -378,11 +403,27 @@ where
             if !matches!(event, Input::Tick(_)) {
                 dirty = true;
             }
-            let effects = app.update(event, Instant::now());
+            let effects = match event {
+                Input::Terminal(event) if pending.len() >= 48 => {
+                    app.input_under_pressure(event, Instant::now())
+                }
+                event => app.update(event, Instant::now()),
+            };
             if !effects.is_empty() {
                 dirty = true;
             }
             pending.extend(effects);
         }
+        if input_closed && !app.quitting {
+            return Err(AppError::Arguments(
+                "Terminal input closed before drafts could be saved",
+            ));
+        }
     }
+}
+fn uses_commands(effect: &Effect) -> bool {
+    matches!(
+        effect,
+        Effect::Prepare { .. } | Effect::Transmit(_) | Effect::MarkRead { .. }
+    )
 }

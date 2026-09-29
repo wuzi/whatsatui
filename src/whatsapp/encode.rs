@@ -52,6 +52,13 @@ pub fn classify_send_error(error: &SendError) -> SendState {
         _ => SendState::Unconfirmed,
     }
 }
+pub fn classify_transport_result<T>(result: &Result<T, SendError>) -> SendState {
+    // Upstream success means the stanza was written; ServerAck is separate.
+    match result {
+        Ok(_) => SendState::Sending,
+        Err(e) => classify_send_error(e),
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -121,6 +128,13 @@ mod tests {
         assert_eq!(
             classify_send_error(&SendError::Internal(timeout.into())),
             SendState::Unconfirmed
+        );
+    }
+    #[test]
+    fn socket_write_does_not_prove_server_acceptance() {
+        assert_eq!(
+            classify_transport_result(&Ok(String::from("locally-written-id"))),
+            SendState::Sending
         );
     }
 }

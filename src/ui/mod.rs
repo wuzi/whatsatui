@@ -14,6 +14,14 @@ use ratatui::{
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
+pub fn timeline_viewport(
+    area: Rect,
+    view: &ViewModel,
+    config: &Config,
+) -> Option<crate::app::TimelineViewport> {
+    timeline::viewport(area, view, config)
+}
+
 pub fn safe_text(text: &str) -> String {
     let mut out = String::new();
     for c in text.chars() {

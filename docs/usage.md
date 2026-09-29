@@ -10,9 +10,9 @@ The app uses one account per active session. Histories and drafts are keyed by a
 
 Tab changes panes. Select a conversation in Chats, then Enter to type. Enter sends a nonempty draft; Alt-Enter adds a line. Paste, including multiline Unicode text, stays in the composer until you submit it. Drafts save after 250 ms without editing and flush on pane/chat changes and normal quit. A crash can lose edits within that debounce window. If a draft write fails during quit, the app cancels quit, keeps the draft visible, and asks you to fix storage before trying again.
 
-In Messages, use arrows or j/k to select a message; r quotes it without discarding existing composer text. Alt-R removes the quote. Missing, deleted, expired, and unsupported quoted content has an explicit placeholder. Only a bounded preview is retained. If identity reconciliation combines two distinct saved drafts, both texts are kept in one composer, separated by a blank line; the canonical draft's reply target takes precedence. Review the combined draft before sending.
+In Messages, use arrows or j/k to select a message; r quotes it without discarding existing composer text. Alt-R removes the quote. Missing, deleted, expired, and unsupported quoted content has an explicit placeholder. Only a bounded preview is retained. If identity reconciliation combines two distinct saved drafts, both texts are kept in one composer, separated by a blank line; the canonical draft's reply target takes precedence. Concurrent local edits are also retained, with a notice to review the combined draft. This conservative merge can leave an older passage alongside its edited version; remove any duplication before sending.
 
-Scroll upward to hold your reading position. New arrivals show an indicator; End returns to the newest page. PageUp/PageDown traverse the cached history in pages of at most 100 records. WhatsApp may not provide your complete historical archive.
+Scroll upward to hold your reading position. Within a long message, arrows/j/k scroll wrapped lines and PageUp/PageDown scroll a screen at a time; its sender and status stay visible. New arrivals show an indicator; End returns to the newest page. Beyond a message, PageUp/PageDown traverse the cached history in pages of at most 100 records. WhatsApp may not provide your complete historical archive.
 
 Messages/Composer at the bottom mark the conversation read; selecting a chat while staying in Chats does not. Terminal foreground focus is also required when focus reporting is available. Read acknowledgements use the backend's account behavior. Synced unread information initializes the local baseline; it is not an ongoing mirror of every other device's unread counter.
 
@@ -29,6 +29,8 @@ An outgoing attempt receives a stable ID and is committed locally before transmi
 | Unconfirmed | Acceptance could not be determined |
 
 Group receipts show known recipient counts, not a claim that everyone has read the message. A disconnected send keeps the draft. Restart and reconnect never automatically resend an attempt. R on a Failed or Unconfirmed message opens a confirmation; resending creates a new ID, so an unconfirmed original may also arrive. Late receipts still reconcile against the original ID.
+
+A successful socket write stays Sending until positive server acknowledgement or receipt evidence arrives. Attempts without that evidence become Unconfirmed after 30 seconds. A negative acknowledgement remains Failed even if local transport completion arrives later.
 
 ## Configuration
 

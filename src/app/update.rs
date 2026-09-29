@@ -134,6 +134,9 @@ impl App {
                 chat: None,
                 messages: vec![],
                 selected_message: None,
+                message_scroll: 0,
+                message_scroll_max: 0,
+                message_page_rows: 1,
                 receipts: vec![],
                 draft: Draft::default(),
                 cursor: 0,
@@ -180,6 +183,27 @@ impl App {
     }
     pub fn set_truecolor(&mut self, value: bool) {
         self.view.truecolor = value;
+    }
+    /// Under sustained backpressure keep quit, text editing, and terminal state
+    /// available; defer navigation that would enqueue more storage work.
+    pub fn input_under_pressure(&mut self, event: Event, now: Instant) -> Vec<Effect> {
+        let allowed = match &event {
+            Event::Key(key) => match self.config.bindings.lookup(self.context(), *key) {
+                Some(ActionId::Quit) => true,
+                Some(_) => false,
+                None => matches!(self.context(), Context::Composer | Context::Search),
+            },
+            Event::Paste(_) | Event::Resize(..) | Event::FocusGained | Event::FocusLost => true,
+            _ => false,
+        };
+        if allowed {
+            self.update(Input::Terminal(event), now)
+        } else {
+            self.view.notice = Some(
+                "Busy syncing; navigation will resume shortly. You can still type or quit.".into(),
+            );
+            vec![]
+        }
     }
     fn request(&mut self) -> RequestId {
         self.serial += 1;
@@ -279,6 +303,8 @@ impl App {
         self.view.messages.clear();
         self.view.receipts.clear();
         self.view.selected_message = None;
+        self.view.message_scroll = 0;
+        self.view.message_scroll_max = 0;
         self.view.at_bottom = true;
         self.view.new_messages = 0;
         self.view.draft = self
@@ -338,6 +364,21 @@ impl App {
                 }
             }
             Focus::Messages => {
+                if delta < 0 && self.view.message_scroll < self.view.message_scroll_max {
+                    self.view.message_scroll = self
+                        .view
+                        .message_scroll
+                        .saturating_add(delta.unsigned_abs())
+                        .min(self.view.message_scroll_max);
+                    self.reading_position();
+                    return;
+                }
+                if delta > 0 && self.view.message_scroll > 0 {
+                    self.view.message_scroll =
+                        self.view.message_scroll.saturating_sub(delta as usize);
+                    self.reading_position();
+                    return;
+                }
                 let i = self
                     .view
                     .messages
@@ -348,18 +389,11 @@ impl App {
                     .saturating_add_signed(delta)
                     .min(self.view.messages.len().saturating_sub(1));
                 self.view.selected_message = self.view.messages.get(next).map(|m| m.key.clone());
-                self.view.at_bottom = next + 1 == self.view.messages.len() && !self.view.has_newer;
-                if self.view.at_bottom {
-                    self.page_cursor = None;
-                } else if self.page_cursor.is_none()
-                    && let Some(last) = self.view.messages.last()
-                {
-                    self.page_cursor = Some(PageCursor {
-                        direction: PageDirection::AtOrBefore,
-                        created_at_ms: last.created_at_ms,
-                        key: last.key.clone(),
-                    });
+                if next != i {
+                    self.view.message_scroll = 0;
+                    self.view.message_scroll_max = 0;
                 }
+                self.reading_position();
                 if delta < 0
                     && i == 0
                     && self.view.has_older
@@ -376,6 +410,26 @@ impl App {
                 }
             }
             Focus::Composer => {}
+        }
+    }
+    fn reading_position(&mut self) {
+        self.view.at_bottom = self.view.message_scroll == 0
+            && !self.view.has_newer
+            && self
+                .view
+                .messages
+                .last()
+                .is_some_and(|m| Some(&m.key) == self.view.selected_message.as_ref());
+        if self.view.at_bottom {
+            self.page_cursor = None;
+        } else if self.page_cursor.is_none()
+            && let Some(last) = self.view.messages.last()
+        {
+            self.page_cursor = Some(PageCursor {
+                direction: PageDirection::AtOrBefore,
+                created_at_ms: last.created_at_ms,
+                key: last.key.clone(),
+            });
         }
     }
     fn action(&mut self, action: ActionId, effects: &mut Vec<Effect>) {
@@ -415,12 +469,19 @@ impl App {
             }
             A::Next => self.move_selection(1, effects),
             A::Previous => self.move_selection(-1, effects),
-            A::PageUp => self.move_selection(-20, effects),
+            A::PageUp => self.move_selection(
+                if self.view.message_scroll < self.view.message_scroll_max {
+                    -(self.view.message_page_rows as isize)
+                } else {
+                    -20
+                },
+                effects,
+            ),
             A::PageDown => {
                 let last = self.view.messages.last();
                 let on_last =
                     last.is_some_and(|m| Some(&m.key) == self.view.selected_message.as_ref());
-                if on_last && self.view.has_newer {
+                if on_last && self.view.has_newer && self.view.message_scroll == 0 {
                     if let Some(m) = last {
                         self.load_chat(
                             Some(PageCursor {
@@ -432,10 +493,18 @@ impl App {
                         );
                     }
                 } else {
-                    self.move_selection(20, effects);
+                    self.move_selection(
+                        if self.view.message_scroll > 0 {
+                            self.view.message_page_rows as isize
+                        } else {
+                            20
+                        },
+                        effects,
+                    );
                 }
             }
             A::Bottom => {
+                self.view.message_scroll = 0;
                 self.view.at_bottom = true;
                 self.view.new_messages = 0;
                 self.view.selected_message = self.view.messages.last().map(|m| m.key.clone());
@@ -795,7 +864,17 @@ impl App {
             } => {
                 let pair = (account.clone(), chat.clone());
                 let active_account = self.view.account.as_ref() == Some(&account);
-                if self.draft_loads.get(&pair) == Some(&request) {
+                if result.is_err() && self.quitting && self.buffered.contains_key(&pair) {
+                    self.quitting = false;
+                    self.view.notice=Some("Quit canceled: saved draft could not be loaded; typed text kept. Retry after fixing storage.".into());
+                }
+                // Initialization belongs to the conversation, not to whichever
+                // overlapping request happened to start first. Only success
+                // consumes the edits typed while its saved draft was loading.
+                if (self.draft_loads.contains_key(&pair) || self.buffered.contains_key(&pair))
+                    && result.is_ok()
+                    && (!active_account || !self.drafts.contains_key(&chat))
+                {
                     self.draft_loads.remove(&pair);
                     if let Ok(snapshot) = &result {
                         let mut data = snapshot.draft.clone();
@@ -849,20 +928,53 @@ impl App {
                         self.view.loading = false;
                         let canonical = snapshot.summary.chat.clone();
                         if canonical != chat {
-                            if let Some(mut local) = self.drafts.remove(&chat) {
-                                if local.dirty {
-                                    local.data.revision = local
-                                        .data
-                                        .revision
-                                        .max(snapshot.draft.revision)
-                                        .saturating_add(1);
-                                    if let Some(q) = &mut local.data.reply
-                                        && q.key.chat == chat
-                                    {
-                                        q.key.chat = canonical.clone();
-                                    }
+                            let alias_draft = self.drafts.remove(&chat);
+                            let canonical_draft = self.drafts.remove(&canonical);
+                            let mut merged = snapshot.draft.clone();
+                            let mut dirty = false;
+                            for local in [canonical_draft.as_ref(), alias_draft.as_ref()]
+                                .into_iter()
+                                .flatten()
+                            {
+                                merged.revision = merged.revision.max(local.data.revision);
+                                if local.dirty || local.data.revision > snapshot.draft.revision {
+                                    dirty = true;
+                                    retain_draft_text(&mut merged.text, &local.data.text);
                                 }
-                                self.drafts.insert(canonical.clone(), local);
+                            }
+                            if let Some(local) = canonical_draft
+                                .as_ref()
+                                .filter(|d| d.dirty || d.data.revision > snapshot.draft.revision)
+                            {
+                                merged.reply = local.data.reply.clone();
+                            } else if merged.reply.is_none() {
+                                merged.reply =
+                                    alias_draft.as_ref().and_then(|d| d.data.reply.clone());
+                            }
+                            if let Some(q) = &mut merged.reply {
+                                if q.key.chat == chat {
+                                    q.key.chat = canonical.clone();
+                                }
+                                if q.key.sender.0 == chat.0 {
+                                    q.key.sender = canonical.0.clone().into();
+                                }
+                            }
+                            if dirty {
+                                merged.revision = merged.revision.saturating_add(1);
+                            }
+                            self.view.draft = merged.clone();
+                            self.editor = Editor::new(merged.text.clone());
+                            self.drafts.insert(
+                                canonical.clone(),
+                                LocalDraft {
+                                    data: merged,
+                                    dirty,
+                                    edited_at: self.view.now,
+                                    saving: None,
+                                },
+                            );
+                            if dirty {
+                                self.view.notice=Some("Contact identities merged; review the combined draft before sending".into());
                             }
                             self.view.chat = Some(canonical.clone());
                         }
@@ -878,7 +990,8 @@ impl App {
                         self.view.selected_message = if self.view.at_bottom {
                             self.view.messages.last().map(|m| m.key.clone())
                         } else {
-                            old.filter(|k| self.view.messages.iter().any(|m| &m.key == k))
+                            old.clone()
+                                .filter(|k| self.view.messages.iter().any(|m| &m.key == k))
                                 .or_else(|| {
                                     if cursor
                                         .as_ref()
@@ -891,7 +1004,12 @@ impl App {
                                     .map(|m| m.key.clone())
                                 })
                         };
-                        self.view.at_bottom = !self.view.has_newer
+                        if self.view.selected_message != old {
+                            self.view.message_scroll = 0;
+                            self.view.message_scroll_max = 0;
+                        }
+                        self.view.at_bottom = self.view.message_scroll == 0
+                            && !self.view.has_newer
                             && self.view.selected_message.as_ref()
                                 == self.view.messages.last().map(|m| &m.key);
                         self.page_cursor = if self.view.at_bottom {
@@ -951,7 +1069,14 @@ impl App {
                             );
                         }
                     }
-                    Err(e) => self.view.notice = Some(e),
+                    Err(e) => {
+                        if self.quitting {
+                            self.quitting = false;
+                        }
+                        self.view.notice = Some(format!(
+                            "{e}; typed text kept. Reopen the chat or retry quit to load its saved draft."
+                        ));
+                    }
                 }
                 if std::mem::take(&mut self.reload_chat) {
                     self.load_chat(self.page_cursor.clone(), effects);
@@ -1100,6 +1225,22 @@ impl App {
     pub fn request_shutdown(&mut self) -> Vec<Effect> {
         self.quitting = true;
         let mut effects = self.flush_drafts();
+        for (account, chat) in self.buffered.keys().cloned().collect::<Vec<_>>() {
+            let request = self.request();
+            self.draft_loads
+                .insert((account.clone(), chat.clone()), request);
+            if self.view.account.as_ref() == Some(&account)
+                && self.view.chat.as_ref() == Some(&chat)
+            {
+                self.chat_request = Some(request);
+            }
+            effects.push(Effect::LoadChat {
+                request,
+                account,
+                chat,
+                cursor: None,
+            });
+        }
         self.finish_shutdown(&mut effects);
         effects
     }
@@ -1117,6 +1258,14 @@ impl App {
         self.view.now = now;
         let mut effects = vec![];
         match input {
+            Input::TimelineViewport(metrics) => {
+                if metrics.selected == self.view.selected_message {
+                    self.view.message_scroll_max = metrics.max_scroll;
+                    self.view.message_page_rows = metrics.page_rows;
+                    self.view.message_scroll = self.view.message_scroll.min(metrics.max_scroll);
+                    self.reading_position();
+                }
+            }
             Input::Terminal(event) => self.terminal(event, &mut effects),
             Input::Backend(event) => self.backend(event, &mut effects),
             Input::Store(event) => self.completion(event, &mut effects),
@@ -1144,4 +1293,21 @@ impl App {
         self.finish_shutdown(&mut effects);
         effects
     }
+}
+
+/// Preserve distinct complete draft texts. A store merge may already contain
+/// one local draft as a complete blank-line-delimited component.
+fn retain_draft_text(target: &mut String, text: &str) {
+    if text.is_empty()
+        || target == text
+        || target.starts_with(&format!("{text}\n\n"))
+        || target.ends_with(&format!("\n\n{text}"))
+        || target.contains(&format!("\n\n{text}\n\n"))
+    {
+        return;
+    }
+    if !target.is_empty() {
+        target.push_str("\n\n");
+    }
+    target.push_str(text);
 }

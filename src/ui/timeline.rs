@@ -45,83 +45,13 @@ pub(super) fn render(frame: &mut Frame, area: Rect, view: &ViewModel, config: &C
     let mut chosen = (0, 0);
     for (index, message) in view.messages.iter().enumerate().take(selected + 1) {
         let start = lines.len();
-        let who = if message.key.from_me {
-            "You".into()
-        } else {
-            sender(view, &message.key.sender.0)
-        };
-        let status = message
-            .send_state
-            .map(|s| format!(" · {s:?}"))
-            .unwrap_or_default();
-        let receipts = view
-            .receipts
-            .iter()
-            .filter(|r| r.key == message.key)
-            .collect::<Vec<_>>();
-        let receipt_text = if message.key.chat.0.ends_with("@g.us") && !receipts.is_empty() {
-            format!(
-                " · delivered: {} / read: {}",
-                receipts.len(),
-                receipts
-                    .iter()
-                    .filter(|r| r.state == ReceiptState::Read)
-                    .count()
-            )
-        } else {
-            String::new()
-        };
-        let header = format!(
-            "{}{} {who}{status}{receipt_text}{}",
-            if index == selected { "> " } else { "  " },
-            timestamp(message.created_at_ms),
-            if message.edited_at_ms.is_some() {
-                " · edited"
-            } else {
-                ""
-            }
-        );
-        lines.push(Line::styled(
-            header,
-            style(
-                config,
-                view,
-                if index == selected {
-                    ThemeRole::Accent
-                } else {
-                    ThemeRole::Inactive
-                },
-            ),
+        lines.extend(message_rows(
+            message,
+            index == selected,
+            view,
+            config,
+            inner.width as usize,
         ));
-        if let Some(quote) = &message.quote {
-            let preview = match quote.availability {
-                QuoteAvailability::Available => single(&quote.preview),
-                QuoteAvailability::Missing => "[original missing]".into(),
-                QuoteAvailability::Unsupported => "[unsupported original]".into(),
-                QuoteAvailability::Deleted => "[original deleted]".into(),
-                QuoteAvailability::Expired => "[original expired]".into(),
-            };
-            for line in wrap(&format!("> {preview}"), inner.width as usize) {
-                lines.push(Line::styled(line, style(config, view, ThemeRole::Inactive)));
-            }
-        }
-        let body = match &message.body {
-            MessageBody::Text(t) => safe_text(t),
-            MessageBody::Unsupported { kind, caption } => format!(
-                "[{}]{}",
-                single(kind),
-                caption
-                    .as_ref()
-                    .map(|c| format!("\n{}", safe_text(c)))
-                    .unwrap_or_default()
-            ),
-            MessageBody::Deleted => "[Message deleted]".into(),
-            MessageBody::Expired => "[Message expired]".into(),
-        };
-        for line in wrap(&body, inner.width as usize) {
-            lines.push(Line::from(line));
-        }
-        lines.push(Line::from(""));
         if index == selected {
             chosen = (start, lines.len());
         }
@@ -129,7 +59,9 @@ pub(super) fn render(frame: &mut Frame, area: Rect, view: &ViewModel, config: &C
     let height = inner.height as usize;
     let visible = if chosen.1 - chosen.0 > height && height > 1 {
         let mut v = vec![lines[chosen.0].clone()];
-        v.extend_from_slice(&lines[chosen.1.saturating_sub(height - 1)..chosen.1]);
+        let max_scroll = (chosen.1 - chosen.0).saturating_sub(height);
+        let end = chosen.1 - view.message_scroll.min(max_scroll);
+        v.extend_from_slice(&lines[end.saturating_sub(height - 1)..end]);
         v
     } else {
         lines
@@ -138,4 +70,116 @@ pub(super) fn render(frame: &mut Frame, area: Rect, view: &ViewModel, config: &C
             .collect()
     };
     frame.render_widget(Paragraph::new(visible), inner);
+}
+
+fn message_rows(
+    message: &MessageRecord,
+    selected: bool,
+    view: &ViewModel,
+    config: &Config,
+    width: usize,
+) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    let who = if message.key.from_me {
+        "You".into()
+    } else {
+        sender(view, &message.key.sender.0)
+    };
+    let status = message
+        .send_state
+        .map(|s| format!(" · {s:?}"))
+        .unwrap_or_default();
+    let receipts = view
+        .receipts
+        .iter()
+        .filter(|r| r.key == message.key)
+        .collect::<Vec<_>>();
+    let receipt_text = if message.key.chat.0.ends_with("@g.us") && !receipts.is_empty() {
+        format!(
+            " · delivered: {} / read: {}",
+            receipts.len(),
+            receipts
+                .iter()
+                .filter(|r| r.state == ReceiptState::Read)
+                .count()
+        )
+    } else {
+        String::new()
+    };
+    let header = format!(
+        "{}{} {who}{status}{receipt_text}{}",
+        if selected { "> " } else { "  " },
+        timestamp(message.created_at_ms),
+        if message.edited_at_ms.is_some() {
+            " · edited"
+        } else {
+            ""
+        }
+    );
+    lines.push(Line::styled(
+        header,
+        style(
+            config,
+            view,
+            if selected {
+                ThemeRole::Accent
+            } else {
+                ThemeRole::Inactive
+            },
+        ),
+    ));
+    if let Some(quote) = &message.quote {
+        let preview = match quote.availability {
+            QuoteAvailability::Available => single(&quote.preview),
+            QuoteAvailability::Missing => "[original missing]".into(),
+            QuoteAvailability::Unsupported => "[unsupported original]".into(),
+            QuoteAvailability::Deleted => "[original deleted]".into(),
+            QuoteAvailability::Expired => "[original expired]".into(),
+        };
+        for line in wrap(&format!("> {preview}"), width) {
+            lines.push(Line::styled(line, style(config, view, ThemeRole::Inactive)));
+        }
+    }
+    let body = match &message.body {
+        MessageBody::Text(t) => safe_text(t),
+        MessageBody::Unsupported { kind, caption } => format!(
+            "[{}]{}",
+            single(kind),
+            caption
+                .as_ref()
+                .map(|c| format!("\n{}", safe_text(c)))
+                .unwrap_or_default()
+        ),
+        MessageBody::Deleted => "[Message deleted]".into(),
+        MessageBody::Expired => "[Message expired]".into(),
+    };
+    for line in wrap(&body, width) {
+        lines.push(Line::from(line));
+    }
+    lines.push(Line::from(""));
+    lines
+}
+
+pub(super) fn viewport(
+    area: Rect,
+    view: &ViewModel,
+    config: &Config,
+) -> Option<crate::app::TimelineViewport> {
+    let regions = layout::calculate(area, view.focus);
+    if regions.too_small || regions.messages.width < 3 || regions.messages.height < 3 {
+        return None;
+    }
+    let message = view
+        .selected_message
+        .as_ref()
+        .and_then(|key| view.messages.iter().find(|m| &m.key == key))
+        .or_else(|| view.messages.last())?;
+    let height = regions.messages.height.saturating_sub(2) as usize;
+    let width = regions.messages.width.saturating_sub(2) as usize;
+    let total = message_rows(message, true, view, config, width).len();
+    Some(crate::app::TimelineViewport {
+        selected: view.selected_message.clone(),
+        max_scroll: total.saturating_sub(height),
+        page_rows: height.saturating_sub(1).max(1),
+    })
 }
