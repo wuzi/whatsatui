@@ -4,7 +4,7 @@ Date: 2026-09-29
 
 Working project name: `whatsapp-tui`
 
-Status: Written for user review. The conversational design is approved; this written specification awaits review before implementation planning.
+Status: Approved by the user on 2026-09-29.
 
 ## Purpose and agreed direction
 
