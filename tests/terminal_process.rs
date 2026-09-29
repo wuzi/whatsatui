@@ -8,7 +8,7 @@ use nix::{
 use std::{
     fs::File,
     io::{Read, Write},
-    os::unix::process::CommandExt,
+    os::unix::{fs::PermissionsExt, process::CommandExt},
     process::{Child, Command, Stdio},
     time::{Duration, Instant},
 };
@@ -162,6 +162,61 @@ fn demo_finds_chats_messages_and_unreads_then_restores_tty() {
     p.output.clear();
     p.master.write_all(b"\r\x1b[Zu").unwrap();
     p.wait_for("Unread");
+    p.master.write_all(b"\x11").unwrap();
+    assert!(p.finish().success());
+    p.restored();
+}
+#[test]
+fn demo_actions_use_isolated_desktop_helpers_and_restore_tty() {
+    let dir = tempfile::tempdir().unwrap();
+    for (name, script) in [
+        (
+            "wl-copy",
+            "#!/bin/sh\n/bin/cat > \"$WHATSAPP_TUI_TEST_COPY\"\n",
+        ),
+        (
+            "xdg-open",
+            "#!/bin/sh\nprintf '%s\\n' \"$#\" \"$1\" > \"$WHATSAPP_TUI_TEST_OPEN\"\n",
+        ),
+    ] {
+        let path = dir.path().join(name);
+        std::fs::write(&path, script).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let copy = dir.path().join("copy");
+    let open = dir.path().join("open");
+    let mut command = binary();
+    command
+        .arg("--demo")
+        .env("PATH", format!("{}:/usr/bin:/bin", dir.path().display()))
+        .env("WAYLAND_DISPLAY", "test-wayland")
+        .env_remove("DISPLAY")
+        .env("WHATSAPP_TUI_TEST_COPY", &copy)
+        .env("WHATSAPP_TUI_TEST_OPEN", &open);
+    let mut p = Process::launch(command);
+    p.wait_for("Alice");
+    p.master.write_all(b"\x10").unwrap();
+    p.wait_for("Switch chat");
+    p.master.write_all(b"\x1b[200~alc\x1b[201~\r").unwrap();
+    p.wait_for("example.org");
+    p.master.write_all(b"\x1b[Z\r").unwrap();
+    p.wait_for("Message actions");
+    assert!(!copy.exists());
+    assert!(!open.exists());
+    p.master.write_all(b"\r").unwrap();
+    p.wait_for("message text");
+    let copied = std::fs::read_to_string(&copy).unwrap();
+    assert!(copied.contains("*Message actions*"));
+    assert!(copied.contains("https://example.org/whatsapp-tui"));
+    p.master.write_all(b"o").unwrap();
+    p.wait_for("choose a destination");
+    assert!(!open.exists());
+    p.master.write_all(b"\r").unwrap();
+    p.wait_for("request sent");
+    assert_eq!(
+        std::fs::read_to_string(&open).unwrap(),
+        "1\nhttps://example.org/whatsapp-tui\n"
+    );
     p.master.write_all(b"\x11").unwrap();
     assert!(p.finish().success());
     p.restored();

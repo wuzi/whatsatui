@@ -21,6 +21,8 @@ pub enum Context {
     Composer,
     Search,
     MessageSearch,
+    MessageActions,
+    MessageLinks,
     Help,
     Resend,
     Global,
@@ -28,6 +30,9 @@ pub enum Context {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ActionId {
+    MessageActions,
+    CopyText,
+    OpenLinks,
     FocusNext,
     FocusPrevious,
     Search,
@@ -54,6 +59,9 @@ pub(super) type Overrides = BTreeMap<Context, BTreeMap<ActionId, Vec<String>>>;
 impl ActionId {
     pub fn label(self) -> &'static str {
         match self {
+            Self::MessageActions => "actions",
+            Self::CopyText => "copy",
+            Self::OpenLinks => "links",
             Self::FocusNext => "next pane",
             Self::FocusPrevious => "previous pane",
             Self::Search => "chats",
@@ -108,6 +116,9 @@ impl Default for Bindings {
         }
         b.add(C::Chats, A::Open, "enter");
         b.add(C::Chats, A::Unread, "u");
+        b.add(C::Messages, A::MessageActions, "enter");
+        b.add(C::Messages, A::CopyText, "y");
+        b.add(C::Messages, A::OpenLinks, "o");
         for (a, k) in [
             (A::Back, "esc"),
             (A::Reply, "r"),
@@ -139,6 +150,22 @@ impl Default for Bindings {
         b.add(C::Search, A::ToggleUnread, "ctrl-u");
         b.add(C::Resend, A::Back, "esc");
         b.add(C::Resend, A::Confirm, "enter");
+        for c in [C::MessageActions, C::MessageLinks] {
+            for (a, k) in [
+                (A::Back, "esc"),
+                (A::Open, "enter"),
+                (A::Next, "down"),
+                (A::Next, "j"),
+                (A::Previous, "up"),
+                (A::Previous, "k"),
+                (A::CopyText, "y"),
+            ] {
+                b.add(c, a, k);
+            }
+        }
+        for (a, k) in [(A::OpenLinks, "o"), (A::Reply, "r"), (A::Resend, "R")] {
+            b.add(C::MessageActions, a, k);
+        }
         b
     }
 }
@@ -192,6 +219,8 @@ impl Bindings {
             Context::Composer,
             Context::Search,
             Context::MessageSearch,
+            Context::MessageActions,
+            Context::MessageLinks,
             Context::Help,
             Context::Resend,
             Context::Global,
@@ -212,6 +241,9 @@ impl Bindings {
                 }
             }
             let mut required = vec![ActionId::Quit];
+            if matches!(context, Context::MessageActions | Context::MessageLinks) {
+                required.extend([ActionId::Open, ActionId::Back]);
+            }
             if matches!(
                 context,
                 Context::Chats | Context::Messages | Context::Composer
@@ -289,6 +321,18 @@ fn allowed(c: Context, a: ActionId) -> bool {
             A::Back | A::Open | A::Next | A::Previous | A::ToggleUnread
         ),
         C::MessageSearch => matches!(a, A::Back | A::Open | A::Next | A::Previous),
+        C::MessageActions => matches!(
+            a,
+            A::Back
+                | A::Open
+                | A::Next
+                | A::Previous
+                | A::CopyText
+                | A::OpenLinks
+                | A::Reply
+                | A::Resend
+        ),
+        C::MessageLinks => matches!(a, A::Back | A::Open | A::Next | A::Previous | A::CopyText),
         C::Help => a == A::Back,
         C::Resend => matches!(a, A::Back | A::Confirm),
     }

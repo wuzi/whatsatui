@@ -1,9 +1,15 @@
 use super::{editor::*, input::Input, model::*, view_model::*};
 use crate::{config::Config, whatsapp::BackendEvent};
 use tokio::time::Instant;
+mod actions;
 mod search;
 #[derive(Clone, Debug)]
 pub enum Effect {
+    DesktopAction {
+        request: RequestId,
+        message: Box<MessageRecord>,
+        action: crate::message_actions::DesktopAction,
+    },
     SearchMessages {
         request: RequestId,
         account: AccountId,
@@ -136,6 +142,7 @@ pub struct App {
     pub(crate) foreground: Option<bool>,
     pub(crate) quitting: bool,
     shutdown_emitted: bool,
+    desktop_request: Option<(RequestId, AccountId)>,
 }
 impl App {
     pub fn new(config: Config) -> Self {
@@ -187,6 +194,7 @@ impl App {
             foreground: None,
             quitting: false,
             shutdown_emitted: false,
+            desktop_request: None,
         }
     }
     pub fn view(&self) -> ViewModel {
@@ -229,6 +237,8 @@ impl App {
     }
     fn context(&self) -> Context {
         match &self.view.overlay {
+            Some(Overlay::MessageActions(_)) => Context::MessageActions,
+            Some(Overlay::MessageLinks(_)) => Context::MessageLinks,
             Some(Overlay::MessageSearch(_)) => Context::MessageSearch,
             Some(Overlay::Search { .. }) => Context::Search,
             Some(Overlay::Help) => Context::Help,
@@ -366,6 +376,9 @@ impl App {
             .and_then(|k| self.view.messages.iter().find(|m| &m.key == k))
     }
     fn move_selection(&mut self, delta: isize, effects: &mut Vec<Effect>) {
+        if self.move_action_selection(delta) {
+            return;
+        }
         if let Some(Overlay::MessageSearch(search)) = &mut self.view.overlay {
             search.selected = search
                 .selected
@@ -468,7 +481,16 @@ impl App {
     }
     fn action(&mut self, action: ActionId, effects: &mut Vec<Effect>) {
         use ActionId as A;
+        if matches!(action, A::Reply | A::Resend)
+            && matches!(self.view.overlay, Some(Overlay::MessageActions(_)))
+            && !self.activate_menu_target(action)
+        {
+            return;
+        }
         match action {
+            A::MessageActions => self.open_message_actions(),
+            A::CopyText => self.copy_message_or_link(effects),
+            A::OpenLinks => self.open_message_links(),
             A::MessageSearch => self.open_message_search(),
             A::Quit => {
                 effects.extend(self.request_shutdown());
@@ -482,6 +504,9 @@ impl App {
                 self.focus(next, effects);
             }
             A::Back => {
+                if self.back_from_links() {
+                    return;
+                }
                 if self.view.overlay.take().is_none() {
                     self.focus(
                         if self.view.focus == Focus::Composer {
@@ -560,6 +585,13 @@ impl App {
                 }
             }
             A::Open => {
+                if matches!(
+                    self.view.overlay,
+                    Some(Overlay::MessageActions(_) | Overlay::MessageLinks(_))
+                ) {
+                    self.open_action_selection(effects);
+                    return;
+                }
                 if matches!(self.view.overlay, Some(Overlay::MessageSearch(_))) {
                     self.submit_or_open_message(effects);
                     return;
@@ -731,7 +763,13 @@ impl App {
                     if key.kind == KeyEventKind::Repeat
                         && matches!(
                             action,
-                            ActionId::Send | ActionId::Open | ActionId::Confirm | ActionId::Quit
+                            ActionId::Send
+                                | ActionId::Open
+                                | ActionId::Confirm
+                                | ActionId::Quit
+                                | ActionId::CopyText
+                                | ActionId::OpenLinks
+                                | ActionId::MessageActions
                         )
                     {
                         return;
@@ -1335,7 +1373,20 @@ impl App {
     pub fn update(&mut self, input: Input, now: Instant) -> Vec<Effect> {
         self.view.now = now;
         let mut effects = vec![];
+        self.reconcile_message_actions();
         match input {
+            Input::DesktopAction {
+                request,
+                account,
+                result,
+            } => {
+                if self.desktop_request.as_ref() == Some(&(request, account.clone())) {
+                    self.desktop_request = None;
+                    if self.view.account.as_ref() == Some(&account) {
+                        self.view.notice = Some(result.unwrap_or_else(|e| e));
+                    }
+                }
+            }
             Input::TimelineViewport(metrics) => {
                 if metrics.selected == self.view.selected_message {
                     self.view.message_scroll_max = metrics.max_scroll;
@@ -1371,6 +1422,7 @@ impl App {
                 }
             }
         }
+        self.reconcile_message_actions();
         self.maybe_read(&mut effects);
         self.finish_shutdown(&mut effects);
         effects

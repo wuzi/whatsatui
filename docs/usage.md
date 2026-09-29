@@ -30,6 +30,18 @@ Search runs only when submitted, with one scan at a time for the open finder. Ed
 
 In the demo, use Ctrl-P and `alc` to open Alice, then Ctrl-F and `cyan` to find a message. Return to Chats and press `u` to try the unread filter.
 
+## Formatting and message actions
+
+Messages and media captions display balanced `*bold*`, `_italic_`, and `~strikethrough~` text. Single backticks mark inline code; triple backticks mark code that can span lines. Code uses dim cyan text in your terminal's existing monospace font, and its contents stay literal. Lines beginning with `> ` become quotes; `- ` or `* ` become bullets. Numbered lists keep their original numbers. Nested emphasis works; unmatched markers and underscores within words remain visible. This follows a subset of [WhatsApp's formatting syntax](https://faq.whatsapp.com/539178204879377/?cms_platform=web&locale=en_US). The composer, storage, search, and outgoing messages keep the original text.
+
+In Messages, press Enter for the selected message's action menu. Use arrows or j/k and Enter, or the displayed shortcut. Copy text is available for text messages and media captions; Reply is available for text messages; Resend appears for your failed or unconfirmed text attempts and retains its confirmation step. Escape closes the menu while preserving your draft and reading position. The menu stays attached to its original message when new messages arrive; changed or expired content is rechecked before an action runs.
+
+Press `y` in Messages to copy the original text, including formatting markers and line breaks. Press `o` to choose among that message's HTTP/HTTPS links. Even one link is shown before opening: Enter requests the default browser, `y` copies the selected URL, and Escape returns to the menu or Messages. Long URLs have a wrapped preview; copy the full URL to inspect text beyond the preview. Discovery shows at most 32 unique links, each at most 4096 bytes, and excludes other schemes and URLs containing credentials. Links are never opened or fetched merely by rendering a message.
+
+Clipboard support uses `wl-copy` from wl-clipboard on Wayland, or `xclip`/`xsel` on X11. Browser requests use `xdg-open` from xdg-utils. Run in a desktop session with those tools on PATH. Missing or failing helpers show a notice; the TUI stays usable. A browser-success notice means the desktop helper accepted the request. Clipboard text is limited to 1 MiB, and an unresponsive launcher times out after three seconds. Terminal clipboard forwarding over SSH is not included in this version.
+
+Bindings live in `[bindings.messages]`, `[bindings.message_actions]`, and `[bindings.message_links]`; the complete example includes the defaults. The menu and link picker require an Open and Back binding. In the demo, open Alice, Shift-Tab from the composer to Messages, then Enter to explore the actions. Its newest message includes formatting and an example.org link. Copying and opening from an interactive demo use your real desktop helpers when you select those actions.
+
 ## Connection and send state
 
 An outgoing attempt receives a stable ID and is committed locally before transmission. Text typed while an earlier revision is being sent remains in the composer. The states shown are:

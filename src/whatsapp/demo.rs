@@ -73,7 +73,7 @@ async fn initialize(store: &Store) -> Result<StoreChange, BackendError> {
             "alice@demo",
             "alice@demo",
             "a3",
-            "Tab moves between panes. Ctrl-P finds chats; Ctrl-F searches this conversation. Try cyan.",
+            "Tab moves between panes. Ctrl-P finds chats; Ctrl-F searches this conversation. Try cyan.\n*Message actions*: Enter in Messages, y to copy, o for links.\n_Italic_ ~old~ `code`\nhttps://example.org/whatsapp-tui",
             120_000,
         ),
         message(

@@ -1,3 +1,4 @@
+mod actions;
 mod chat_list;
 mod composer;
 pub mod layout;
@@ -137,6 +138,8 @@ pub fn render(frame: &mut Frame, view: &ViewModel, config: &Config) {
     timeline::render(frame, regions.messages, view, config);
     composer::render(frame, regions.composer, view, config);
     let context = match &view.overlay {
+        Some(Overlay::MessageActions(_)) => Context::MessageActions,
+        Some(Overlay::MessageLinks(_)) => Context::MessageLinks,
         Some(Overlay::MessageSearch(_)) => Context::MessageSearch,
         Some(Overlay::Search { .. }) => Context::Search,
         Some(Overlay::Help) => Context::Help,
@@ -153,7 +156,10 @@ pub fn render(frame: &mut Frame, view: &ViewModel, config: &Config) {
     bindings.sort_by_key(|(_, action)| match action {
         crate::config::bindings::ActionId::Quit => 0,
         crate::config::bindings::ActionId::Help => 1,
-        _ => 2,
+        crate::config::bindings::ActionId::MessageActions => 2,
+        crate::config::bindings::ActionId::CopyText
+        | crate::config::bindings::ActionId::OpenLinks => 3,
+        _ => 4,
     });
     let hints = bindings
         .into_iter()

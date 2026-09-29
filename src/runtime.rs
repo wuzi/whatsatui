@@ -161,6 +161,21 @@ pub async fn execute(
     commands: mpsc::Sender<BackendCommand>,
 ) -> Option<Input> {
     let event = match effect {
+        Effect::DesktopAction {
+            request,
+            message,
+            action,
+        } => {
+            let account = message.key.account.clone();
+            let result =
+                crate::desktop::execute(*message, action, store, &crate::desktop::NativeDesktop)
+                    .await;
+            return Some(Input::DesktopAction {
+                request,
+                account,
+                result,
+            });
+        }
         Effect::SearchMessages {
             request,
             account,

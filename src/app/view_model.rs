@@ -9,6 +9,8 @@ pub enum Focus {
 }
 #[derive(Clone, Debug)]
 pub enum Overlay {
+    MessageActions(Box<MessageMenu>),
+    MessageLinks(Box<MessageLinks>),
     MessageSearch(Box<super::search::MessageSearch>),
     Search {
         editor: Editor,
@@ -19,6 +21,18 @@ pub enum Overlay {
     Resend {
         message: Box<MessageRecord>,
     },
+}
+#[derive(Clone, Debug)]
+pub struct MessageMenu {
+    pub message: MessageRecord,
+    pub selected: usize,
+}
+#[derive(Clone, Debug)]
+pub struct MessageLinks {
+    pub message: MessageRecord,
+    pub links: Vec<String>,
+    pub selected: usize,
+    pub return_to_menu: Option<usize>,
 }
 #[derive(Clone, Debug)]
 pub struct TimelineViewport {

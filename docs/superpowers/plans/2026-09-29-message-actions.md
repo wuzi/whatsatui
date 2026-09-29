@@ -57,11 +57,11 @@
 
 **Interfaces:** Boxed message snapshot overlays with selected entry and optional menu return; `Effect::DesktopAction { request, message, action }`; `Input::DesktopAction { request, account, result }`; one pending desktop request in App. Reuse Task 2 helpers and native adapter; keep existing Reply/Resend actions.
 
-- [ ] **Step 1:** Write reducer/render tests for Enter menu, y copy, o picker without opening, navigation/cancel preserving draft/focus, applicable actions, configured hints at 40x12/120x40, one in-flight action, stale message invalidation, stale account completion, and composer typing. Add PTY navigation through menu/link picker and copy/open using fake desktop executables.
-- [ ] **Step 2:** Run message_actions_flow; expect missing action behavior to fail.
-- [ ] **Step 3:** Implement menu/picker, configured shortcuts/help, request/result flow, stale validation, and runtime wiring. Add demo formatting and example.org links. Document syntax, clipboard helpers, limits, and controls.
-- [ ] **Step 4:** Run fmt check, Clippy all-targets with `-D warnings`, all-target tests, and optimized build under the resource limits. Expect all green; inspect synthetic PTY restoration.
-- [ ] **Step 5:** Commit `feat: add message actions and link picker`.
+- [x] **Step 1:** Write reducer/render tests for Enter menu, y copy, o picker without opening, navigation/cancel preserving draft/focus, applicable actions, configured hints at 40x12/120x40, one in-flight action, stale message invalidation, stale account completion, and composer typing. Add PTY navigation through menu/link picker and copy/open using fake desktop executables.
+- [x] **Step 2:** Run message_actions_flow; expect missing action behavior to fail.
+- [x] **Step 3:** Implement menu/picker, configured shortcuts/help, request/result flow, stale validation, and runtime wiring. Add demo formatting and example.org links. Document syntax, clipboard helpers, limits, and controls.
+- [x] **Step 4:** Run fmt check, Clippy all-targets with `-D warnings`, all-target tests, and optimized build under the resource limits. Expect all green; inspect synthetic PTY restoration.
+- [x] **Step 5:** Commit `feat: add message actions and link picker`.
 
 ## Completion
 

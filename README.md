@@ -32,6 +32,8 @@ whatsapp-tui
 - Direct and existing group text chats; fuzzy switching by name or known phone/identifier, with an unread filter.
 - Search cached message text and media captions in a conversation, then jump to a match in history.
 - Unicode composition, multiline paste, quoted replies, and persistent per-chat drafts.
+- Styled message text and captions: emphasis, code, quotes, and lists.
+- A message action menu, original-text copying, and an explicit web-link picker.
 - Local history, unread counts, delivery states, and known group receipt counts.
 - Durable outgoing attempts before transmission, with explicit confirmation for resending uncertain attempts.
 - Phone-number/LID reconciliation, edits, deletion/expiry placeholders, and bounded message pages.
@@ -53,6 +55,9 @@ Media appears as a placeholder with its caption when available. Media transfer, 
 | u in Chats, Ctrl-U in switcher | Open unread chats / toggle All and Unread |
 | Ctrl-F | Find messages in the current conversation |
 | Enter in message finder | Search, then open the selected match |
+| Enter in Messages | Show the selected message's actions |
+| y in Messages / link picker | Copy original text / selected URL |
+| o in Messages | Choose a link to open in your browser |
 | r in Messages | Quote the selected message |
 | R in Messages | Confirm a resend of a failed/unconfirmed attempt |
 | Alt-R in Composer | Remove the quote, keep your text |
@@ -80,7 +85,7 @@ See [usage and recovery](docs/usage.md), [design](docs/superpowers/specs/2026-09
 
 ## Next iterations
 
-The [navigation plan](docs/superpowers/plans/2026-09-29-navigation.md) applies ideas from [Concord's fuzzy switcher, search, and unread inbox](https://github.com/chojs23/concord#features) to this app's pane controls. Next priorities are richer WhatsApp text formatting, a discoverable message action menu with clipboard/link support, then media previews and attachments. Real-account pairing, restoration, and messaging acceptance remains necessary before relying on the client daily.
+The [navigation plan](docs/superpowers/plans/2026-09-29-navigation.md) applies ideas from [Concord's fuzzy switcher, search, and unread inbox](https://github.com/chojs23/concord#features) to this app's pane controls. The [message reading and actions plan](docs/superpowers/plans/2026-09-29-message-actions.md) adds formatting, clipboard support, and a link picker. Next are media previews and attachments. Real-account pairing, restoration, and messaging acceptance remains necessary before relying on the client daily.
 
 ## Development
 

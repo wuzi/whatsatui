@@ -8,6 +8,28 @@ pub enum DesktopAction {
     OpenLink(String),
     CopyLink(String),
 }
+pub fn available(message: &MessageRecord, now_ms: i64) -> Vec<crate::config::bindings::ActionId> {
+    use crate::{app::model::SendState, config::bindings::ActionId as A};
+    let Some(text) = text(message, now_ms) else {
+        return vec![];
+    };
+    let mut actions = vec![A::CopyText];
+    if !web_links(text).is_empty() {
+        actions.push(A::OpenLinks);
+    }
+    if matches!(message.body, MessageBody::Text(_)) {
+        actions.push(A::Reply);
+        if message.key.from_me
+            && matches!(
+                message.send_state,
+                Some(SendState::Failed | SendState::Unconfirmed)
+            )
+        {
+            actions.push(A::Resend);
+        }
+    }
+    actions
+}
 pub fn text(message: &MessageRecord, now_ms: i64) -> Option<&str> {
     if message.expires_at_ms.is_some_and(|at| at <= now_ms) {
         return None;
