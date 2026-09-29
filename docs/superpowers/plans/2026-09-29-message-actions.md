@@ -33,11 +33,11 @@
 
 **Interfaces:** Consume raw text and existing theme styles; produce `rich_text::lines(source: &str, width: usize, accent: Style, muted: Style) -> Vec<Line<'static>>` used by timeline body/caption rendering and its existing viewport calculation.
 
-- [ ] **Step 1:** Write buffer-level tests: balanced nested styles remove delimiters and apply bold/italic/strike; code preserves literal markers; unmatched/intraword markers remain; quote/bullet/numbered content is readable; CJK/emoji wrapping preserves text and styles; captions format while source stays unchanged; terminal controls remain sanitized; long formatted messages remain scrollable.
-- [ ] **Step 2:** Run `cargo test --locked -j 2 --test rich_text -- --test-threads=2`; expect new formatting assertions to fail on plain rendering.
-- [ ] **Step 3:** Implement a bounded, nonrecursive delimiter pass with literal fallback and style-preserving grapheme wrapping. Integrate both text and captions without touching storage or composer text.
-- [ ] **Step 4:** Run rich_text, rendering, and interaction targets; expect all pass.
-- [ ] **Step 5:** Commit `feat: render WhatsApp message formatting`.
+- [x] **Step 1:** Write buffer-level tests: balanced nested styles remove delimiters and apply bold/italic/strike; code preserves literal markers; unmatched/intraword markers remain; quote/bullet/numbered content is readable; CJK/emoji wrapping preserves text and styles; captions format while source stays unchanged; terminal controls remain sanitized; long formatted messages remain scrollable.
+- [x] **Step 2:** Run `cargo test --locked -j 2 --test rich_text -- --test-threads=2`; expect new formatting assertions to fail on plain rendering.
+- [x] **Step 3:** Implement a bounded, nonrecursive delimiter pass with literal fallback and style-preserving grapheme wrapping. Integrate both text and captions without touching storage or composer text.
+- [x] **Step 4:** Run rich_text, rendering, and interaction targets; expect all pass.
+- [x] **Step 5:** Commit `feat: render WhatsApp message formatting`.
 
 ### Task 2: Validated desktop actions
 

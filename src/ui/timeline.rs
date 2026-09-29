@@ -141,20 +141,31 @@ fn message_rows(
         }
     }
     let body = match &message.body {
-        MessageBody::Text(t) => safe_text(t),
-        MessageBody::Unsupported { kind, caption } => format!(
-            "[{}]{}",
-            single(kind),
-            caption
-                .as_ref()
-                .map(|c| format!("\n{}", safe_text(c)))
-                .unwrap_or_default()
-        ),
-        MessageBody::Deleted => "[Message deleted]".into(),
-        MessageBody::Expired => "[Message expired]".into(),
+        MessageBody::Text(t) => Some(t.as_str()),
+        MessageBody::Unsupported { kind, caption } => {
+            lines.extend(
+                wrap(&format!("[{}]", single(kind)), width)
+                    .into_iter()
+                    .map(Line::from),
+            );
+            caption.as_deref()
+        }
+        MessageBody::Deleted => {
+            lines.push(Line::from("[Message deleted]"));
+            None
+        }
+        MessageBody::Expired => {
+            lines.push(Line::from("[Message expired]"));
+            None
+        }
     };
-    for line in wrap(&body, width) {
-        lines.push(Line::from(line));
+    if let Some(body) = body {
+        lines.extend(rich_text::lines(
+            body,
+            width,
+            style(config, view, ThemeRole::Accent),
+            style(config, view, ThemeRole::Inactive),
+        ));
     }
     lines.push(Line::from(""));
     lines

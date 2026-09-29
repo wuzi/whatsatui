@@ -2,6 +2,7 @@ mod chat_list;
 mod composer;
 pub mod layout;
 mod overlays;
+mod rich_text;
 mod search;
 mod timeline;
 use crate::{
