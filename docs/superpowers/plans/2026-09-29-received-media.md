@@ -66,4 +66,6 @@
 ## Completion
 
 - [x] Independent final review; reproduce/fix material findings and record decisions.
-- [ ] Verify and merge locally, preserve evidence, remove the feature worktree/branch, and deliver the binary and completed plan.
+- [x] Verify and merge locally, preserve evidence, remove the feature worktree/branch, and deliver the binary and completed plan.
+
+Delivery: merged locally into main; 160 tests pass on the merged checkout. Formatting, Clippy with warnings denied, the optimized build, and the offline release demo passed. Two independent review findings were reproduced and fixed. Test/review evidence is preserved under `.superpowers/sdd/2026-09-29-received-media/`. The feature worktree and branch were removed; nothing was pushed. Live acceptance remains recorded as not run in `docs/backend-validation.md`.
