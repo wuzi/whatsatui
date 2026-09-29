@@ -138,7 +138,8 @@ pub async fn prune(store: Store) -> Result<(), String> {
             .await
             .map_err(|e| e.to_string())?;
         let valid = current.is_some_and(|m| m.key == manifest.key && !m.expires_at_ms.is_some_and(|at| at <= chrono::Utc::now().timestamp_millis())
-            && matches!(&m.body, MessageBody::Media(attachment) if cache::token(&m.key, attachment) == id));
+            && matches!(&m.body, MessageBody::Media(attachment) if cache::token(&m.key, attachment) == id
+                && std::fs::symlink_metadata(cache.path(&id, attachment)).is_ok_and(|meta| meta.is_file() && meta.len() == attachment.size)));
         if !valid {
             cache.remove(&id)?;
         }

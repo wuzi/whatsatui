@@ -238,7 +238,7 @@ pub(super) fn apply(
                         if !matches!(m.body, MessageBody::Deleted | MessageBody::Expired)
                             && m.edited_at_ms.unwrap_or(0) < edited_at_ms
                         {
-                            m.body = MessageBody::Text(text);
+                            edit_body(&mut m.body, text);
                             m.edited_at_ms = Some(edited_at_ms);
                         }
 
@@ -283,7 +283,7 @@ pub(super) fn apply(
                         if !matches!(m.body, MessageBody::Deleted | MessageBody::Expired)
                             && m.edited_at_ms.unwrap_or(0) < edited_at_ms
                         {
-                            m.body = MessageBody::Text(text);
+                            edit_body(&mut m.body, text);
                             m.edited_at_ms = Some(edited_at_ms);
                             put(c, &m, false)?;
                         }
@@ -359,6 +359,14 @@ edited_at_ms:at,..}
             chats: chats.into_iter().collect(),
         })
     })
+}
+
+fn edit_body(body: &mut MessageBody, text: String) {
+    match body {
+        MessageBody::Media(attachment) => attachment.caption = Some(text),
+        MessageBody::Unsupported { caption, .. } => *caption = Some(text),
+        _ => *body = MessageBody::Text(text),
+    }
 }
 
 pub(super) fn stage(

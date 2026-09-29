@@ -147,10 +147,7 @@ pub(super) fn normalize(
             return MessageChange::Delete { key: target_key };
         }
         if protocol.r#type == Some(wa::message::protocol_message::Type::MessageEdit)
-            && let Some(text) = protocol
-                .edited_message
-                .as_option()
-                .and_then(|m| m.text_content())
+            && let Some(text) = protocol.edited_message.as_option().and_then(edited_text)
         {
             return MessageChange::Edit {
                 key: target_key,
@@ -233,6 +230,20 @@ pub(super) fn normalize(
         expires_at_ms,
         send_state,
     })
+}
+fn edited_text(message: &wa::Message) -> Option<&str> {
+    let base = message.get_base_message();
+    base.text_content()
+        .or_else(|| {
+            base.image_message
+                .as_option()
+                .map(|m| m.caption.as_deref().unwrap_or(""))
+        })
+        .or_else(|| {
+            base.document_message
+                .as_option()
+                .map(|m| m.caption.as_deref().unwrap_or(""))
+        })
 }
 pub(super) fn history_message(
     account: &AccountId,

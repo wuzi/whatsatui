@@ -107,6 +107,7 @@ pub enum MessageChange {
     Upsert(MessageRecord),
     Edit {
         key: MessageKey,
+        /// Replacement message text, or the caption of an existing media body.
         text: String,
         edited_at_ms: i64,
     },

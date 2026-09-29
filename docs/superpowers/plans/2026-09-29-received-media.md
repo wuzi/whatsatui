@@ -65,5 +65,5 @@
 
 ## Completion
 
-- [ ] Independent final review; reproduce/fix material findings and record decisions.
+- [x] Independent final review; reproduce/fix material findings and record decisions.
 - [ ] Verify and merge locally, preserve evidence, remove the feature worktree/branch, and deliver the binary and completed plan.

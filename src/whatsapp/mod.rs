@@ -3,6 +3,8 @@ pub mod demo;
 mod durability;
 pub mod encode;
 mod media;
+#[cfg(test)]
+mod media_edit_tests;
 mod normalize;
 
 #[derive(Debug, thiserror::Error)]

@@ -393,4 +393,21 @@ async fn cancellation_and_attachment_count_limit_leave_no_partial_files() {
     );
     assert_eq!(source.calls.load(Ordering::SeqCst), 128);
     assert_eq!(payloads(dir.path()).len(), 128);
+    // The documented manual cleanup must also release the manifest's slot.
+    std::fs::remove_file(payloads(dir.path()).pop().unwrap()).unwrap();
+    media::prune(store.clone()).await.unwrap();
+    act(&m, MediaAction::Download, &store, &source, &viewer)
+        .await
+        .unwrap();
+    assert_eq!(source.calls.load(Ordering::SeqCst), 129);
+    assert_eq!(payloads(dir.path()).len(), 128);
+    // Starting a new download reconciles missing payloads even before the next maintenance tick.
+    std::fs::remove_file(payloads(dir.path()).pop().unwrap()).unwrap();
+    let next = record("after-manual-cleanup");
+    store.apply_batch(batch(vec![next.clone()])).await.unwrap();
+    act(&next, MediaAction::Download, &store, &source, &viewer)
+        .await
+        .unwrap();
+    assert_eq!(source.calls.load(Ordering::SeqCst), 130);
+    assert_eq!(payloads(dir.path()).len(), 128);
 }

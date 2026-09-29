@@ -97,11 +97,26 @@ impl Cache {
     }
     pub fn remove_orphans(&self) -> Result<(), String> {
         let tokens = self.tokens()?;
-        for entry in fs::read_dir(&self.root).map_err(io_error)? {
-            let path = entry.map_err(io_error)?.path();
+        let entries = fs::read_dir(&self.root)
+            .map_err(io_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(io_error)?;
+        let mut payloads = std::collections::HashSet::new();
+        for entry in &entries {
+            let path = entry.path();
+            if path.extension().is_some_and(|e| e != "json")
+                && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+                && managed_token(stem)
+                && entry.file_type().map_err(io_error)?.is_file()
+            {
+                payloads.insert(stem.to_owned());
+            }
+        }
+        for entry in entries {
+            let path = entry.path();
             if let Some(stem) = path.file_stem().and_then(|s| s.to_str())
                 && managed_token(stem)
-                && !tokens.iter().any(|s| s == stem)
+                && (!tokens.iter().any(|s| s == stem) || !payloads.contains(stem))
             {
                 fs::remove_file(path).map_err(io_error)?;
             }
