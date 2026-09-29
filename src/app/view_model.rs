@@ -9,9 +9,15 @@ pub enum Focus {
 }
 #[derive(Clone, Debug)]
 pub enum Overlay {
-    Search { editor: Editor, selected: usize },
+    Search {
+        editor: Editor,
+        selected: usize,
+        unread_only: bool,
+    },
     Help,
-    Resend { message: Box<MessageRecord> },
+    Resend {
+        message: Box<MessageRecord>,
+    },
 }
 #[derive(Clone, Debug)]
 pub struct TimelineViewport {

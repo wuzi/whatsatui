@@ -1,5 +1,5 @@
 use super::*;
-use ratatui::widgets::{Clear, List, ListItem, ListState};
+use ratatui::widgets::Clear;
 pub(super) fn centered(area: Rect, width: u16, height: u16) -> Rect {
     let w = width.min(area.width);
     let h = height.min(area.height);
@@ -94,45 +94,7 @@ fn key(config: &Config, context: Context, action: crate::config::bindings::Actio
 }
 pub(super) fn render(frame: &mut Frame, area: Rect, view: &ViewModel, config: &Config) {
     match &view.overlay {
-        Some(Overlay::Search { editor, selected }) => {
-            let r = centered(area, 68, 18);
-            frame.render_widget(Clear, r);
-            let border = block(" Find a chat or contact ".into(), true, view, config);
-            let inner = border.inner(r);
-            frame.render_widget(border, r);
-            frame.render_widget(
-                Paragraph::new(format!("/ {}", single(editor.text()))).style(style(
-                    config,
-                    view,
-                    ThemeRole::Accent,
-                )),
-                Rect::new(inner.x, inner.y, inner.width, 1),
-            );
-            let items = view
-                .search_results
-                .iter()
-                .map(|c| {
-                    ListItem::new(format!(
-                        "{}  {}",
-                        single(&c.name),
-                        c.phone.as_deref().map(single).unwrap_or_default()
-                    ))
-                })
-                .collect::<Vec<_>>();
-            let mut state = ListState::default().with_selected(Some(*selected));
-            frame.render_stateful_widget(
-                List::new(items)
-                    .highlight_symbol("> ")
-                    .highlight_style(style(config, view, ThemeRole::Accent)),
-                Rect::new(
-                    inner.x,
-                    inner.y + 2,
-                    inner.width,
-                    inner.height.saturating_sub(2),
-                ),
-                &mut state,
-            );
-        }
+        Some(Overlay::Search { .. }) => search::chats(frame, area, view, config),
         Some(Overlay::Help) => {
             let r = centered(area, 72, area.height.saturating_sub(2));
             frame.render_widget(Clear, r);

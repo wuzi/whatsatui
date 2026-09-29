@@ -178,6 +178,7 @@ impl App {
     pub fn view(&self) -> ViewModel {
         let mut view = self.view.clone();
         view.cursor = self.editor.cursor();
+        view.chats = self.chat_summaries();
         view.search_results = self.search_results();
         view
     }
@@ -315,22 +316,30 @@ impl App {
         self.editor = Editor::new(self.view.draft.text.clone());
         self.load_chat(None, effects);
     }
-    fn search_results(&self) -> Vec<ChatSummary> {
-        let query = if let Some(Overlay::Search { editor, .. }) = &self.view.overlay {
-            editor.text().to_lowercase()
-        } else {
-            return vec![];
-        };
+    fn chat_summaries(&self) -> Vec<ChatSummary> {
         self.view
             .chats
             .iter()
-            .filter(|c| {
-                c.name.to_lowercase().contains(&query)
-                    || c.phone.as_ref().is_some_and(|p| p.contains(&query))
-                    || c.chat.0.to_lowercase().contains(&query)
-            })
             .cloned()
+            .map(|mut chat| {
+                if let Some(draft) = self.drafts.get(&chat.chat) {
+                    chat.has_draft = !draft.data.text.is_empty() || draft.data.reply.is_some();
+                }
+                chat
+            })
             .collect()
+    }
+    fn search_results(&self) -> Vec<ChatSummary> {
+        if let Some(Overlay::Search {
+            editor,
+            unread_only,
+            ..
+        }) = &self.view.overlay
+        {
+            super::search::rank_chats(&self.chat_summaries(), editor.text(), *unread_only)
+        } else {
+            vec![]
+        }
     }
     fn selected(&self) -> Option<&MessageRecord> {
         self.view
@@ -458,11 +467,23 @@ impl App {
                     );
                 }
             }
-            A::Search => {
+            A::Search | A::Unread => {
                 self.view.overlay = Some(Overlay::Search {
                     editor: Editor::default(),
                     selected: 0,
+                    unread_only: action == A::Unread,
                 });
+            }
+            A::ToggleUnread => {
+                if let Some(Overlay::Search {
+                    unread_only,
+                    selected,
+                    ..
+                }) = &mut self.view.overlay
+                {
+                    *unread_only = !*unread_only;
+                    *selected = 0;
+                }
             }
             A::Help => {
                 self.view.overlay = Some(Overlay::Help);
@@ -710,8 +731,11 @@ impl App {
             _ => None,
         };
         if let Some(edit) = edit {
-            if let Some(Overlay::Search { editor, selected }) = &mut self.view.overlay {
-                if editor.apply(edit) {
+            if let Some(Overlay::Search {
+                editor, selected, ..
+            }) = &mut self.view.overlay
+            {
+                if super::search::edit_query(editor, edit) {
                     *selected = 0;
                 }
             } else if self.view.overlay.is_none()
@@ -842,7 +866,21 @@ impl App {
                 self.list_request = None;
                 match result {
                     Ok(chats) => {
+                        let highlighted =
+                            if let Some(Overlay::Search { selected, .. }) = &self.view.overlay {
+                                self.search_results().get(*selected).map(|c| c.chat.clone())
+                            } else {
+                                None
+                            };
                         self.view.chats = chats;
+                        let results = self.search_results();
+                        if let Some(Overlay::Search { selected, .. }) = &mut self.view.overlay {
+                            *selected = highlighted
+                                .and_then(|id| results.iter().position(|c| c.chat == id))
+                                .unwrap_or_else(|| {
+                                    (*selected).min(results.len().saturating_sub(1))
+                                });
+                        }
                         if self.view.chat.is_none()
                             && let Some(first) = self.view.chats.first()
                         {

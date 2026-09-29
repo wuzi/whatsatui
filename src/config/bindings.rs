@@ -30,6 +30,8 @@ pub enum ActionId {
     FocusNext,
     FocusPrevious,
     Search,
+    Unread,
+    ToggleUnread,
     Help,
     Quit,
     Next,
@@ -53,6 +55,8 @@ impl ActionId {
             Self::FocusNext => "next pane",
             Self::FocusPrevious => "previous pane",
             Self::Search => "search",
+            Self::Unread => "unread chats",
+            Self::ToggleUnread => "all/unread",
             Self::Help => "help",
             Self::Quit => "quit",
             Self::Next => "down",
@@ -99,6 +103,7 @@ impl Default for Bindings {
             }
         }
         b.add(C::Chats, A::Open, "enter");
+        b.add(C::Chats, A::Unread, "u");
         for (a, k) in [
             (A::Back, "esc"),
             (A::Reply, "r"),
@@ -126,6 +131,7 @@ impl Default for Bindings {
             b.add(C::Search, a, k);
         }
         b.add(C::Help, A::Back, "esc");
+        b.add(C::Search, A::ToggleUnread, "ctrl-u");
         b.add(C::Resend, A::Back, "esc");
         b.add(C::Resend, A::Confirm, "enter");
         b
@@ -237,11 +243,25 @@ fn allowed(c: Context, a: ActionId) -> bool {
         C::Global => a == A::Quit,
         C::Chats => matches!(
             a,
-            A::FocusNext | A::FocusPrevious | A::Search | A::Help | A::Next | A::Previous | A::Open
+            A::FocusNext
+                | A::FocusPrevious
+                | A::Search
+                | A::Unread
+                | A::Help
+                | A::Next
+                | A::Previous
+                | A::Open
         ),
         C::Messages => !matches!(
             a,
-            A::Quit | A::Open | A::Send | A::Newline | A::RemoveReply | A::Confirm
+            A::Quit
+                | A::Open
+                | A::Send
+                | A::Newline
+                | A::RemoveReply
+                | A::Confirm
+                | A::Unread
+                | A::ToggleUnread
         ),
         C::Composer => matches!(
             a,
@@ -254,7 +274,10 @@ fn allowed(c: Context, a: ActionId) -> bool {
                 | A::RemoveReply
                 | A::Back
         ),
-        C::Search => matches!(a, A::Back | A::Open | A::Next | A::Previous),
+        C::Search => matches!(
+            a,
+            A::Back | A::Open | A::Next | A::Previous | A::ToggleUnread
+        ),
         C::Help => a == A::Back,
         C::Resend => matches!(a, A::Back | A::Confirm),
     }

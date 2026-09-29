@@ -2,6 +2,7 @@ mod chat_list;
 mod composer;
 pub mod layout;
 mod overlays;
+mod search;
 mod timeline;
 use crate::{
     app::{Focus, Overlay, ViewModel},
@@ -145,9 +146,14 @@ pub fn render(frame: &mut Frame, view: &ViewModel, config: &Config) {
         },
     };
     let mut actions = std::collections::BTreeSet::new();
-    let hints = config
-        .bindings
-        .help(context)
+    let mut bindings = config.bindings.help(context);
+    // Keep escape hatches visible even when a custom binding was appended last.
+    bindings.sort_by_key(|(_, action)| match action {
+        crate::config::bindings::ActionId::Quit => 0,
+        crate::config::bindings::ActionId::Help => 1,
+        _ => 2,
+    });
+    let hints = bindings
         .into_iter()
         .filter(|(_, a)| actions.insert(*a))
         .map(|(key, a)| format!("{key} {}", a.label()))

@@ -1,6 +1,7 @@
 pub mod editor;
 pub mod input;
 pub mod model;
+pub mod search;
 pub mod update;
 pub mod view_model;
 pub use input::Input;
