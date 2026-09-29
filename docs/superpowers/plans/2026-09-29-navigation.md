@@ -74,4 +74,4 @@
 ## Completion
 
 - [x] Review the complete branch once with a fresh reviewer, address material findings with failing regressions, and re-run relevant checks. The review reproduced hidden matching text after wide characters in narrow previews; a real-store/runtime/render regression now passes for CJK text and expanded tabs at 40x12.
-- [ ] Provide the implementation, plan, verification evidence, runnable demo command, and the recommended next iteration. Preserve the established local integration workflow; do not push or publish.
+- [x] Provide the implementation, plan, verification evidence, runnable demo command, and the recommended next iteration. Merged locally into `main`; the merged all-target suite passed 111 cases. Formatting, Clippy with warnings denied, the optimized build, and synthetic PTY navigation checks passed. See `docs/backend-validation.md` for the validation boundary. Run `./target/release/whatsapp-tui --demo` from the repository root. Next: richer text formatting and a message action menu with clipboard/link support, then media previews and attachments. No push or publication.
