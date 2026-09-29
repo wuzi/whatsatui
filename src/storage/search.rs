@@ -33,7 +33,7 @@ pub(super) fn messages(
     let mut messages: Vec<MessageRecord> = rows(connection,
         "SELECT data FROM messages WHERE account=? AND chat=?
          AND (json_extract(data,'$.expires_at_ms') IS NULL OR json_extract(data,'$.expires_at_ms') > CAST(? AS INTEGER))
-         AND instr(wt_lower(coalesce(json_extract(data,'$.body.Text'), json_extract(data,'$.body.Unsupported.caption'), '')), ?) > 0
+         AND instr(wt_lower(coalesce(json_extract(data,'$.body.Text'), json_extract(data,'$.body.Unsupported.caption'), json_extract(data,'$.body.Media.caption'), '')), ?) > 0
          ORDER BY created_at_ms DESC,key DESC LIMIT 51",
         &[&account.0, &chat, &now_ms.to_string(), &query])?;
     let has_more = messages.len() > 50;
@@ -43,6 +43,7 @@ pub(super) fn messages(
         .filter_map(|message| {
             let text = match message.body {
                 MessageBody::Text(text) => text,
+                MessageBody::Media(attachment) => attachment.caption?,
                 MessageBody::Unsupported {
                     caption: Some(text),
                     ..

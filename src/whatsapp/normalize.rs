@@ -195,6 +195,8 @@ pub(super) fn normalize(
     });
     let body = if let Some(text) = message.text_content() {
         MessageBody::Text(text.into())
+    } else if let Some(attachment) = super::media::attachment(payload) {
+        MessageBody::Media(attachment)
     } else {
         let kind = if message.image_message.is_set() {
             "image"
@@ -336,5 +338,119 @@ pub(super) mod tests {
         );
         assert_eq!(m.quote.as_ref().unwrap().preview, "previous");
         assert_eq!(m.expires_at_ms, Some(1_790_640_060_000));
+    }
+
+    #[test]
+    fn retains_complete_media_references_from_live_and_history() {
+        let mut inbound = fixture();
+        let image = Arc::make_mut(&mut inbound.message)
+            .image_message
+            .as_option_mut()
+            .unwrap();
+        image.direct_path = Some("/v/t62.7118-24/example?hash=test".into());
+        image.media_key = Some(vec![1; 32]);
+        image.file_sha256 = Some(vec![2; 32]);
+        image.file_enc_sha256 = Some(vec![3; 32]);
+        image.file_length = Some(8);
+        image.mimetype = Some("image/jpeg".into());
+        let batch = message_batch("test".into(), MessageSource::Live, &[inbound.clone()]);
+        let MessageChange::Upsert(m) = &batch.changes[0] else {
+            panic!("missing")
+        };
+        let body = serde_json::to_value(&m.body).unwrap();
+        assert_eq!(body["Media"]["size"], 8);
+        assert_eq!(body["Media"]["caption"], "picture caption");
+        let web = wa::WebMessageInfo {
+            key: MessageField::some(wa::MessageKey {
+                id: Some("history-image".into()),
+                from_me: Some(false),
+                ..Default::default()
+            }),
+            message: MessageField::some((*inbound.message).clone()),
+            message_timestamp: Some(1_790_640_000),
+            ..Default::default()
+        };
+        let Some(MessageChange::Upsert(history)) =
+            history_message(&"test".into(), &"chat".into(), &web)
+        else {
+            panic!("missing history")
+        };
+        assert_eq!(history.body, m.body);
+    }
+
+    #[test]
+    fn incomplete_and_view_once_media_remain_placeholders() {
+        let mut payload = wa::Message {
+            document_message: MessageField::some(wa::message::DocumentMessage {
+                direct_path: Some("/v/document".into()),
+                media_key: Some(vec![1; 32]),
+                file_sha256: Some(vec![2; 32]),
+                file_enc_sha256: Some(vec![3; 32]),
+                file_length: Some(12),
+                file_name: Some("../invoice.pdf".into()),
+                mimetype: Some("application/pdf".into()),
+                caption: Some("invoice".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let key = MessageKey {
+            account: "test".into(),
+            chat: "chat".into(),
+            sender: "alice".into(),
+            id: "doc".into(),
+            from_me: false,
+        };
+        let MessageChange::Upsert(m) = normalize(key.clone(), &payload, 0, None) else {
+            panic!("missing")
+        };
+        assert_eq!(
+            serde_json::to_value(m.body).unwrap()["Media"]["filename"],
+            "../invoice.pdf"
+        );
+        for bad in [
+            "https://evil.invalid/file",
+            "//evil.invalid/file",
+            "/v/file\n",
+            "/v/../file",
+        ] {
+            payload
+                .document_message
+                .as_option_mut()
+                .unwrap()
+                .direct_path = Some(bad.into());
+            let MessageChange::Upsert(m) = normalize(key.clone(), &payload, 0, None) else {
+                panic!("missing")
+            };
+            assert!(matches!(m.body, MessageBody::Unsupported { .. }));
+        }
+        payload
+            .document_message
+            .as_option_mut()
+            .unwrap()
+            .direct_path = Some("/v/document".into());
+        payload.document_message.as_option_mut().unwrap().media_key = Some(vec![1; 31]);
+        let MessageChange::Upsert(m) = normalize(key.clone(), &payload, 0, None) else {
+            panic!("missing")
+        };
+        assert!(matches!(m.body, MessageBody::Unsupported { .. }));
+        payload.document_message.as_option_mut().unwrap().media_key = Some(vec![1; 32]);
+        let once = wa::Message {
+            ephemeral_message: MessageField::some(wa::message::FutureProofMessage {
+                message: MessageField::some(wa::Message {
+                    view_once_message_v2: MessageField::some(wa::message::FutureProofMessage {
+                        message: MessageField::some(payload),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let MessageChange::Upsert(m) = normalize(key, &once, 0, None) else {
+            panic!("missing")
+        };
+        assert!(matches!(m.body, MessageBody::Unsupported { .. }));
     }
 }

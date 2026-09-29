@@ -561,6 +561,15 @@ fn upsert_chats_in_transaction(
 pub(super) fn preview(body: &MessageBody) -> String {
     let text = match body {
         MessageBody::Text(t) => t.clone(),
+        MessageBody::Media(attachment) => format!(
+            "[{}] {}",
+            attachment.kind.label(),
+            attachment
+                .caption
+                .as_deref()
+                .or(attachment.filename.as_deref())
+                .unwrap_or("")
+        ),
         MessageBody::Unsupported { kind, caption } => {
             format!("[{kind}] {}", caption.as_deref().unwrap_or(""))
         }

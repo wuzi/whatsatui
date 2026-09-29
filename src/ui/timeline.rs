@@ -142,6 +142,14 @@ fn message_rows(
     }
     let body = match &message.body {
         MessageBody::Text(t) => Some(t.as_str()),
+        MessageBody::Media(attachment) => {
+            lines.extend(
+                wrap(&single(&attachment.label()), width)
+                    .into_iter()
+                    .map(Line::from),
+            );
+            attachment.caption.as_deref()
+        }
         MessageBody::Unsupported { kind, caption } => {
             lines.extend(
                 wrap(&format!("[{}]", single(kind)), width)

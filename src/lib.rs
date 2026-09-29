@@ -1,6 +1,7 @@
 pub mod app;
 pub mod config;
 pub mod desktop;
+pub mod media;
 pub mod message_actions;
 mod message_text;
 pub mod runtime;

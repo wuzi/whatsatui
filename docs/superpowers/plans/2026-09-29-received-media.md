@@ -33,11 +33,11 @@
 
 **Interfaces:** `Attachment` contains `kind: AttachmentKind`, `filename/mime/caption: Option<String>`, `size: u64`, `direct_path: String`, and `[u8; 32]` key/plain/encrypted hashes. `MessageBody::Media(Attachment)`. `whatsapp::media::attachment(&wa::Message) -> Option<Attachment>` rejects view-once/incomplete references. `Attachment::validate() -> Result<(), String>` owns bounded metadata/reference checks; `Attachment::extension() -> Option<&'static str>` owns supported viewer suffixes.
 
-- [ ] Write failing tests for image/document live/history capture, nested view-once rejection, incomplete keys/hashes/paths, legacy JSON, and original caption copying/search/style.
-- [ ] Run normalization and targeted store/search/render targets; confirm meaningful failures before implementation.
-- [ ] Implement the additive body model, normalization, and all exhaustive presentation/search matches. Keep incomplete references as existing placeholders and redact sensitive reference fields from Debug.
-- [ ] Run focused checks; expect all existing and new cases to pass.
-- [ ] Commit `feat: preserve received attachment metadata`.
+- [x] Write failing tests for image/document live/history capture, nested view-once rejection, incomplete keys/hashes/paths, legacy JSON, and original caption copying/search/style.
+- [x] Run normalization and targeted store/search/render targets; confirm meaningful failures before implementation.
+- [x] Implement the additive body model, normalization, and all exhaustive presentation/search matches. Keep incomplete references as existing placeholders and redact sensitive reference fields from Debug.
+- [x] Run focused checks; expect all existing and new cases to pass.
+- [x] Commit `feat: preserve received attachment metadata`.
 
 ### Task 2: Verified downloads and managed files
 

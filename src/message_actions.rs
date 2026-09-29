@@ -34,6 +34,7 @@ pub fn text(message: &MessageRecord, now_ms: i64) -> Option<&str> {
         return None;
     }
     match &message.body {
+        MessageBody::Media(attachment) => attachment.caption.as_deref().filter(|s| !s.is_empty()),
         MessageBody::Text(text)
         | MessageBody::Unsupported {
             caption: Some(text),

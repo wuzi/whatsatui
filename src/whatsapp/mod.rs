@@ -2,6 +2,7 @@ mod bridge;
 pub mod demo;
 mod durability;
 pub mod encode;
+mod media;
 mod normalize;
 
 #[derive(Debug, thiserror::Error)]
