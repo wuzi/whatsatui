@@ -8,7 +8,7 @@
 
 **Tech Stack:** Rust 2024, stable Rust 1.98.0 for development, Ratatui, Crossterm, Tokio, `whatsapp-rust = "=0.7.0"`, Diesel/SQLite, Serde/TOML, Clap, `unicode-segmentation`, `unicode-width`, `qrcode`, and `thiserror`. Use `tempfile` and Tokio's test clock for tests. Resolve compatible stable releases for other dependencies in Task 1 and commit `Cargo.lock`.
 
-**Spec:** [Approved design](../specs/2026-09-29-whatsapp-tui-design.md). Read both documents before implementation. This plan awaits user review and an execution-method choice.
+**Spec:** [Approved design](../specs/2026-09-29-whatsapp-tui-design.md). Approved for Native execution by the user on 2026-09-29.
 
 ## Global Constraints
 
@@ -330,7 +330,7 @@ Then the user performs the spec's Linux acceptance workflow with the real accoun
 
 Recommended execution: **Native**, because these ten tasks share a small set of evolving adapter/store/application interfaces and are mostly sequential. One implementer can carry that context through the work, followed by an independent review of the completed branch. Subagent-driven execution remains available if the user prefers separate implementation and review gates for every task.
 
-The next action is user review of this plan and selection of Native or Subagent-driven execution. No implementation task has been started by writing this document.
+The user approved Native execution on 2026-09-29.
 
 ## Research references
 

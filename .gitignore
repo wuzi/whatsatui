@@ -1,0 +1,5 @@
+/target/
+/.worktrees/
+/.superpowers/
+*.sqlite3
+*.sqlite3-*
