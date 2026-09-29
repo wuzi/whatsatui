@@ -11,7 +11,7 @@ pub enum Focus {
 pub enum Overlay {
     Search { editor: Editor, selected: usize },
     Help,
-    Resend { message: MessageRecord },
+    Resend { message: Box<MessageRecord> },
 }
 #[derive(Clone, Debug)]
 pub struct ViewModel {

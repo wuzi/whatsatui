@@ -38,7 +38,7 @@ use crate::{
     whatsapp::{BackendCommand, BackendEvent},
 };
 use futures_util::{Stream, StreamExt};
-use std::{collections::VecDeque, pin::Pin};
+use std::collections::VecDeque;
 use tokio::{
     sync::mpsc,
     task::JoinSet,
@@ -326,9 +326,11 @@ where
     let mut pending = VecDeque::new();
     let mut jobs = JoinSet::new();
     let mut closing = false;
+    let mut input_closed = false;
     let mut events_closed = false;
     let mut shutdown_done = false;
-    let mut shutdown: Option<Pin<Box<dyn Future<Output = Result<(), BackendError>> + Send>>> = None;
+    let mut shutdown: Option<futures_util::future::BoxFuture<'static, Result<(), BackendError>>> =
+        None;
     let mut shutdown_error = None;
     let mut tick = tokio::time::interval(Duration::from_millis(50));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -364,7 +366,7 @@ where
             return shutdown_error.map_or(Ok(()), |e| Err(AppError::Backend(e)));
         }
         let next = tokio::select! {
-            event=input.next(),if !closing&&pending.len()<48=>match event{Some(Ok(event))=>Some(Input::Terminal(event)),Some(Err(e))=>return Err(e.into()),None=>{pending.extend(app.request_shutdown());None}},
+            event=input.next(),if !closing&&!input_closed&&pending.len()<48=>match event{Some(Ok(event))=>Some(Input::Terminal(event)),Some(Err(e))=>return Err(e.into()),None=>{input_closed=true;pending.extend(app.request_shutdown());None}},
             event=events.recv(),if !events_closed&&pending.len()<48=>match event{Some(event)=>Some(Input::Backend(event)),None=>{events_closed=true;Some(Input::Backend(BackendEvent::Stopped))}},
             completion=jobs.join_next(),if !jobs.is_empty()=>match completion{Some(Ok(event))=>event,Some(Err(_))=>return Err(AppError::Backend(BackendError::Stopped)),None=>None},
             result=async{shutdown.as_mut().expect("shutdown future exists").await},if closing&&!shutdown_done=>{if let Err(e)=result{shutdown_error=Some(e);}shutdown_done=true;None},

@@ -4,6 +4,10 @@ Pinned dependency: `whatsapp-rust = 0.7.0`. Stable Rust 1.98.0, default backend 
 
 Automated adapter checks cover text/quote encoding, caller-assigned IDs, conservative send error classification, durability failure propagation, replay deduplication, bounded bridge backpressure, cancellation, group sender identity, captions, and supplied expiry metadata. These checks use synthetic data and local SQLite only.
 
+On 2026-09-29, local automated checks also exercised initial unread baselines/read watermarks, receipts and edits before content, authoritative PN/LID merging, stored and visible quote expiry, stale draft writes, concurrent edits during sends, and bounded backward/forward paging during arrivals. Linux PTY tests passed for demo Ctrl-Q cleanup, controlled panic cleanup, invalid config before raw mode, and shutdown with saturated queues. The manual demo exercise covered multiline Unicode paste and resizing 80×24 → 39×11 → 120×32. These establish local behavior, not compatibility with a live account.
+
+The implementation release gate passed: formatting, Clippy with warnings denied, 78 automated test cases across all targets (including the PTY child harness), and the optimized build. After a workstation restart, compilation was capped at two jobs and the complete gate rerun. Exit now waits for draft persistence; a failed write cancels quit. A read captured from an empty timeline cannot mark a later arrival read.
+
 Run the interactive probe yourself in a dedicated test directory:
 
 ```sh
@@ -19,6 +23,7 @@ Scan the displayed QR from WhatsApp → Linked devices. Type `chats` for cached 
 | Quoted reply, stable IDs, receipt events | Not run | Requires linked account |
 | Names, initial history, live/history deduplication | Not run | Requires linked account |
 | Network interruption, reconnect, uncertain send reconciliation | Not run | Requires linked account and user-operated network interruption |
+| Drafts in two real chats, arrival while scrolled, resize, restart | Not run | Local fixtures passed; the live-account workflow remains user-operated |
 
 No automated tests or CI jobs send messages to contacts. Live release acceptance remains outstanding until this table is updated with actual observed results.
 

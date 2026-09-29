@@ -121,6 +121,7 @@ pub struct App {
     page_cursor: Option<PageCursor>,
     pub(crate) foreground: Option<bool>,
     pub(crate) quitting: bool,
+    shutdown_emitted: bool,
 }
 impl App {
     pub fn new(config: Config) -> Self {
@@ -168,6 +169,7 @@ impl App {
             page_cursor: None,
             foreground: None,
             quitting: false,
+            shutdown_emitted: false,
         }
     }
     pub fn view(&self) -> ViewModel {
@@ -349,26 +351,28 @@ impl App {
                 self.view.at_bottom = next + 1 == self.view.messages.len() && !self.view.has_newer;
                 if self.view.at_bottom {
                     self.page_cursor = None;
-                } else if self.page_cursor.is_none() {
-                    if let Some(last) = self.view.messages.last() {
-                        self.page_cursor = Some(PageCursor {
-                            direction: PageDirection::AtOrBefore,
-                            created_at_ms: last.created_at_ms,
-                            key: last.key.clone(),
-                        });
-                    }
+                } else if self.page_cursor.is_none()
+                    && let Some(last) = self.view.messages.last()
+                {
+                    self.page_cursor = Some(PageCursor {
+                        direction: PageDirection::AtOrBefore,
+                        created_at_ms: last.created_at_ms,
+                        key: last.key.clone(),
+                    });
                 }
-                if delta < 0 && i == 0 && self.view.has_older {
-                    if let Some(m) = self.view.messages.first() {
-                        self.load_chat(
-                            Some(PageCursor {
-                                direction: PageDirection::Before,
-                                created_at_ms: m.created_at_ms,
-                                key: m.key.clone(),
-                            }),
-                            effects,
-                        );
-                    }
+                if delta < 0
+                    && i == 0
+                    && self.view.has_older
+                    && let Some(m) = self.view.messages.first()
+                {
+                    self.load_chat(
+                        Some(PageCursor {
+                            direction: PageDirection::Before,
+                            created_at_ms: m.created_at_ms,
+                            key: m.key.clone(),
+                        }),
+                        effects,
+                    );
                 }
             }
             Focus::Composer => {}
@@ -378,9 +382,7 @@ impl App {
         use ActionId as A;
         match action {
             A::Quit => {
-                self.quitting = true;
-                effects.extend(self.flush_drafts());
-                effects.push(Effect::Shutdown);
+                effects.extend(self.request_shutdown());
             }
             A::FocusNext | A::FocusPrevious => {
                 let next = match (self.view.focus, action == A::FocusNext) {
@@ -460,16 +462,16 @@ impl App {
                 }
             }
             A::Reply => {
-                if let Some(message) = self.selected().cloned() {
-                    if let MessageBody::Text(text) = &message.body {
-                        self.view.draft.reply = Some(Quote {
-                            key: message.key,
-                            preview: text.graphemes(true).take(160).collect(),
-                            availability: QuoteAvailability::Available,
-                        });
-                        self.remember();
-                        self.focus(Focus::Composer, effects);
-                    }
+                if let Some(message) = self.selected().cloned()
+                    && let MessageBody::Text(text) = &message.body
+                {
+                    self.view.draft.reply = Some(Quote {
+                        key: message.key,
+                        preview: text.graphemes(true).take(160).collect(),
+                        availability: QuoteAvailability::Available,
+                    });
+                    self.remember();
+                    self.focus(Focus::Composer, effects);
                 }
             }
             A::Resend => {
@@ -484,7 +486,9 @@ impl App {
                     })
                     .cloned()
                 {
-                    self.view.overlay = Some(Overlay::Resend { message });
+                    self.view.overlay = Some(Overlay::Resend {
+                        message: Box::new(message),
+                    });
                 }
             }
             A::Confirm => {
@@ -492,19 +496,19 @@ impl App {
                     self.view.notice = Some("Not sent: wait for the connection".into());
                     return;
                 }
-                if let Some(Overlay::Resend { message }) = self.view.overlay.take() {
-                    if let MessageBody::Text(text) = message.body {
-                        self.prepare(
-                            message.key.chat,
-                            Draft {
-                                text,
-                                reply: message.quote,
-                                revision: 0,
-                            },
-                            true,
-                            effects,
-                        );
-                    }
+                if let Some(Overlay::Resend { message }) = self.view.overlay.take()
+                    && let MessageBody::Text(text) = message.body
+                {
+                    self.prepare(
+                        message.key.chat,
+                        Draft {
+                            text,
+                            reply: message.quote,
+                            revision: 0,
+                        },
+                        true,
+                        effects,
+                    );
                 }
             }
             A::Send => {
@@ -586,6 +590,9 @@ impl App {
         }
     }
     fn terminal(&mut self, event: Event, effects: &mut Vec<Effect>) {
+        if self.quitting {
+            return;
+        }
         let edit = match event {
             Event::FocusLost => {
                 self.foreground = Some(false);
@@ -693,10 +700,8 @@ impl App {
                     && state != ConnectionState::Connected;
                 self.view.connection = state;
                 self.view.reason = reason;
-                if disconnected {
-                    if let Some(account) = self.view.account.clone() {
-                        effects.push(Effect::RecoverAccount(account));
-                    }
+                if disconnected && let Some(account) = self.view.account.clone() {
+                    effects.push(Effect::RecoverAccount(account));
                 }
                 if state == ConnectionState::Connected {
                     self.view.qr = None;
@@ -769,10 +774,10 @@ impl App {
                 match result {
                     Ok(chats) => {
                         self.view.chats = chats;
-                        if self.view.chat.is_none() {
-                            if let Some(first) = self.view.chats.first() {
-                                self.select_chat(first.chat.clone(), effects);
-                            }
+                        if self.view.chat.is_none()
+                            && let Some(first) = self.view.chats.first()
+                        {
+                            self.select_chat(first.chat.clone(), effects);
                         }
                     }
                     Err(e) => self.view.notice = Some(e),
@@ -851,10 +856,10 @@ impl App {
                                         .revision
                                         .max(snapshot.draft.revision)
                                         .saturating_add(1);
-                                    if let Some(q) = &mut local.data.reply {
-                                        if q.key.chat == chat {
-                                            q.key.chat = canonical.clone();
-                                        }
+                                    if let Some(q) = &mut local.data.reply
+                                        && q.key.chat == chat
+                                    {
+                                        q.key.chat = canonical.clone();
                                     }
                                 }
                                 self.drafts.insert(canonical.clone(), local);
@@ -911,19 +916,18 @@ impl App {
                                 }
                                 if let Some(original) =
                                     self.view.messages.iter().find(|m| m.key == q.key)
-                                {
-                                    if matches!(
+                                    && matches!(
                                         original.body,
                                         MessageBody::Deleted | MessageBody::Expired
-                                    ) {
-                                        q.preview.clear();
-                                        q.availability =
-                                            if matches!(original.body, MessageBody::Expired) {
-                                                QuoteAvailability::Expired
-                                            } else {
-                                                QuoteAvailability::Deleted
-                                            };
-                                    }
+                                    )
+                                {
+                                    q.preview.clear();
+                                    q.availability =
+                                        if matches!(original.body, MessageBody::Expired) {
+                                            QuoteAvailability::Expired
+                                        } else {
+                                            QuoteAvailability::Deleted
+                                        };
                                 }
                             }
                             self.view.draft.reply = local.data.reply.clone();
@@ -972,7 +976,12 @@ impl App {
                     }
                 }
                 if let Err(e) = result {
-                    self.view.notice = Some(e);
+                    self.view.notice = Some(if self.quitting {
+                        self.quitting = false;
+                        format!("Quit canceled: {e}; draft kept. Fix storage and try again.")
+                    } else {
+                        e
+                    });
                 }
             }
             StoreCompletion::Changed { account: _, result } => match result {
@@ -990,22 +999,20 @@ impl App {
                 match result {
                     Ok(()) => {
                         if self.view.account.as_ref() == Some(&message.key.account) {
-                            if !pending.preserve_draft {
-                                if let Some(local) = self.drafts.get_mut(&message.key.chat) {
-                                    if local.data.revision == message.draft.revision
-                                        && local.data == message.draft
-                                    {
-                                        local.data = Draft {
-                                            revision: message.draft.revision + 1,
-                                            ..Default::default()
-                                        };
-                                        local.dirty = false;
-                                        local.saving = None;
-                                        if self.view.chat.as_ref() == Some(&message.key.chat) {
-                                            self.view.draft = local.data.clone();
-                                            self.editor = Editor::default();
-                                        }
-                                    }
+                            if !pending.preserve_draft
+                                && let Some(local) = self.drafts.get_mut(&message.key.chat)
+                                && local.data.revision == message.draft.revision
+                                && local.data == message.draft
+                            {
+                                local.data = Draft {
+                                    revision: message.draft.revision + 1,
+                                    ..Default::default()
+                                };
+                                local.dirty = false;
+                                local.saving = None;
+                                if self.view.chat.as_ref() == Some(&message.key.chat) {
+                                    self.view.draft = local.data.clone();
+                                    self.editor = Editor::default();
                                 }
                             }
                             if !self.quitting && self.view.connection == ConnectionState::Connected
@@ -1093,8 +1100,18 @@ impl App {
     pub fn request_shutdown(&mut self) -> Vec<Effect> {
         self.quitting = true;
         let mut effects = self.flush_drafts();
-        effects.push(Effect::Shutdown);
+        self.finish_shutdown(&mut effects);
         effects
+    }
+    fn finish_shutdown(&mut self, effects: &mut Vec<Effect>) {
+        if self.quitting
+            && !self.shutdown_emitted
+            && !self.drafts.values().any(|d| d.dirty)
+            && self.buffered.values().all(Vec::is_empty)
+        {
+            self.shutdown_emitted = true;
+            effects.push(Effect::Shutdown);
+        }
     }
     pub fn update(&mut self, input: Input, now: Instant) -> Vec<Effect> {
         self.view.now = now;
@@ -1124,6 +1141,7 @@ impl App {
             }
         }
         self.maybe_read(&mut effects);
+        self.finish_shutdown(&mut effects);
         effects
     }
 }

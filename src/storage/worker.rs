@@ -472,10 +472,10 @@ pub(super) fn receipt(
         )?
         .pop();
 
-        if let Some(old) = old {
-            if old.state > receipt.state {
-                receipt = old;
-            }
+        if let Some(old) = old
+            && old.state > receipt.state
+        {
+            receipt = old;
         }
 
         execute(
@@ -507,35 +507,52 @@ pub(super) fn upsert_chats(
     a: &AccountId,
     chats: Vec<ChatSummary>,
 ) -> Result<StoreChange, StoreError> {
-    c.transaction::<_,StoreError,_>(|c|{
-
-  let mut ids=Vec::new();
-for mut chat in chats{
-if chat.account!=*a{
-return Err(StoreError::InvalidData);
-}
-let original=chat.chat.clone();
-chat.chat=merge::canonical(c,a,&chat.chat.0)?.into();
-
-   if let Some(old)=rows::<ChatSummary>(c,"SELECT data FROM chats WHERE account=? AND chat=?", &[&a.0,&chat.chat.0])?.pop(){
-if chat.name.is_empty()||chat.name==original.0||chat.name_priority<old.name_priority{
-chat.name=old.name;
-chat.name_priority=old.name_priority;
-}
-chat.phone=chat.phone.or(old.phone);
+    c.transaction::<_, StoreError, _>(|c| upsert_chats_in_transaction(c, a, chats))
 }
 
-   merge::baseline(c,&chat)?;
-chat.unread=0;
-execute(c,"INSERT INTO chats(account,chat,data) VALUES(?,?,?) ON CONFLICT(account,chat) DO UPDATE SET data=excluded.data", &[&a.0,&chat.chat.0,&json(&chat)?])?;
-ids.push(chat.chat);
+fn upsert_chats_in_transaction(
+    c: &mut SqliteConnection,
+    a: &AccountId,
+    chats: Vec<ChatSummary>,
+) -> Result<StoreChange, StoreError> {
+    let mut ids = Vec::new();
+    for mut chat in chats {
+        if chat.account != *a {
+            return Err(StoreError::InvalidData);
+        }
+        let original = chat.chat.clone();
+        chat.chat = merge::canonical(c, a, &chat.chat.0)?.into();
 
-  }
-Ok(StoreChange{
-account:a.clone(),chats:ids}
-)
- }
-)
+        if let Some(old) = rows::<ChatSummary>(
+            c,
+            "SELECT data FROM chats WHERE account=? AND chat=?",
+            &[&a.0, &chat.chat.0],
+        )?
+        .pop()
+        {
+            if chat.name.is_empty()
+                || chat.name == original.0
+                || chat.name_priority < old.name_priority
+            {
+                chat.name = old.name;
+                chat.name_priority = old.name_priority;
+            }
+            chat.phone = chat.phone.or(old.phone);
+        }
+
+        merge::baseline(c, &chat)?;
+        chat.unread = 0;
+        execute(
+            c,
+            "INSERT INTO chats(account,chat,data) VALUES(?,?,?) ON CONFLICT(account,chat) DO UPDATE SET data=excluded.data",
+            &[&a.0, &chat.chat.0, &json(&chat)?],
+        )?;
+        ids.push(chat.chat);
+    }
+    Ok(StoreChange {
+        account: a.clone(),
+        chats: ids,
+    })
 }
 
 pub(super) fn preview(body: &MessageBody) -> String {

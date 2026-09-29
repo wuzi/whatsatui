@@ -612,3 +612,19 @@ async fn contact_names_outrank_push_names() {
         "Saved contact"
     );
 }
+
+#[tokio::test]
+async fn empty_visible_page_cannot_mark_a_later_arrival_read() {
+    let (_d, s) = fresh().await;
+    // A read effect captured an empty page; this arrival committed before that effect ran.
+    s.apply_batch(batch(vec![message(
+        key("chat", "alice", "new"),
+        "not displayed yet",
+    )]))
+    .await
+    .unwrap();
+    s.mark_read(account("test"), "chat".into(), vec![])
+        .await
+        .unwrap();
+    assert_eq!(s.list_chats(account("test")).await.unwrap()[0].unread, 1);
+}

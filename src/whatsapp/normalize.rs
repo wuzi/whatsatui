@@ -124,40 +124,39 @@ pub(super) fn normalize(
     expiry: Option<i64>,
 ) -> MessageChange {
     let message = payload.get_base_message();
-    if let Some(protocol) = message.protocol_message.as_option() {
-        if let Some(target) = protocol.key.as_option() {
-            let from_me = target.from_me.unwrap_or(false);
-            let target_key = MessageKey {
-                account: key.account.clone(),
-                chat: key.chat.clone(),
-                sender: if from_me {
-                    ParticipantId(key.account.0.clone())
-                } else {
-                    target
-                        .participant
-                        .clone()
-                        .map(ParticipantId)
-                        .unwrap_or_else(|| key.sender.clone())
-                },
-                id: target.id.clone().unwrap_or_default().into(),
-                from_me,
+    if let Some(protocol) = message.protocol_message.as_option()
+        && let Some(target) = protocol.key.as_option()
+    {
+        let from_me = target.from_me.unwrap_or(false);
+        let target_key = MessageKey {
+            account: key.account.clone(),
+            chat: key.chat.clone(),
+            sender: if from_me {
+                ParticipantId(key.account.0.clone())
+            } else {
+                target
+                    .participant
+                    .clone()
+                    .map(ParticipantId)
+                    .unwrap_or_else(|| key.sender.clone())
+            },
+            id: target.id.clone().unwrap_or_default().into(),
+            from_me,
+        };
+        if protocol.r#type == Some(wa::message::protocol_message::Type::Revoke) {
+            return MessageChange::Delete { key: target_key };
+        }
+        if protocol.r#type == Some(wa::message::protocol_message::Type::MessageEdit)
+            && let Some(text) = protocol
+                .edited_message
+                .as_option()
+                .and_then(|m| m.text_content())
+        {
+            return MessageChange::Edit {
+                key: target_key,
+                text: text.into(),
+                edited_at_ms: protocol.timestamp_ms.unwrap_or(at),
             };
-            if protocol.r#type == Some(wa::message::protocol_message::Type::Revoke.into()) {
-                return MessageChange::Delete { key: target_key };
-            }
-            if protocol.r#type == Some(wa::message::protocol_message::Type::MessageEdit.into()) {
-                if let Some(text) = protocol
-                    .edited_message
-                    .as_option()
-                    .and_then(|m| m.text_content())
-                {
-                    return MessageChange::Edit {
-                        key: target_key,
-                        text: text.into(),
-                        edited_at_ms: protocol.timestamp_ms.unwrap_or(at),
-                    };
-                }
-            }
         }
     }
     let ctx = context(message);
@@ -273,8 +272,10 @@ pub(super) mod tests {
     use std::sync::Arc;
     use whatsapp_rust::prelude::{MessageBuilderExt, MessageField, MessageInfo};
     pub fn fixture() -> InboundMessage {
-        let mut info = MessageInfo::default();
-        info.id = "incoming".into();
+        let mut info = MessageInfo {
+            id: "incoming".into(),
+            ..Default::default()
+        };
         info.source.chat = "120363000000001@g.us".parse().unwrap();
         info.source.sender = "551100000001@s.whatsapp.net".parse().unwrap();
         info.source.is_group = true;

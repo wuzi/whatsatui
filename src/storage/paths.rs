@@ -18,10 +18,10 @@ pub fn private_dir(path: &Path) -> Result<(), StoreError> {
     Ok(())
 }
 pub fn private_file(path: &Path) -> Result<File, StoreError> {
-    if let Ok(meta) = fs::symlink_metadata(path) {
-        if meta.file_type().is_symlink() || !meta.is_file() {
-            return Err(StoreError::InvalidData);
-        }
+    if let Ok(meta) = fs::symlink_metadata(path)
+        && (meta.file_type().is_symlink() || !meta.is_file())
+    {
+        return Err(StoreError::InvalidData);
     }
     let file = OpenOptions::new()
         .read(true)

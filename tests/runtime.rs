@@ -197,3 +197,73 @@ async fn committed_demo_attempt_reaches_backend() {
     assert!(effects.iter().any(|e| matches!(e, Effect::Transmit(_))));
     assert!(app.view().draft.text.is_empty());
 }
+
+#[test]
+fn quit_waits_for_draft_commit_and_a_failure_keeps_the_composer() {
+    let mut app = ready_app();
+    press(&mut app, "enter");
+    press(&mut app, "x");
+    let effects = press(&mut app, "ctrl-q");
+    assert!(
+        !effects.iter().any(|e| matches!(e, Effect::Shutdown)),
+        "must await the draft write"
+    );
+    let (request, account, chat, revision) = effects
+        .into_iter()
+        .find_map(|e| {
+            if let Effect::SaveDraft {
+                request,
+                account,
+                chat,
+                draft,
+            } = e
+            {
+                Some((request, account, chat, draft.revision))
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    let effects = app.update(
+        Input::Store(StoreCompletion::DraftSaved {
+            request,
+            account,
+            chat,
+            revision,
+            result: Err("Cannot commit local data".into()),
+        }),
+        Instant::now(),
+    );
+    assert!(!effects.iter().any(|e| matches!(e, Effect::Shutdown)));
+    assert_eq!(app.view().draft.text, "x");
+    press(&mut app, "y");
+    assert_eq!(app.view().draft.text, "xy");
+    let effects = press(&mut app, "ctrl-q");
+    let (request, account, chat, revision) = effects
+        .into_iter()
+        .find_map(|e| {
+            if let Effect::SaveDraft {
+                request,
+                account,
+                chat,
+                draft,
+            } = e
+            {
+                Some((request, account, chat, draft.revision))
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    let effects = app.update(
+        Input::Store(StoreCompletion::DraftSaved {
+            request,
+            account,
+            chat,
+            revision,
+            result: Ok(()),
+        }),
+        Instant::now(),
+    );
+    assert!(effects.iter().any(|e| matches!(e, Effect::Shutdown)));
+}

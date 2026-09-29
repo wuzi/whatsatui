@@ -135,7 +135,7 @@ fn overlays_use_configured_confirmation_and_dismissal_keys() {
     let screen = text(&draw(&view, &config, 120, 40));
     assert!(screen.contains("ctrl-b to close"));
     view.overlay = Some(Overlay::Resend {
-        message: view.messages[0].clone(),
+        message: Box::new(view.messages[0].clone()),
     });
     let screen = text(&draw(&view, &config, 120, 40));
     assert!(screen.contains("ctrl-y confirms"));

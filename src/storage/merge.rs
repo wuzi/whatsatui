@@ -150,51 +150,38 @@ pub(super) fn mark_read(
     chat: &ChatId,
     keys: Vec<MessageKey>,
 ) -> Result<StoreChange, StoreError> {
-    c.transaction::<_,StoreError,_>(|c|{
-
-  let chat=ChatId(canonical(c,a,&chat.0)?);
-let mut state=read_state(c,a,&chat)?;
-
-  let mut watermark=state.watermark.take();
-
-  for key in &keys{
-let key=canonical_key(c,key)?;
-if key.account!=*a||key.chat!=chat{
-return Err(StoreError::InvalidData);
+    c.transaction::<_, StoreError, _>(|c| {
+        let chat = ChatId(canonical(c, a, &chat.0)?);
+        let mut state = read_state(c, a, &chat)?;
+        let mut watermark = state.watermark.take();
+        // Only identities actually visible when the read action was captured may
+        // advance the watermark. An empty capture must not read a later arrival.
+        for key in &keys {
+            let key = canonical_key(c, key)?;
+            if key.account != *a || key.chat != chat {
+                return Err(StoreError::InvalidData);
+            }
+            if let Some(m) = worker::get(c, &key)? {
+                let next = (m.created_at_ms, json(&key)?);
+                if watermark.as_ref().is_none_or(|old| &next > old) {
+                    watermark = Some(next);
+                }
+            }
+        }
+        state.watermark = watermark;
+        state.baseline = 0;
+        state.initialized = true;
+        save_read(c, a, &chat, &state)?;
+        if let Some((at, key)) = &state.watermark {
+            execute(
+                c,
+                "UPDATE messages SET unread=0 WHERE account=? AND chat=? AND (created_at_ms < ? OR (created_at_ms = ? AND key <= ?))",
+                &[&a.0, &chat.0, &at.to_string(), &at.to_string(), key],
+            )?;
+        }
+        Ok(StoreChange { account: a.clone(), chats: vec![chat] })
+    })
 }
-if let Some(m)=worker::get(c,&key)?{
-let w=(m.created_at_ms,json(&key)?);
-if watermark.as_ref().is_none_or(|old|&w>old){
-watermark=Some(w);
-}
-}
-}
-
-  if keys.is_empty(){
-if let Some(m)=rows::<MessageRecord>(c,"SELECT data FROM messages WHERE account=? AND chat=? ORDER BY created_at_ms DESC,key DESC LIMIT 1", &[&a.0,&chat.0])?.pop(){
-let w=(m.created_at_ms,json(&m.key)?);
-if watermark.as_ref().is_none_or(|old|&w>old){
-watermark=Some(w);
-}
-}
-}
-
-  state.watermark=watermark;
-state.baseline=0;
-state.initialized=true;
-save_read(c,a,&chat,&state)?;
-
-  if let Some((at,key))=&state.watermark{
-execute(c,"UPDATE messages SET unread=0 WHERE account=? AND chat=? AND (created_at_ms < ? OR (created_at_ms = ? AND key <= ?))", &[&a.0,&chat.0,&at.to_string(),&at.to_string(),key])?;
-}
-
-  Ok(StoreChange{
-account:a.clone(),chats:vec![chat]}
-)
- }
-)
-}
-
 pub(super) fn scrub_quotes(
     c: &mut SqliteConnection,
     a: &AccountId,
@@ -265,18 +252,32 @@ pub(super) fn expire(
     a: &AccountId,
     now: i64,
 ) -> Result<StoreChange, StoreError> {
-    c.transaction::<_,StoreError,_>(|c|{
+    c.transaction::<_, StoreError, _>(|c| expire_in_transaction(c, a, now))
+}
 
-  let expired:Vec<MessageRecord>=rows(c,"SELECT data FROM messages WHERE account=? AND json_extract(data,'$.expires_at_ms') <= CAST(? AS INTEGER) AND json_extract(data,'$.body') != 'Expired'", &[&a.0,&now.to_string()])?;
+fn expire_in_transaction(
+    c: &mut SqliteConnection,
+    a: &AccountId,
+    now: i64,
+) -> Result<StoreChange, StoreError> {
+    let expired: Vec<MessageRecord> = rows(
+        c,
+        "SELECT data FROM messages WHERE account=? AND json_extract(data,'$.expires_at_ms') <= CAST(? AS INTEGER) AND json_extract(data,'$.body') != 'Expired'",
+        &[&a.0, &now.to_string()],
+    )?;
 
-  let changes=expired.into_iter().map(|m|MessageChange::Expire{
-key:m.key}
-).collect();
-worker::apply(c,MessageBatch{
-account:a.clone(),source:MessageSource::History,changes}
-)
- }
-)
+    let changes = expired
+        .into_iter()
+        .map(|m| MessageChange::Expire { key: m.key })
+        .collect();
+    worker::apply(
+        c,
+        MessageBatch {
+            account: a.clone(),
+            source: MessageSource::History,
+            changes,
+        },
+    )
 }
 
 pub(super) fn merge_alias(
@@ -285,160 +286,226 @@ pub(super) fn merge_alias(
     alias: &ParticipantId,
     target: &ParticipantId,
 ) -> Result<StoreChange, StoreError> {
-    c.transaction::<_,StoreError,_>(|c|{
-
-  if alias.0.ends_with("@g.us")||target.0.ends_with("@g.us"){
-return Err(StoreError::InvalidData);
+    c.transaction::<_, StoreError, _>(|c| merge_alias_in_transaction(c, a, alias, target))
 }
 
-  let old=canonical(c,a,&alias.0)?;
-let target=canonical(c,a,&target.0)?;
-if old==target{
-return Ok(StoreChange{
-account:a.clone(),chats:vec![]}
-);
-}
+fn merge_alias_in_transaction(
+    c: &mut SqliteConnection,
+    a: &AccountId,
+    alias: &ParticipantId,
+    target: &ParticipantId,
+) -> Result<StoreChange, StoreError> {
+    if alias.0.ends_with("@g.us") || target.0.ends_with("@g.us") {
+        return Err(StoreError::InvalidData);
+    }
 
-  // Only upstream-authoritative identity mappings call this operation.
-  let old_draft=worker::draft(c,a,&ChatId(old.clone()))?;
-let target_draft=worker::draft(c,a,&ChatId(target.clone()))?;
+    let old = canonical(c, a, &alias.0)?;
+    let target = canonical(c, a, &target.0)?;
+    if old == target {
+        return Ok(StoreChange {
+            account: a.clone(),
+            chats: vec![],
+        });
+    }
 
-  let old_read=read_state(c,a,&ChatId(old.clone()))?;
-let mut target_read=read_state(c,a,&ChatId(target.clone()))?;
+    // Only upstream-authoritative identity mappings call this operation.
+    let old_draft = worker::draft(c, a, &ChatId(old.clone()))?;
+    let target_draft = worker::draft(c, a, &ChatId(target.clone()))?;
 
-  let metadata:Vec<ChatSummary>=rows(c,"SELECT data FROM chats WHERE account=? AND chat=?", &[&a.0,&old])?;
+    let old_read = read_state(c, a, &ChatId(old.clone()))?;
+    let mut target_read = read_state(c, a, &ChatId(target.clone()))?;
 
-  let messages:Vec<MessageRecord>=rows(c,"SELECT data FROM messages WHERE account=? AND (chat=? OR sender=? OR json_extract(data,'$.quote.key.chat')=? OR json_extract(data,'$.quote.key.sender')=?)", &[&a.0,&old,&old,&old,&old])?;
+    let metadata: Vec<ChatSummary> = rows(
+        c,
+        "SELECT data FROM chats WHERE account=? AND chat=?",
+        &[&a.0, &old],
+    )?;
 
-  let receipts:Vec<Receipt>=rows(c,"SELECT data FROM receipts WHERE account=?", &[&a.0])?;
+    let messages: Vec<MessageRecord> = rows(
+        c,
+        "SELECT data FROM messages WHERE account=? AND (chat=? OR sender=? OR json_extract(data,'$.quote.key.chat')=? OR json_extract(data,'$.quote.key.sender')=?)",
+        &[&a.0, &old, &old, &old, &old],
+    )?;
 
-  let mutations:Vec<MessageChange>=rows(c,"SELECT data FROM mutations WHERE account=?", &[&a.0])?;
+    let receipts: Vec<Receipt> = rows(c, "SELECT data FROM receipts WHERE account=?", &[&a.0])?;
 
-  execute(c,"INSERT INTO aliases(account,alias,canonical) VALUES(?,?,?) ON CONFLICT(account,alias) DO UPDATE SET canonical=excluded.canonical", &[&a.0,&old,&target])?;
+    let mutations: Vec<MessageChange> =
+        rows(c, "SELECT data FROM mutations WHERE account=?", &[&a.0])?;
 
-  let mut affected=BTreeSet::from([ChatId(old.clone()),ChatId(target.clone())]);
+    execute(
+        c,
+        "INSERT INTO aliases(account,alias,canonical) VALUES(?,?,?) ON CONFLICT(account,alias) DO UPDATE SET canonical=excluded.canonical",
+        &[&a.0, &old, &target],
+    )?;
 
-  for mut m in messages{
+    let mut affected = BTreeSet::from([ChatId(old.clone()), ChatId(target.clone())]);
 
-    let old_key=json(&m.key)?;
-let was_unread:Vec<bool>=rows(c,"SELECT CASE WHEN unread=1 THEN 'true' ELSE 'false' END AS data FROM messages WHERE key=?", &[&old_key])?;
+    for mut m in messages {
+        let old_key = json(&m.key)?;
+        let was_unread: Vec<bool> = rows(
+            c,
+            "SELECT CASE WHEN unread=1 THEN 'true' ELSE 'false' END AS data FROM messages WHERE key=?",
+            &[&old_key],
+        )?;
 
-    m.key=canonical_key(c,&m.key)?;
-if let Some(q)=&mut m.quote{
-quote(c,q)?;
-}
+        m.key = canonical_key(c, &m.key)?;
+        if let Some(q) = &mut m.quote {
+            quote(c, q)?;
+        }
 
-    execute(c,"DELETE FROM messages WHERE key=?", &[&old_key])?;
+        execute(c, "DELETE FROM messages WHERE key=?", &[&old_key])?;
 
-    let key=m.key.clone();
-worker::apply(c,MessageBatch{
-account:a.clone(),source:MessageSource::History,changes:vec![MessageChange::Upsert(m)]}
-)?;
+        let key = m.key.clone();
+        worker::apply(
+            c,
+            MessageBatch {
+                account: a.clone(),
+                source: MessageSource::History,
+                changes: vec![MessageChange::Upsert(m)],
+            },
+        )?;
 
-    if was_unread.first()==Some(&true){
-if let Some(m)=worker::get(c,&key)?{
-if unread(c,&m)?{
-execute(c,"UPDATE messages SET unread=1 WHERE key=?", &[&json(&key)?])?;
-}
-}
-}
+        if was_unread.first() == Some(&true)
+            && let Some(m) = worker::get(c, &key)?
+            && unread(c, &m)?
+        {
+            execute(
+                c,
+                "UPDATE messages SET unread=1 WHERE key=?",
+                &[&json(&key)?],
+            )?;
+        }
 
-    affected.insert(key.chat);
+        affected.insert(key.chat);
+    }
 
-  }
+    // Rekey receipts and mutations after installing the mapping; duplicate keys merge monotonically.
+    for mut r in receipts {
+        let old_key = json(&r.key)?;
+        let old_recipient = r.recipient.0.clone();
+        r.key = canonical_key(c, &r.key)?;
+        r.recipient = canonical(c, a, &r.recipient.0)?.into();
+        if json(&r.key)? != old_key || r.recipient.0 != old_recipient {
+            execute(
+                c,
+                "DELETE FROM receipts WHERE key=? AND recipient=?",
+                &[&old_key, &old_recipient],
+            )?;
+            worker::receipt(c, r)?;
+        }
+    }
 
-  // Rekey receipts and mutations after installing the mapping; duplicate keys merge monotonically.
-  for mut r in receipts{
-let old_key=json(&r.key)?;
-let old_recipient=r.recipient.0.clone();
-r.key=canonical_key(c,&r.key)?;
-r.recipient=canonical(c,a,&r.recipient.0)?.into();
-if json(&r.key)?!=old_key||r.recipient.0!=old_recipient{
-execute(c,"DELETE FROM receipts WHERE key=? AND recipient=?", &[&old_key,&old_recipient])?;
-worker::receipt(c,r)?;
-}
-}
+    for mutation in mutations {
+        let old_key = match &mutation {
+            MessageChange::Edit { key, .. }
+            | MessageChange::Delete { key }
+            | MessageChange::Expire { key } => key,
+            MessageChange::Upsert(m) => &m.key,
+        };
+        let new_key = canonical_key(c, old_key)?;
+        if new_key != *old_key {
+            execute(c, "DELETE FROM mutations WHERE key=?", &[&json(old_key)?])?;
+            worker::apply(
+                c,
+                MessageBatch {
+                    account: a.clone(),
+                    source: MessageSource::History,
+                    changes: vec![mutation],
+                },
+            )?;
+        }
+    }
 
-  for mutation in mutations{
-let old_key=match &mutation{
-MessageChange::Edit{
-key,..}
-|MessageChange::Delete{
-key}
-|MessageChange::Expire{
-key}
-=>key,MessageChange::Upsert(m)=>&m.key}
-;
-let new_key=canonical_key(c,old_key)?;
-if new_key!=*old_key{
-execute(c,"DELETE FROM mutations WHERE key=?", &[&json(old_key)?])?;
-worker::apply(c,MessageBatch{
-account:a.clone(),source:MessageSource::History,changes:vec![mutation]}
-)?;
-}
-}
+    for mut chat in metadata {
+        chat.chat = target.clone().into();
+        worker::upsert_chats(c, a, vec![chat])?;
+    }
 
-  for mut chat in metadata{
-chat.chat=target.clone().into();
-worker::upsert_chats(c,a,vec![chat])?;
-}
+    let mut merged = if target_draft.text.is_empty() && target_draft.reply.is_none() {
+        old_draft.clone()
+    } else {
+        target_draft.clone()
+    };
 
-  let mut merged=if target_draft.text.is_empty()&&target_draft.reply.is_none(){
-old_draft.clone()}
-else{
-target_draft.clone()}
-;
+    if !old_draft.text.is_empty()
+        && !target_draft.text.is_empty()
+        && old_draft.text != target_draft.text
+    {
+        merged.text = format!("{}\n\n{}", target_draft.text, old_draft.text);
+    }
 
-  if !old_draft.text.is_empty()&&!target_draft.text.is_empty()&&old_draft.text!=target_draft.text{
-merged.text=format!("{}\n\n{}",target_draft.text,old_draft.text);
-}
+    merged.revision = old_draft
+        .revision
+        .max(target_draft.revision)
+        .saturating_add(1);
+    if let Some(q) = &mut merged.reply {
+        quote(c, q)?;
+    }
 
-  merged.revision=old_draft.revision.max(target_draft.revision).saturating_add(1);
-if let Some(q)=&mut merged.reply{
-quote(c,q)?;
-}
+    if !merged.text.is_empty() || merged.reply.is_some() {
+        worker::save_draft(c, a, &target.clone().into(), &merged)?;
+    }
 
-  if !merged.text.is_empty()||merged.reply.is_some(){
-worker::save_draft(c,a,&target.clone().into(),&merged)?;
-}
+    // Canonicalize quoted identities in every draft, including unrelated group composers.
+    #[derive(QueryableByName)]
+    struct DraftRow {
+        #[diesel(sql_type=diesel::sql_types::Text)]
+        chat: String,
+        #[diesel(sql_type=diesel::sql_types::Text)]
+        data: String,
+    }
 
-  // Canonicalize quoted identities in every draft, including unrelated group composers.
-  #[derive(QueryableByName)]struct DraftRow{
-#[diesel(sql_type=diesel::sql_types::Text)]chat:String,#[diesel(sql_type=diesel::sql_types::Text)]data:String}
+    for row in diesel::sql_query("SELECT chat,data FROM drafts WHERE account=?")
+        .bind::<diesel::sql_types::Text, _>(&a.0)
+        .load::<DraftRow>(c)?
+    {
+        let mut d: Draft = serde_json::from_str(&row.data)?;
+        let before = d.clone();
+        if let Some(q) = &mut d.reply {
+            quote(c, q)?;
+        }
+        if d != before {
+            affected.insert(ChatId(row.chat.clone()));
+            execute(
+                c,
+                "UPDATE drafts SET data=? WHERE account=? AND chat=?",
+                &[&json(&d)?, &a.0, &row.chat],
+            )?;
+        }
+    }
 
-  for row in diesel::sql_query("SELECT chat,data FROM drafts WHERE account=?").bind::<diesel::sql_types::Text,_>(&a.0).load::<DraftRow>(c)?{
-let mut d:Draft=serde_json::from_str(&row.data)?;
-let before=d.clone();
-if let Some(q)=&mut d.reply{
-quote(c,q)?;
-}
-if d!=before{
-affected.insert(ChatId(row.chat.clone()));
-execute(c,"UPDATE drafts SET data=? WHERE account=? AND chat=?", &[&json(&d)?,&a.0,&row.chat])?;
-}
-}
+    if old_read.watermark > target_read.watermark {
+        target_read.watermark = old_read.watermark;
+    }
+    target_read.baseline = target_read.baseline.max(old_read.baseline);
+    target_read.baseline_at_ms = target_read.baseline_at_ms.max(old_read.baseline_at_ms);
+    target_read.initialized |= old_read.initialized;
 
-  if old_read.watermark>target_read.watermark{
-target_read.watermark=old_read.watermark;
-}
-target_read.baseline=target_read.baseline.max(old_read.baseline);
-target_read.baseline_at_ms=target_read.baseline_at_ms.max(old_read.baseline_at_ms);
-target_read.initialized|=old_read.initialized;
+    if let Some((_, serialized)) = &mut target_read.watermark {
+        let key: MessageKey = serde_json::from_str(serialized)?;
+        *serialized = json(&canonical_key(c, &key)?)?;
+    }
 
-  if let Some((_,serialized))=&mut target_read.watermark{
-let key:MessageKey=serde_json::from_str(serialized)?;
-*serialized=json(&canonical_key(c,&key)?)?;
-}
+    save_read(c, a, &target.clone().into(), &target_read)?;
 
-  save_read(c,a,&target.clone().into(),&target_read)?;
+    execute(
+        c,
+        "DELETE FROM chats WHERE account=? AND chat=?",
+        &[&a.0, &old],
+    )?;
+    execute(
+        c,
+        "DELETE FROM drafts WHERE account=? AND chat=?",
+        &[&a.0, &old],
+    )?;
+    execute(
+        c,
+        "DELETE FROM read_state WHERE account=? AND chat=?",
+        &[&a.0, &old],
+    )?;
 
-  execute(c,"DELETE FROM chats WHERE account=? AND chat=?", &[&a.0,&old])?;
-execute(c,"DELETE FROM drafts WHERE account=? AND chat=?", &[&a.0,&old])?;
-execute(c,"DELETE FROM read_state WHERE account=? AND chat=?", &[&a.0,&old])?;
-
-  Ok(StoreChange{
-account:a.clone(),chats:affected.into_iter().collect()}
-)
- }
-)
+    Ok(StoreChange {
+        account: a.clone(),
+        chats: affected.into_iter().collect(),
+    })
 }
