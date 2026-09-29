@@ -16,6 +16,7 @@ pub(super) fn open(path: &Path) -> Result<SqliteConnection, StoreError> {
     paths::private_file(path)?;
 
     let mut c = SqliteConnection::establish(path.to_str().ok_or(StoreError::InvalidData)?)?;
+    super::search::register(&mut c)?;
 
     c.batch_execute("PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;")?;
 

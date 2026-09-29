@@ -163,6 +163,17 @@ pub struct ChatSnapshot {
     pub has_older: bool,
     pub has_newer: bool,
 }
+#[derive(Clone, Debug)]
+pub struct MessageSearchHit {
+    pub key: MessageKey,
+    pub created_at_ms: i64,
+    pub preview: String,
+}
+#[derive(Clone, Debug, Default)]
+pub struct MessageSearchPage {
+    pub hits: Vec<MessageSearchHit>,
+    pub has_more: bool,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PageDirection {
     Before,

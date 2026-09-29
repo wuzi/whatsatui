@@ -1,6 +1,7 @@
 mod merge;
 pub mod paths;
 mod records;
+mod search;
 mod worker;
 use crate::app::model::*;
 use diesel::sqlite::SqliteConnection;
@@ -94,6 +95,16 @@ impl Store {
     }
     pub async fn list_chats(&self, account: AccountId) -> Result<Vec<ChatSummary>, StoreError> {
         self.call(move |c| worker::list(c, &account)).await
+    }
+    pub async fn search_messages(
+        &self,
+        account: AccountId,
+        chat: ChatId,
+        query: String,
+        now_ms: i64,
+    ) -> Result<MessageSearchPage, StoreError> {
+        self.call(move |c| search::messages(c, &account, &chat, &query, now_ms))
+            .await
     }
     pub async fn recover_sends(&self, account: AccountId) -> Result<(), StoreError> {
         self.call(move |c| worker::recover(c, &account)).await
