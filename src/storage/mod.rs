@@ -29,9 +29,11 @@ type Job = Box<dyn FnOnce(&mut SqliteConnection) + Send>;
 #[derive(Clone)]
 pub struct Store {
     tx: mpsc::Sender<Job>,
+    data_dir: std::sync::Arc<PathBuf>,
 }
 impl Store {
     pub async fn open(path: PathBuf) -> Result<Self, StoreError> {
+        let location = path.clone();
         let (tx, mut rx) = mpsc::channel::<Job>(64);
         let (ready, wait) = oneshot::channel();
         std::thread::Builder::new()
@@ -50,7 +52,13 @@ impl Store {
                 }
             })?;
         wait.await.map_err(|_| StoreError::Unavailable)??;
-        Ok(Self { tx })
+        let location = std::fs::canonicalize(location)?;
+        let data_dir =
+            std::sync::Arc::new(location.parent().ok_or(StoreError::InvalidData)?.to_owned());
+        Ok(Self { tx, data_dir })
+    }
+    pub fn data_dir(&self) -> &std::path::Path {
+        &self.data_dir
     }
     pub(crate) async fn call<T: Send + 'static>(
         &self,

@@ -27,6 +27,7 @@ fs2 = "0.4"
 tempfile = "3"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 linkify = "0.11"
+sha2 = "0.10.9"
 
 [dev-dependencies]
 nix = { version = "0.30", features = ["term", "process", "poll", "fs"] }
@@ -34,4 +35,3 @@ nix = { version = "0.30", features = ["term", "process", "poll", "fs"] }
 [profile.release]
 lto = "thin"
 strip = true
-

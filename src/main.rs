@@ -12,6 +12,12 @@ async fn main() {
     }
 }
 async fn start() -> Result<(), AppError> {
+    let args: Vec<_> = std::env::args_os().collect();
+    if args.len() == 2 && args[1] == "--media-worker" {
+        return whatsapp_tui::media::run_worker()
+            .await
+            .map_err(|_| AppError::Arguments("Media worker failed"));
+    }
     let options = Options::parse();
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)

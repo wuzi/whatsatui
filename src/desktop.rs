@@ -10,6 +10,9 @@ use tokio::{io::AsyncWriteExt, process::Command};
 pub trait Desktop: Send + Sync {
     async fn copy(&self, text: &str) -> Result<(), String>;
     async fn open(&self, url: &str) -> Result<(), String>;
+    async fn open_file(&self, _path: &std::path::Path) -> Result<(), String> {
+        Err("File viewer is unavailable".into())
+    }
 }
 pub async fn execute(
     message: MessageRecord,
@@ -52,6 +55,22 @@ pub async fn execute(
 pub struct NativeDesktop;
 #[async_trait::async_trait]
 impl Desktop for NativeDesktop {
+    async fn open_file(&self, path: &std::path::Path) -> Result<(), String> {
+        if !path.is_absolute() || !std::fs::symlink_metadata(path).is_ok_and(|m| m.is_file()) {
+            return Err("Downloaded file is unavailable".into());
+        }
+        let mut command = Command::new("xdg-open");
+        command.arg(path);
+        run(command, None, Duration::from_secs(3))
+            .await
+            .map_err(|e| {
+                if e.kind() == io::ErrorKind::NotFound {
+                    "Viewer unavailable: install xdg-utils and configure a default viewer".into()
+                } else {
+                    helper_error("Viewer", e)
+                }
+            })
+    }
     async fn copy(&self, text: &str) -> Result<(), String> {
         check_copy_size(text)?;
         let mut helpers: Vec<(&str, &[&str])> = vec![];

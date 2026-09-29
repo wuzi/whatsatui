@@ -45,11 +45,11 @@
 
 **Interfaces:** `MediaAction::{Download, Open}`; injectable async `Downloader::download(&self, attachment: &Attachment, destination: &Path, cancel: watch::Receiver<bool>) -> Result<(), String>`; `media::execute(message: MessageRecord, action: MediaAction, store: Store, downloader: &dyn Downloader, desktop: &impl Desktop, cancel: watch::Receiver<bool>) -> Result<String, String>`. `media::prune(store: Store) -> Result<(), String>` removes obsolete managed copies. `Store::data_dir() -> &Path` identifies the private root. `Desktop::open_file(&Path)` launches one literal absolute path. Native downloader uses the current binary's internal worker mode; the worker consumes bounded stdin and the pinned streaming API.
 
-- [ ] Write failing tests for exact bytes and SHA/length checks, repeated reuse, unknown MIME download/open behavior, hostile filenames/symlinks, 50 MiB limits, partial/corrupt files, 512 MiB/128-entry accounting, and stale/expired/aliased records before and after transfer. Use local SQLite and an inert downloader/viewer.
-- [ ] Run `cargo test --locked -j 2 --test media_files -- --test-threads=2`; observe missing API then behavior failures.
-- [ ] Implement temporary-file lifetime, validated cache naming/manifests, resource limits, locking, cleanup, source revalidation, verified reuse, and explicit viewer opening. Native worker receives secrets through stdin, uses a limited writer/response, and is killed/reaped on deadline or cancellation.
-- [ ] Test process stdin/argv, timeout/cancellation, failure cleanup, and internal worker rejection of malformed input without network traffic; run media/storage/desktop targets.
-- [ ] Commit `feat: download and open verified received files`.
+- [x] Write failing tests for exact bytes and SHA/length checks, repeated reuse, unknown MIME download/open behavior, hostile filenames/symlinks, 50 MiB limits, partial/corrupt files, 512 MiB/128-entry accounting, and stale/expired/aliased records before and after transfer. Use local SQLite and an inert downloader/viewer.
+- [x] Run `cargo test --locked -j 2 --test media_files -- --test-threads=2`; observe missing API then behavior failures.
+- [x] Implement temporary-file lifetime, validated cache naming/manifests, resource limits, locking, cleanup, source revalidation, verified reuse, and explicit viewer opening. Native worker receives secrets through stdin, uses a limited writer/response, and is killed/reaped on deadline or cancellation.
+- [x] Test process stdin/argv, timeout/cancellation, failure cleanup, and internal worker rejection of malformed input without network traffic; run media/storage/desktop targets.
+- [x] Commit `feat: download and open verified received files`.
 
 ### Task 3: Message controls, runtime, and acceptance
 
