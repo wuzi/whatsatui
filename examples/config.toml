@@ -1,0 +1,61 @@
+# All defaults are shown. Omit any setting to keep its default.
+[theme]
+background = "default"
+text = "default"
+focus = "#00b4b4"
+accent = "#00c8c8"
+inactive = "#808080"
+hints = "#c8c800"
+error = "#ff6464"
+error_border = "#c80000"
+
+# Replace an action's keys as a list; duplicate keys are rejected.
+[bindings.global]
+quit = ["ctrl-q"]
+
+[bindings.chats]
+focus_next = ["tab"]
+focus_previous = ["shift-tab"]
+search = ["ctrl-p", "/"]
+help = ["f1", "?"]
+next = ["j", "down"]
+previous = ["k", "up"]
+open = ["enter"]
+
+[bindings.messages]
+focus_next = ["tab"]
+focus_previous = ["shift-tab"]
+search = ["ctrl-p", "/"]
+help = ["f1", "?"]
+next = ["j", "down"]
+previous = ["k", "up"]
+back = ["esc"]
+reply = ["r"]
+resend = ["R"]
+page_up = ["pageup"]
+page_down = ["pagedown"]
+bottom = ["end"]
+
+# Printable characters always remain text in the composer/search.
+[bindings.composer]
+focus_next = ["tab"]
+focus_previous = ["shift-tab"]
+search = ["ctrl-p"]
+help = ["f1"]
+back = ["esc"]
+send = ["enter"]
+newline = ["alt-enter"]
+remove_reply = ["alt-r"]
+
+[bindings.search]
+back = ["esc"]
+open = ["enter"]
+next = ["down"]
+previous = ["up"]
+
+[bindings.help]
+back = ["esc"]
+
+[bindings.resend]
+back = ["esc"]
+confirm = ["enter"]
