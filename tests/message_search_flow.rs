@@ -20,6 +20,7 @@ fn hit(id: &str, preview: &str) -> MessageSearchHit {
         key: key("chat", "alice", id),
         created_at_ms: 1_790_640_000_000,
         preview: preview.into(),
+        match_grapheme: 0,
     }
 }
 fn response(effect: &Effect, result: Result<MessageSearchPage, String>) -> Input {
@@ -390,5 +391,29 @@ fn finder_rendering_is_adaptive() {
         assert!(text.contains("50+"));
         assert!(!text.contains('\u{1b}'));
         assert!(!text.contains('\u{7}'));
+    }
+}
+
+#[tokio::test]
+async fn narrow_previews_keep_the_match_visible_after_wide_context() {
+    for prefix in ["界".repeat(200), "界\t".repeat(200)] {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().join("chat.sqlite3")).await.unwrap();
+        store
+            .apply_batch(batch(vec![message(
+                key("chat", "alice", "wide"),
+                &format!("{prefix}NEEDLE tail"),
+            )]))
+            .await
+            .unwrap();
+        let mut app = ready_app();
+        let effect = request(&mut app, "needle");
+        let (commands, _rx) = mpsc::channel(2);
+        let result = runtime::execute(effect, store, commands).await.unwrap();
+        app.update(result, Instant::now());
+        assert!(
+            screen(&app, 40, 12).contains("NEEDLE"),
+            "matching body text must remain visible"
+        );
     }
 }

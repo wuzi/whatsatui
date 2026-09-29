@@ -49,7 +49,7 @@
 
 **Interfaces:**
 - Consumes: existing SQLite message JSON, canonical identity helpers, account/chat timeline index.
-- Produces: `MessageSearchHit { key: MessageKey, created_at_ms: i64, preview: String }`; `MessageSearchPage { hits: Vec<MessageSearchHit>, has_more: bool }`; `Store::search_messages(account: AccountId, chat: ChatId, query: String, now_ms: i64) -> Result<MessageSearchPage, StoreError>`.
+- Produces: `MessageSearchHit { key: MessageKey, created_at_ms: i64, preview: String, match_grapheme: usize }`; `MessageSearchPage { hits: Vec<MessageSearchHit>, has_more: bool }`; `Store::search_messages(account: AccountId, chat: ChatId, query: String, now_ms: i64) -> Result<MessageSearchPage, StoreError>`. The ephemeral match position lets rendering shorten preceding context by display width.
 
 - [x] **Step 1: Write real-store tests**: `search_is_literal_unicode_and_scoped` asserts `CAFÉ`, `%_`, other accounts/chats, caption matching, and quote/draft exclusion; `search_tracks_edits_deletions_and_expiry` asserts changed bodies immediately stop matching and timestamps exclude unswept expiry; `search_finds_older_pages_with_bounded_results` inserts >100 messages, finds the oldest unique text and caps broad matches at 50 with has_more; `search_resolves_aliases` searches either identity after a merge; `search_excerpt_contains_distant_match` checks a hit beyond 160 graphemes is shown with a bounded Unicode excerpt.
 - [x] **Step 2: Run tests**: `cargo test --locked -j 2 --test message_search_store -- --test-threads=2`. Expected: missing search API, then assertions fail with an empty stub before implementing the query.
@@ -73,5 +73,5 @@
 
 ## Completion
 
-- [ ] Review the complete branch once with a fresh reviewer, address material findings with failing regressions, and re-run relevant checks.
+- [x] Review the complete branch once with a fresh reviewer, address material findings with failing regressions, and re-run relevant checks. The review reproduced hidden matching text after wide characters in narrow previews; a real-store/runtime/render regression now passes for CJK text and expanded tabs at 40x12.
 - [ ] Provide the implementation, plan, verification evidence, runnable demo command, and the recommended next iteration. Preserve the established local integration workflow; do not push or publish.

@@ -49,17 +49,19 @@ pub(super) fn messages(
                 } => text,
                 _ => return None,
             };
+            let (preview, match_grapheme) = excerpt(&text, &query);
             Some(MessageSearchHit {
                 key: message.key,
                 created_at_ms: message.created_at_ms,
-                preview: excerpt(&text, &query),
+                preview,
+                match_grapheme,
             })
         })
         .collect();
     Ok(MessageSearchPage { hits, has_more })
 }
 
-fn excerpt(text: &str, query: &str) -> String {
+fn excerpt(text: &str, query: &str) -> (String, usize) {
     let match_byte = text.to_lowercase().find(query).unwrap_or(0);
     let graphemes: Vec<_> = text.graphemes(true).collect();
     let mut folded_offset = 0;
@@ -72,10 +74,11 @@ fn excerpt(text: &str, query: &str) -> String {
         .unwrap_or(0);
     let start = match_index.saturating_sub(36);
     let end = (start + 160).min(graphemes.len());
-    format!(
+    let preview = format!(
         "{}{}{}",
         if start > 0 { "…" } else { "" },
         graphemes[start..end].concat(),
         if end < graphemes.len() { "…" } else { "" }
-    )
+    );
+    (preview, match_index - start + usize::from(start > 0))
 }

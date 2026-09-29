@@ -42,7 +42,11 @@ async fn initialize(store: &Store) -> Result<StoreChange, BackendError> {
             "maya@demo" => 1,
             _ => 0,
         },
-        latest_at_ms: TIME + 150_000,
+        latest_at_ms: match id {
+            "weekend@g.us" => TIME + 150_000,
+            "maya@demo" => TIME + 45_000,
+            _ => 0,
+        },
         ..Default::default()
     })
     .collect();

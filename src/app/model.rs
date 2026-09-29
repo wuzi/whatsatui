@@ -168,6 +168,8 @@ pub struct MessageSearchHit {
     pub key: MessageKey,
     pub created_at_ms: i64,
     pub preview: String,
+    /// First matching grapheme in the preview, before display sanitization.
+    pub match_grapheme: usize,
 }
 #[derive(Clone, Debug, Default)]
 pub struct MessageSearchPage {

@@ -226,13 +226,9 @@ pub(super) fn messages(frame: &mut Frame, area: Rect, view: &ViewModel, config: 
                     style(config, view, ThemeRole::Inactive),
                 )];
                 lines.extend(
-                    wrap(
-                        &single(&hit.preview),
-                        inner.width.saturating_sub(2) as usize,
-                    )
-                    .into_iter()
-                    .take(2)
-                    .map(Line::from),
+                    match_preview(hit, inner.width.saturating_sub(2) as usize)
+                        .into_iter()
+                        .map(Line::from),
                 );
                 ListItem::new(lines)
             })
@@ -255,4 +251,26 @@ pub(super) fn messages(frame: &mut Frame, area: Rect, view: &ViewModel, config: 
         .style(style(config, view, ThemeRole::Hints)),
         Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1),
     );
+}
+
+fn match_preview(hit: &crate::app::model::MessageSearchHit, width: usize) -> Vec<String> {
+    let graphemes: Vec<_> = hit.preview.graphemes(true).collect();
+    let mut start = hit.match_grapheme.min(graphemes.len());
+    let mut context_width = 0;
+    // Measure the displayed context so wide characters and expanded tabs cannot
+    // push the match past the two visible preview rows.
+    while start > 0 {
+        let size = single(graphemes[start - 1]).width();
+        if context_width + size > (width / 3).min(24) {
+            break;
+        }
+        context_width += size;
+        start -= 1;
+    }
+    let preview = format!(
+        "{}{}",
+        if start > 0 { "…" } else { "" },
+        single(&graphemes[start..].concat())
+    );
+    wrap(&preview, width).into_iter().take(2).collect()
 }
