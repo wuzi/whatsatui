@@ -1,4 +1,5 @@
 mod bridge;
+pub mod demo;
 mod durability;
 pub mod encode;
 mod normalize;
@@ -67,7 +68,7 @@ pub struct BackendControl {
     task: Option<tokio::task::JoinHandle<Result<(), BackendError>>>,
 }
 impl BackendControl {
-    pub(crate) fn new(
+    pub fn new(
         stop: oneshot::Sender<()>,
         task: tokio::task::JoinHandle<Result<(), BackendError>>,
     ) -> Self {

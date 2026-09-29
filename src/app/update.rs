@@ -729,8 +729,40 @@ impl App {
                 Ok(change) => self.changed(change, effects),
                 Err(e) => self.view.notice = Some(e),
             },
-            StoreCompletion::Staged { .. } | StoreCompletion::Read { .. } => {}
+            StoreCompletion::Staged {
+                message, result, ..
+            } => match result {
+                Ok(()) => {
+                    if self.view.account.as_ref() == Some(&message.key.account) {
+                        if self.view.chat.as_ref() == Some(&message.key.chat) {
+                            self.view.draft = Draft {
+                                revision: message.draft.revision + 1,
+                                ..Default::default()
+                            };
+                            self.editor = Editor::default();
+                            self.drafts.insert(
+                                message.key.chat.clone(),
+                                LocalDraft {
+                                    data: self.view.draft.clone(),
+                                    dirty: false,
+                                    edited_at: self.view.now,
+                                    saving: None,
+                                },
+                            );
+                        }
+                        effects.push(Effect::Transmit(message));
+                    }
+                }
+                Err(e) => self.view.notice = Some(e),
+            },
+            StoreCompletion::Read { .. } => {}
         }
+    }
+    pub fn request_shutdown(&mut self) -> Vec<Effect> {
+        self.quitting = true;
+        let mut effects = self.flush_drafts();
+        effects.push(Effect::Shutdown);
+        effects
     }
     pub fn update(&mut self, input: Input, now: Instant) -> Vec<Effect> {
         self.view.now = now;
@@ -739,7 +771,16 @@ impl App {
             Input::Terminal(event) => self.terminal(event, &mut effects),
             Input::Backend(event) => self.backend(event, &mut effects),
             Input::Store(event) => self.completion(event, &mut effects),
-            Input::Tick(_) => {}
+            Input::Tick(_) => {
+                if self.drafts.values().any(|d| {
+                    d.dirty
+                        && d.saving != Some(d.data.revision)
+                        && now.saturating_duration_since(d.edited_at)
+                            >= std::time::Duration::from_millis(250)
+                }) {
+                    effects.extend(self.flush_drafts());
+                }
+            }
         }
         effects
     }
