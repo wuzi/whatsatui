@@ -66,4 +66,6 @@
 ## Completion
 
 - [x] Independent review; reproduce and fix material findings; record any deferred issues.
-- [ ] Verify and merge locally, preserve evidence, deliver runnable binary and completed plan.
+- [x] Verify and merge locally, preserve evidence, deliver runnable binary and completed plan.
+
+Delivered locally on `main` on 2026-09-29. All 138 tests passed in the feature and merged checkouts; formatting, Clippy with warnings denied, and the optimized build passed. The runnable binary is `target/release/whatsapp-tui`. Review findings were reproduced and fixed; no material issue was deferred. Evidence is preserved under `.superpowers/sdd/2026-09-29-message-actions/`. The feature worktree and branch were removed after merging. No push or publication was performed.
