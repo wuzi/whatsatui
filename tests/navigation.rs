@@ -144,6 +144,32 @@ fn switcher_preserves_identity_during_reorder() {
 }
 
 #[test]
+fn unread_switcher_keeps_selection_when_a_pending_read_finishes() {
+    let mut app = ready_app();
+    refresh(
+        &mut app,
+        vec![
+            chat("chat", "Alice", 1),
+            chat("bob", "Bob", 2),
+            chat("carol", "Carol", 1),
+        ],
+    );
+    press(&mut app, "u");
+    press(&mut app, "down");
+    app.update(
+        Input::Store(StoreCompletion::Read {
+            account: account("test"),
+            chat: "chat".into(),
+            keys: vec![key("chat", "alice", "one")],
+            result: Ok(()),
+        }),
+        Instant::now(),
+    );
+    press(&mut app, "enter");
+    assert_eq!(app.view().chat.unwrap().0, "bob");
+}
+
+#[test]
 fn switcher_clamps_selection_when_result_disappears() {
     let mut app = ready_app();
     refresh(

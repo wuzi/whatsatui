@@ -136,6 +136,7 @@ pub fn render(frame: &mut Frame, view: &ViewModel, config: &Config) {
     timeline::render(frame, regions.messages, view, config);
     composer::render(frame, regions.composer, view, config);
     let context = match &view.overlay {
+        Some(Overlay::MessageSearch(_)) => Context::MessageSearch,
         Some(Overlay::Search { .. }) => Context::Search,
         Some(Overlay::Help) => Context::Help,
         Some(Overlay::Resend { .. }) => Context::Resend,

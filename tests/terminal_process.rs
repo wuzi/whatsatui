@@ -91,7 +91,10 @@ impl Process {
             );
             std::thread::sleep(Duration::from_millis(10));
         }
-        panic!("No {needle} in PTY output");
+        panic!(
+            "No {needle} in PTY output: {:?}",
+            String::from_utf8_lossy(&self.output)
+        );
     }
     fn finish(&mut self) -> std::process::ExitStatus {
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -137,6 +140,28 @@ fn demo_restores_tty_after_exit() {
     c.arg("--demo");
     let mut p = Process::launch(c);
     p.wait_for("Alice");
+    p.master.write_all(b"\x11").unwrap();
+    assert!(p.finish().success());
+    p.restored();
+}
+#[test]
+fn demo_finds_chats_messages_and_unreads_then_restores_tty() {
+    let mut command = binary();
+    command.arg("--demo");
+    let mut p = Process::launch(command);
+    p.wait_for("Alice");
+    p.master.write_all(b"\x10").unwrap();
+    p.wait_for("Switch chat");
+    p.master.write_all(b"\x1b[200~alc\x1b[201~").unwrap();
+    p.wait_for("alc");
+    p.master.write_all(b"\r").unwrap();
+    p.master.write_all(b"\x06").unwrap();
+    p.wait_for("search/open");
+    p.master.write_all(b"\x1b[200~cyan\x1b[201~\r").unwrap();
+    p.wait_for("matches");
+    p.output.clear();
+    p.master.write_all(b"\r\x1b[Zu").unwrap();
+    p.wait_for("Unread");
     p.master.write_all(b"\x11").unwrap();
     assert!(p.finish().success());
     p.restored();

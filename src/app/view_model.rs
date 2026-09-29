@@ -9,6 +9,7 @@ pub enum Focus {
 }
 #[derive(Clone, Debug)]
 pub enum Overlay {
+    MessageSearch(Box<super::search::MessageSearch>),
     Search {
         editor: Editor,
         selected: usize,

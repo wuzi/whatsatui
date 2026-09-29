@@ -94,6 +94,7 @@ fn key(config: &Config, context: Context, action: crate::config::bindings::Actio
 }
 pub(super) fn render(frame: &mut Frame, area: Rect, view: &ViewModel, config: &Config) {
     match &view.overlay {
+        Some(Overlay::MessageSearch(_)) => search::messages(frame, area, view, config),
         Some(Overlay::Search { .. }) => search::chats(frame, area, view, config),
         Some(Overlay::Help) => {
             let r = centered(area, 72, area.height.saturating_sub(2));

@@ -161,6 +161,21 @@ pub async fn execute(
     commands: mpsc::Sender<BackendCommand>,
 ) -> Option<Input> {
     let event = match effect {
+        Effect::SearchMessages {
+            request,
+            account,
+            chat,
+            query,
+        } => StoreCompletion::MessageSearch {
+            request,
+            account: account.clone(),
+            chat: chat.clone(),
+            query: query.clone(),
+            result: store
+                .search_messages(account, chat, query, chrono::Utc::now().timestamp_millis())
+                .await
+                .map_err(|e| e.to_string()),
+        },
         Effect::LoadChats { request, account } => StoreCompletion::Chats {
             request,
             account: account.clone(),

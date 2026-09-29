@@ -1,4 +1,27 @@
+use super::model::{AccountId, ChatId, MessageSearchPage, RequestId};
 use super::{editor::Editor, model::ChatSummary};
+
+#[derive(Clone, Debug)]
+pub struct MessageSearch {
+    pub account: AccountId,
+    pub chat: ChatId,
+    pub editor: Editor,
+    pub selected: usize,
+    pub request: Option<RequestId>,
+    pub submitted: Option<String>,
+    pub page: MessageSearchPage,
+    pub error: Option<String>,
+}
+impl MessageSearch {
+    pub fn invalidate(&mut self, reason: Option<&str>) {
+        // Keep the running request until its response retires it. Its results
+        // are invalid, but editing must not enqueue another whole-history scan.
+        self.submitted = None;
+        self.page = MessageSearchPage::default();
+        self.selected = 0;
+        self.error = reason.map(str::to_owned);
+    }
+}
 
 pub fn normalize_query(text: &str) -> String {
     text.chars()

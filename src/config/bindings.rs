@@ -20,6 +20,7 @@ pub enum Context {
     Messages,
     Composer,
     Search,
+    MessageSearch,
     Help,
     Resend,
     Global,
@@ -30,6 +31,7 @@ pub enum ActionId {
     FocusNext,
     FocusPrevious,
     Search,
+    MessageSearch,
     Unread,
     ToggleUnread,
     Help,
@@ -54,7 +56,8 @@ impl ActionId {
         match self {
             Self::FocusNext => "next pane",
             Self::FocusPrevious => "previous pane",
-            Self::Search => "search",
+            Self::Search => "chats",
+            Self::MessageSearch => "find messages",
             Self::Unread => "unread chats",
             Self::ToggleUnread => "all/unread",
             Self::Help => "help",
@@ -85,6 +88,7 @@ impl Default for Bindings {
                 (A::FocusNext, "tab"),
                 (A::FocusPrevious, "shift-tab"),
                 (A::Search, "ctrl-p"),
+                (A::MessageSearch, "ctrl-f"),
                 (A::Help, "f1"),
             ] {
                 b.add(c, a, k);
@@ -129,6 +133,7 @@ impl Default for Bindings {
             (A::Previous, "up"),
         ] {
             b.add(C::Search, a, k);
+            b.add(C::MessageSearch, a, k);
         }
         b.add(C::Help, A::Back, "esc");
         b.add(C::Search, A::ToggleUnread, "ctrl-u");
@@ -160,8 +165,10 @@ impl Bindings {
                     .retain(|b| b.context != context || b.action != action);
                 for label in keys {
                     let key = parse_key(&label)?;
-                    if matches!(context, Context::Composer | Context::Search)
-                        && matches!(key.code, KeyCode::Char(_))
+                    if matches!(
+                        context,
+                        Context::Composer | Context::Search | Context::MessageSearch
+                    ) && matches!(key.code, KeyCode::Char(_))
                         && !key
                             .modifiers
                             .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
@@ -184,6 +191,7 @@ impl Bindings {
             Context::Messages,
             Context::Composer,
             Context::Search,
+            Context::MessageSearch,
             Context::Help,
             Context::Resend,
             Context::Global,
@@ -246,6 +254,7 @@ fn allowed(c: Context, a: ActionId) -> bool {
             A::FocusNext
                 | A::FocusPrevious
                 | A::Search
+                | A::MessageSearch
                 | A::Unread
                 | A::Help
                 | A::Next
@@ -268,6 +277,7 @@ fn allowed(c: Context, a: ActionId) -> bool {
             A::FocusNext
                 | A::FocusPrevious
                 | A::Search
+                | A::MessageSearch
                 | A::Help
                 | A::Send
                 | A::Newline
@@ -278,6 +288,7 @@ fn allowed(c: Context, a: ActionId) -> bool {
             a,
             A::Back | A::Open | A::Next | A::Previous | A::ToggleUnread
         ),
+        C::MessageSearch => matches!(a, A::Back | A::Open | A::Next | A::Previous),
         C::Help => a == A::Back,
         C::Resend => matches!(a, A::Back | A::Confirm),
     }

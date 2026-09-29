@@ -16,6 +16,20 @@ Scroll upward to hold your reading position. Within a long message, arrows/j/k s
 
 Messages/Composer at the bottom mark the conversation read; selecting a chat while staying in Chats does not. Terminal foreground focus is also required when focus reporting is available. Read acknowledgements use the backend's account behavior. Synced unread information initializes the local baseline; it is not an ongoing mirror of every other device's unread counter.
 
+## Finding conversations and messages
+
+Ctrl-P opens the chat switcher from any pane; `/` also opens it from Chats or Messages. Type parts of a name, phone number, or known identifier: `asm` can find Alice Smith, and `smith ali` also matches. Exact and contiguous matches rank before scattered characters. Empty queries retain the recent-chat order. Phone queries can omit spaces, parentheses, and dashes.
+
+Press `u` in Chats for unread conversations, or Ctrl-U inside the switcher to toggle All/Unread without clearing your query. Each result shows its direct/group type, unread count, and any draft. Arrows select, Enter opens the composer, and Esc returns to the pane you came from. Background updates keep the highlighted conversation selected when its position changes.
+
+Ctrl-F opens a message finder for the current conversation. Type a phrase and press Enter to search, then use arrows and Enter to open a match in Messages. End returns to the latest page. Search is local and works offline, including messages outside the currently loaded page. Only history downloaded to this client can appear.
+
+Message queries are literal: `%`, `_`, quotes, and backslashes have no special meaning. Unicode lowercase comparison makes `CAFÉ` match `café`; `cafe` does not match `café`. There is no accent normalization or stemming. Text and media captions are included; deleted/expired bodies, quoted previews, and unsent drafts are excluded. The newest 50 results are shown; refine your phrase when the count says `50+`.
+
+Search runs only when submitted, with one scan at a time for the open finder. Editing clears old results. If the conversation changes while the finder is open, submit again for fresh results. Esc closes the finder and keeps your timeline and draft; opening an older result also preserves the draft and does not mark newer messages read. Both search inputs use a single line of at most 256 Unicode characters. Their controls can be changed in `[bindings.search]` and `[bindings.message_search]`.
+
+In the demo, use Ctrl-P and `alc` to open Alice, then Ctrl-F and `cyan` to find a message. Return to Chats and press `u` to try the unread filter.
+
 ## Connection and send state
 
 An outgoing attempt receives a stable ID and is committed locally before transmission. Text typed while an earlier revision is being sent remains in the composer. The states shown are:

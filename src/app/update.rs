@@ -1,8 +1,15 @@
 use super::{editor::*, input::Input, model::*, view_model::*};
 use crate::{config::Config, whatsapp::BackendEvent};
 use tokio::time::Instant;
+mod search;
 #[derive(Clone, Debug)]
 pub enum Effect {
+    SearchMessages {
+        request: RequestId,
+        account: AccountId,
+        chat: ChatId,
+        query: String,
+    },
     LoadChats {
         request: RequestId,
         account: AccountId,
@@ -49,6 +56,13 @@ pub enum Effect {
 }
 #[derive(Debug)]
 pub enum StoreCompletion {
+    MessageSearch {
+        request: RequestId,
+        account: AccountId,
+        chat: ChatId,
+        query: String,
+        result: Result<MessageSearchPage, String>,
+    },
     Chats {
         request: RequestId,
         account: AccountId,
@@ -192,7 +206,10 @@ impl App {
             Event::Key(key) => match self.config.bindings.lookup(self.context(), *key) {
                 Some(ActionId::Quit) => true,
                 Some(_) => false,
-                None => matches!(self.context(), Context::Composer | Context::Search),
+                None => matches!(
+                    self.context(),
+                    Context::Composer | Context::Search | Context::MessageSearch
+                ),
             },
             Event::Paste(_) | Event::Resize(..) | Event::FocusGained | Event::FocusLost => true,
             _ => false,
@@ -212,6 +229,7 @@ impl App {
     }
     fn context(&self) -> Context {
         match &self.view.overlay {
+            Some(Overlay::MessageSearch(_)) => Context::MessageSearch,
             Some(Overlay::Search { .. }) => Context::Search,
             Some(Overlay::Help) => Context::Help,
             Some(Overlay::Resend { .. }) => Context::Resend,
@@ -348,6 +366,13 @@ impl App {
             .and_then(|k| self.view.messages.iter().find(|m| &m.key == k))
     }
     fn move_selection(&mut self, delta: isize, effects: &mut Vec<Effect>) {
+        if let Some(Overlay::MessageSearch(search)) = &mut self.view.overlay {
+            search.selected = search
+                .selected
+                .saturating_add_signed(delta)
+                .min(search.page.hits.len().saturating_sub(1));
+            return;
+        }
         if matches!(self.view.overlay, Some(Overlay::Search { .. })) {
             let len = self.search_results().len();
             if let Some(Overlay::Search { selected, .. }) = &mut self.view.overlay {
@@ -444,6 +469,7 @@ impl App {
     fn action(&mut self, action: ActionId, effects: &mut Vec<Effect>) {
         use ActionId as A;
         match action {
+            A::MessageSearch => self.open_message_search(),
             A::Quit => {
                 effects.extend(self.request_shutdown());
             }
@@ -534,6 +560,10 @@ impl App {
                 }
             }
             A::Open => {
+                if matches!(self.view.overlay, Some(Overlay::MessageSearch(_))) {
+                    self.submit_or_open_message(effects);
+                    return;
+                }
                 if let Some(Overlay::Search { selected, .. }) = &self.view.overlay {
                     if let Some(chat) = self.search_results().get(*selected) {
                         let id = chat.chat.clone();
@@ -731,7 +761,11 @@ impl App {
             _ => None,
         };
         if let Some(edit) = edit {
-            if let Some(Overlay::Search {
+            if let Some(Overlay::MessageSearch(search)) = &mut self.view.overlay {
+                if super::search::edit_query(&mut search.editor, edit) {
+                    search.invalidate(None);
+                }
+            } else if let Some(Overlay::Search {
                 editor, selected, ..
             }) = &mut self.view.overlay
             {
@@ -749,6 +783,12 @@ impl App {
     fn changed(&mut self, change: StoreChange, effects: &mut Vec<Effect>) {
         if self.view.account.as_ref() != Some(&change.account) || change.chats.is_empty() {
             return;
+        }
+        if let Some(Overlay::MessageSearch(search)) = &mut self.view.overlay
+            && search.account == change.account
+            && change.chats.contains(&search.chat)
+        {
+            search.invalidate(Some("Conversation changed; search again"));
         }
         self.load_list(effects);
         if self
@@ -853,6 +893,15 @@ impl App {
     }
     fn completion(&mut self, event: StoreCompletion, effects: &mut Vec<Effect>) {
         match event {
+            StoreCompletion::MessageSearch {
+                request,
+                account,
+                chat,
+                query,
+                result,
+            } => {
+                self.complete_message_search(request, account, chat, query, result);
+            }
             StoreCompletion::Chats {
                 request,
                 account,
@@ -866,21 +915,7 @@ impl App {
                 self.list_request = None;
                 match result {
                     Ok(chats) => {
-                        let highlighted =
-                            if let Some(Overlay::Search { selected, .. }) = &self.view.overlay {
-                                self.search_results().get(*selected).map(|c| c.chat.clone())
-                            } else {
-                                None
-                            };
                         self.view.chats = chats;
-                        let results = self.search_results();
-                        if let Some(Overlay::Search { selected, .. }) = &mut self.view.overlay {
-                            *selected = highlighted
-                                .and_then(|id| results.iter().position(|c| c.chat == id))
-                                .unwrap_or_else(|| {
-                                    (*selected).min(results.len().saturating_sub(1))
-                                });
-                        }
                         if self.view.chat.is_none()
                             && let Some(first) = self.view.chats.first()
                         {
@@ -966,6 +1001,11 @@ impl App {
                         self.view.loading = false;
                         let canonical = snapshot.summary.chat.clone();
                         if canonical != chat {
+                            if let Some(Overlay::MessageSearch(search)) = &mut self.view.overlay {
+                                search.request = None;
+                                search.chat = canonical.clone();
+                                search.invalidate(Some("Contact updated; search again"));
+                            }
                             let alias_draft = self.drafts.remove(&chat);
                             let canonical_draft = self.drafts.remove(&canonical);
                             let mut merged = snapshot.draft.clone();
@@ -1306,7 +1346,11 @@ impl App {
             }
             Input::Terminal(event) => self.terminal(event, &mut effects),
             Input::Backend(event) => self.backend(event, &mut effects),
-            Input::Store(event) => self.completion(event, &mut effects),
+            Input::Store(event) => {
+                let highlighted = self.highlighted_chat();
+                self.completion(event, &mut effects);
+                self.restore_highlighted_chat(highlighted);
+            }
             Input::Tick(epoch_ms) => {
                 if epoch_ms.saturating_sub(self.last_expiry_ms) >= 1000 {
                     self.last_expiry_ms = epoch_ms;

@@ -29,7 +29,8 @@ whatsapp-tui
 
 ## What v0.1 includes
 
-- Direct and existing group text chats; search by name or known phone/identifier.
+- Direct and existing group text chats; fuzzy switching by name or known phone/identifier, with an unread filter.
+- Search cached message text and media captions in a conversation, then jump to a match in history.
 - Unicode composition, multiline paste, quoted replies, and persistent per-chat drafts.
 - Local history, unread counts, delivery states, and known group receipt counts.
 - Durable outgoing attempts before transmission, with explicit confirmation for resending uncertain attempts.
@@ -48,7 +49,10 @@ Media appears as a placeholder with its caption when available. Media transfer, 
 | Enter in Composer | Send |
 | Alt-Enter | Insert a newline |
 | Esc | Return to the previous pane or close an overlay |
-| / in lists, Ctrl-P | Find a chat/contact |
+| / in lists, Ctrl-P | Fuzzy chat/contact switcher |
+| u in Chats, Ctrl-U in switcher | Open unread chats / toggle All and Unread |
+| Ctrl-F | Find messages in the current conversation |
+| Enter in message finder | Search, then open the selected match |
 | r in Messages | Quote the selected message |
 | R in Messages | Confirm a resend of a failed/unconfirmed attempt |
 | Alt-R in Composer | Remove the quote, keep your text |
@@ -57,6 +61,8 @@ Media appears as a placeholder with its caption when available. Media transfer, 
 | Ctrl-Q | Save drafts and quit |
 
 Printable keys remain ordinary text in the composer. Bracketed paste never submits a message. The footer and help use your configured bindings.
+
+The message finder searches downloaded history, including older cached pages, while offline. Type a literal phrase and press Enter; use arrows and Enter to jump to a match. It shows the newest 50 matches and asks you to refine broader searches. Esc returns to your previous pane with your draft intact. See [finding conversations and messages](docs/usage.md#finding-conversations-and-messages) for details.
 
 ## Local configuration and data
 
@@ -71,6 +77,10 @@ Absolute `XDG_CONFIG_HOME` and `XDG_DATA_HOME` override those bases. `--config P
 The cache and credentials are **plaintext local files** in a private directory; database files are mode 0600 and the directory is 0700. One instance may own a data directory at a time. Do not share these files or include them in bug reports. Known disappearing-message deadlines remove bodies and cached quote previews from application records; this is not forensic erasure from SQLite pages, WAL files, backups, or the upstream session store.
 
 See [usage and recovery](docs/usage.md), [design](docs/superpowers/specs/2026-09-29-whatsapp-tui-design.md), and [backend validation](docs/backend-validation.md).
+
+## Next iterations
+
+The [navigation plan](docs/superpowers/plans/2026-09-29-navigation.md) applies ideas from [Concord's fuzzy switcher, search, and unread inbox](https://github.com/chojs23/concord#features) to this app's pane controls. Next priorities are richer WhatsApp text formatting, a discoverable message action menu with clipboard/link support, then media previews and attachments. Real-account pairing, restoration, and messaging acceptance remains necessary before relying on the client daily.
 
 ## Development
 

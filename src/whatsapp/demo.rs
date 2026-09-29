@@ -37,6 +37,12 @@ async fn initialize(store: &Store) -> Result<StoreChange, BackendError> {
         name: name.into(),
         phone: None,
         is_group,
+        unread: match id {
+            "weekend@g.us" => 3,
+            "maya@demo" => 1,
+            _ => 0,
+        },
+        latest_at_ms: TIME + 150_000,
         ..Default::default()
     })
     .collect();
@@ -63,7 +69,7 @@ async fn initialize(store: &Store) -> Result<StoreChange, BackendError> {
             "alice@demo",
             "alice@demo",
             "a3",
-            "Try writing a message. Tab moves between panes; / finds a conversation.",
+            "Tab moves between panes. Ctrl-P finds chats; Ctrl-F searches this conversation. Try cyan.",
             120_000,
         ),
         message(
