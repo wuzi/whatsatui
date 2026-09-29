@@ -26,6 +26,7 @@ futures-util = "0.3"
 fs2 = "0.4"
 tempfile = "3"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+linkify = "0.11"
 
 [dev-dependencies]
 nix = { version = "0.30", features = ["term", "process", "poll", "fs"] }

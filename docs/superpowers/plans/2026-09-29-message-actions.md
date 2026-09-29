@@ -45,11 +45,11 @@
 
 **Interfaces:** `message_actions::text(message: &MessageRecord, now_ms: i64) -> Option<&str>`; `web_links(text: &str) -> Vec<String>`; `DesktopAction::{CopyText, OpenLink(String), CopyLink(String)}`; `Store::get_message(key: MessageKey) -> Result<Option<MessageRecord>, StoreError>`; asynchronous `desktop::execute(message, action, store, integration) -> Result<String, String>`. Injectable `Desktop` trait exposes copy/open; native implementation owns fixed commands and deadlines.
 
-- [ ] **Step 1:** Write tests for ordered/deduplicated web links, punctuation/Unicode, blocked schemes/credentials/control input, original copy bytes, edited/deleted/expired/aliased message rejection using real SQLite, and helper stdin/argv/error/timeout behavior using temporary executable fixtures. External effects must stay behind the test boundary.
-- [ ] **Step 2:** Run desktop_actions; expect unavailable API then behavior failures with inert stubs.
-- [ ] **Step 3:** Implement helpers, current-record validation, narrow storage getter, and bounded native command adapter. Validate selected URL membership again immediately before opening/copying it.
-- [ ] **Step 4:** Run desktop_actions and store/reconciliation targets; expect all pass with no real desktop changes.
-- [ ] **Step 5:** Commit `feat: add validated clipboard and browser actions`.
+- [x] **Step 1:** Write tests for ordered/deduplicated web links, punctuation/Unicode, blocked schemes/credentials/control input, original copy bytes, edited/deleted/expired/aliased message rejection using real SQLite, and helper stdin/argv/error/timeout behavior using temporary executable fixtures. External effects must stay behind the test boundary.
+- [x] **Step 2:** Run desktop_actions; expect unavailable API then behavior failures with inert stubs.
+- [x] **Step 3:** Implement helpers, current-record validation, narrow storage getter, and bounded native command adapter. Validate selected URL membership again immediately before opening/copying it.
+- [x] **Step 4:** Run desktop_actions and store/reconciliation targets; expect all pass with no real desktop changes.
+- [x] **Step 5:** Commit `feat: add validated clipboard and browser actions`.
 
 ### Task 3: Message menu and link picker
 

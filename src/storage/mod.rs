@@ -96,6 +96,9 @@ impl Store {
     pub async fn list_chats(&self, account: AccountId) -> Result<Vec<ChatSummary>, StoreError> {
         self.call(move |c| worker::list(c, &account)).await
     }
+    pub async fn get_message(&self, key: MessageKey) -> Result<Option<MessageRecord>, StoreError> {
+        self.call(move |c| worker::get(c, &key)).await
+    }
     pub async fn search_messages(
         &self,
         account: AccountId,
