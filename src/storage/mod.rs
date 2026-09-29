@@ -76,7 +76,11 @@ impl Store {
             .await
     }
     pub async fn stage_outgoing(&self, message: OutboundText) -> Result<(), StoreError> {
-        self.call(move |c| worker::stage(c, message)).await
+        self.call(move |c| worker::stage(c, message, true)).await
+    }
+    /// Commit an explicit resend while preserving the conversation's current draft.
+    pub async fn stage_resend(&self, message: OutboundText) -> Result<(), StoreError> {
+        self.call(move |c| worker::stage(c, message, false)).await
     }
     pub async fn snapshot(
         &self,

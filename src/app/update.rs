@@ -28,6 +28,7 @@ pub enum Effect {
     Stage {
         request: RequestId,
         message: OutboundText,
+        preserve_draft: bool,
     },
     Transmit(OutboundText),
     PersistOutcome {
@@ -94,11 +95,21 @@ struct LocalDraft {
     edited_at: Instant,
     saving: Option<u64>,
 }
+struct PendingSend {
+    account: AccountId,
+    chat: ChatId,
+    draft: Draft,
+    preserve_draft: bool,
+    staging: bool,
+}
 pub struct App {
     pub config: Config,
     view: ViewModel,
     editor: Editor,
     drafts: HashMap<ChatId, LocalDraft>,
+    pending: HashMap<RequestId, PendingSend>,
+    draft_loads: HashMap<(AccountId, ChatId), RequestId>,
+    buffered: HashMap<(AccountId, ChatId), Vec<EditAction>>,
     serial: u64,
     list_request: Option<RequestId>,
     chat_request: Option<RequestId>,
@@ -139,6 +150,9 @@ impl App {
             },
             editor: Editor::default(),
             drafts: HashMap::new(),
+            pending: HashMap::new(),
+            draft_loads: HashMap::new(),
+            buffered: HashMap::new(),
             serial: 0,
             list_request: None,
             chat_request: None,
@@ -189,7 +203,12 @@ impl App {
         if let (Some(account), Some(chat)) = (self.view.account.clone(), self.view.chat.clone()) {
             let request = self.request();
             self.chat_request = Some(request);
-            self.view.loading = true;
+            self.view.loading = !self.drafts.contains_key(&chat);
+            if self.view.loading {
+                self.draft_loads
+                    .entry((account.clone(), chat.clone()))
+                    .or_insert(request);
+            }
             self.page_cursor = cursor.clone();
             effects.push(Effect::LoadChat {
                 request,
@@ -405,12 +424,7 @@ impl App {
                 }
                 self.focus(Focus::Composer, effects);
             }
-            A::Newline => {
-                if self.view.chat.is_some() {
-                    self.editor.apply(EditAction::Newline);
-                    self.remember();
-                }
-            }
+            A::Newline => self.edit_current(EditAction::Newline),
             A::RemoveReply => {
                 if self.view.draft.reply.take().is_some() {
                     self.remember();
@@ -445,45 +459,101 @@ impl App {
                 }
             }
             A::Confirm => {
+                if self.view.connection != ConnectionState::Connected {
+                    self.view.notice = Some("Not sent: wait for the connection".into());
+                    return;
+                }
                 if let Some(Overlay::Resend { message }) = self.view.overlay.take() {
                     if let MessageBody::Text(text) = message.body {
-                        if let Some(account) = self.view.account.clone() {
-                            let request = self.request();
-                            effects.push(Effect::Prepare {
-                                request,
-                                account,
-                                chat: message.key.chat,
-                                draft: Draft {
-                                    text,
-                                    reply: message.quote,
-                                    revision: 0,
-                                },
-                            });
-                        }
+                        self.prepare(
+                            message.key.chat,
+                            Draft {
+                                text,
+                                reply: message.quote,
+                                revision: 0,
+                            },
+                            true,
+                            effects,
+                        );
                     }
                 }
             }
             A::Send => {
-                if self.view.draft.text.trim().is_empty() || self.view.loading {
+                if self.view.draft.text.trim().is_empty() {
                     return;
                 }
-                if self.view.connection != ConnectionState::Connected {
-                    self.view.notice =
-                        Some("Not sent: wait for the connection; your draft is kept".into());
-                    return;
-                }
-                if let (Some(account), Some(chat)) =
-                    (self.view.account.clone(), self.view.chat.clone())
-                {
-                    let request = self.request();
-                    effects.push(Effect::Prepare {
-                        request,
-                        account,
-                        chat,
-                        draft: self.view.draft.clone(),
-                    });
+                if let Some(chat) = self.view.chat.clone() {
+                    if self.view.loading {
+                        self.view.notice =
+                            Some("Loading the saved draft; your typing is kept".into());
+                        return;
+                    }
+                    self.prepare(chat, self.view.draft.clone(), false, effects);
                 }
             }
+        }
+    }
+    fn prepare(
+        &mut self,
+        chat: ChatId,
+        draft: Draft,
+        preserve_draft: bool,
+        effects: &mut Vec<Effect>,
+    ) {
+        if self.quitting {
+            return;
+        }
+        if self.view.connection != ConnectionState::Connected {
+            self.view.notice = Some("Not sent: wait for the connection; your draft is kept".into());
+            return;
+        }
+        let Some(account) = self.view.account.clone() else {
+            return;
+        };
+        if self.pending.values().any(|p| {
+            p.account == account
+                && p.chat == chat
+                && p.draft == draft
+                && p.preserve_draft == preserve_draft
+        }) {
+            return;
+        }
+        if self.pending.len() >= 8 {
+            self.view.notice = Some("Please wait for pending sends; your draft is kept".into());
+            return;
+        }
+        let request = self.request();
+        self.pending.insert(
+            request,
+            PendingSend {
+                account: account.clone(),
+                chat: chat.clone(),
+                draft: draft.clone(),
+                preserve_draft,
+                staging: false,
+            },
+        );
+        effects.push(Effect::Prepare {
+            request,
+            account,
+            chat,
+            draft,
+        });
+    }
+    fn edit_current(&mut self, edit: EditAction) {
+        let (Some(account), Some(chat)) = (self.view.account.clone(), self.view.chat.clone())
+        else {
+            return;
+        };
+        if !self.drafts.contains_key(&chat) {
+            self.buffered
+                .entry((account, chat))
+                .or_default()
+                .push(edit.clone());
+            self.editor.apply(edit);
+            self.view.draft.text = self.editor.text().into();
+        } else if self.editor.apply(edit) {
+            self.remember();
         }
     }
     fn terminal(&mut self, event: Event, effects: &mut Vec<Effect>) {
@@ -542,11 +612,8 @@ impl App {
             } else if self.view.overlay.is_none()
                 && self.view.focus == Focus::Composer
                 && self.view.chat.is_some()
-                && !self.view.loading
             {
-                if self.editor.apply(edit) {
-                    self.remember();
-                }
+                self.edit_current(edit);
             }
         }
     }
@@ -583,6 +650,10 @@ impl App {
                     self.view.draft = Draft::default();
                     self.editor = Editor::default();
                     self.drafts.clear();
+                    self.pending.retain(|_, p| p.staging);
+                    self.view.overlay = None;
+                    self.view.receipts.clear();
+                    self.view.selected_message = None;
                     self.list_request = None;
                     self.chat_request = None;
                     effects.push(Effect::RecoverAccount(account));
@@ -590,8 +661,15 @@ impl App {
                 }
             }
             BackendEvent::ConnectionChanged { state, reason } => {
+                let disconnected = self.view.connection == ConnectionState::Connected
+                    && state != ConnectionState::Connected;
                 self.view.connection = state;
                 self.view.reason = reason;
+                if disconnected {
+                    if let Some(account) = self.view.account.clone() {
+                        effects.push(Effect::RecoverAccount(account));
+                    }
+                }
                 if state == ConnectionState::Connected {
                     self.view.qr = None;
                 }
@@ -609,16 +687,39 @@ impl App {
             }
             BackendEvent::StoreChanged(change) => self.changed(change, effects),
             BackendEvent::Prepared { request, message } => {
-                if self.view.account.as_ref() == Some(&message.key.account) {
-                    effects.push(Effect::Stage { request, message });
+                if let Some(p) = self.pending.get_mut(&request) {
+                    if !p.staging
+                        && !self.quitting
+                        && self.view.account.as_ref() == Some(&message.key.account)
+                        && p.account == message.key.account
+                        && p.chat == message.key.chat
+                        && p.draft == message.draft
+                        && message.key.from_me
+                    {
+                        p.staging = true;
+                        effects.push(Effect::Stage {
+                            request,
+                            message,
+                            preserve_draft: p.preserve_draft,
+                        });
+                    } else if !p.staging {
+                        self.pending.remove(&request);
+                    }
                 }
             }
-            BackendEvent::PreparationFailed { reason, .. } => self.view.notice = Some(reason),
+            BackendEvent::PreparationFailed { request, reason } => {
+                if self.pending.remove(&request).is_some() {
+                    self.view.notice = Some(reason);
+                }
+            }
             BackendEvent::SendOutcome { key, state } => {
                 effects.push(Effect::PersistOutcome { key, state })
             }
             BackendEvent::LocalError(notice) => self.view.notice = notice,
             BackendEvent::Stopped => {
+                if let Some(account) = self.view.account.clone() {
+                    effects.push(Effect::RecoverAccount(account));
+                }
                 self.view.connection = ConnectionState::Disconnected;
                 self.view.notice = Some("WhatsApp service stopped; local drafts are kept".into());
             }
@@ -656,19 +757,63 @@ impl App {
                 request,
                 account,
                 chat,
-                cursor: _,
                 result,
+                ..
             } => {
-                if self.view.account.as_ref() != Some(&account)
+                let pair = (account.clone(), chat.clone());
+                let active_account = self.view.account.as_ref() == Some(&account);
+                if self.draft_loads.get(&pair) == Some(&request) {
+                    self.draft_loads.remove(&pair);
+                    if let Ok(snapshot) = &result {
+                        let mut data = snapshot.draft.clone();
+                        let mut editor = Editor::new(data.text.clone());
+                        let mut changed = false;
+                        for edit in self.buffered.remove(&pair).unwrap_or_default() {
+                            if editor.apply(edit) {
+                                data.revision += 1;
+                                changed = true;
+                            }
+                        }
+                        data.text = editor.text().into();
+                        if active_account {
+                            if self.view.chat.as_ref() == Some(&chat) {
+                                self.view.draft = data.clone();
+                                self.editor = editor;
+                                self.view.loading = false;
+                            }
+                            self.drafts.insert(
+                                chat.clone(),
+                                LocalDraft {
+                                    data,
+                                    dirty: changed,
+                                    edited_at: self.view.now,
+                                    saving: None,
+                                },
+                            );
+                            if self.quitting || self.view.chat.as_ref() != Some(&chat) {
+                                effects.extend(self.flush_drafts());
+                            }
+                        } else if changed {
+                            let request = self.request();
+                            effects.push(Effect::SaveDraft {
+                                request,
+                                account: account.clone(),
+                                chat: chat.clone(),
+                                draft: data,
+                            });
+                        }
+                    }
+                }
+                if !active_account
                     || self.view.chat.as_ref() != Some(&chat)
                     || self.chat_request != Some(request)
                 {
                     return;
                 }
                 self.chat_request = None;
-                self.view.loading = false;
                 match result {
                     Ok(snapshot) => {
+                        self.view.loading = false;
                         let old = self.view.selected_message.clone();
                         self.view.messages = snapshot.messages;
                         self.view.receipts = snapshot.receipts;
@@ -730,31 +875,60 @@ impl App {
                 Err(e) => self.view.notice = Some(e),
             },
             StoreCompletion::Staged {
-                message, result, ..
-            } => match result {
-                Ok(()) => {
-                    if self.view.account.as_ref() == Some(&message.key.account) {
-                        if self.view.chat.as_ref() == Some(&message.key.chat) {
-                            self.view.draft = Draft {
-                                revision: message.draft.revision + 1,
-                                ..Default::default()
-                            };
-                            self.editor = Editor::default();
-                            self.drafts.insert(
-                                message.key.chat.clone(),
-                                LocalDraft {
-                                    data: self.view.draft.clone(),
-                                    dirty: false,
-                                    edited_at: self.view.now,
-                                    saving: None,
+                request,
+                message,
+                result,
+            } => {
+                let Some(pending) = self.pending.remove(&request) else {
+                    return;
+                };
+                match result {
+                    Ok(()) => {
+                        if self.view.account.as_ref() == Some(&message.key.account) {
+                            if !pending.preserve_draft {
+                                if let Some(local) = self.drafts.get_mut(&message.key.chat) {
+                                    if local.data.revision == message.draft.revision
+                                        && local.data == message.draft
+                                    {
+                                        local.data = Draft {
+                                            revision: message.draft.revision + 1,
+                                            ..Default::default()
+                                        };
+                                        local.dirty = false;
+                                        local.saving = None;
+                                        if self.view.chat.as_ref() == Some(&message.key.chat) {
+                                            self.view.draft = local.data.clone();
+                                            self.editor = Editor::default();
+                                        }
+                                    }
+                                }
+                            }
+                            if !self.quitting && self.view.connection == ConnectionState::Connected
+                            {
+                                effects.push(Effect::Transmit(message.clone()));
+                            } else {
+                                effects.push(Effect::PersistOutcome {
+                                    key: message.key.clone(),
+                                    state: SendState::Unconfirmed,
+                                });
+                            }
+                            self.changed(
+                                StoreChange {
+                                    account: message.key.account,
+                                    chats: vec![message.key.chat],
                                 },
+                                effects,
                             );
+                        } else {
+                            effects.push(Effect::PersistOutcome {
+                                key: message.key,
+                                state: SendState::Unconfirmed,
+                            });
                         }
-                        effects.push(Effect::Transmit(message));
                     }
+                    Err(e) => self.view.notice = Some(e),
                 }
-                Err(e) => self.view.notice = Some(e),
-            },
+            }
             StoreCompletion::Read { .. } => {}
         }
     }

@@ -11,9 +11,30 @@ pub(super) fn open(path: &Path) -> Result<SqliteConnection, StoreError> {
     paths::private_file(path)?;
     let mut c = SqliteConnection::establish(path.to_str().ok_or(StoreError::InvalidData)?)?;
     c.batch_execute("PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;")?;
-    c.batch_execute(include_str!(
-        "../../migrations/00000000000001_initial/up.sql"
-    ))?;
+    #[derive(QueryableByName)]
+    struct Version {
+        #[diesel(sql_type=diesel::sql_types::Integer)]
+        user_version: i32,
+    }
+    let version = diesel::sql_query("PRAGMA user_version")
+        .get_result::<Version>(&mut c)?
+        .user_version;
+    if version > 2 {
+        return Err(StoreError::InvalidData);
+    }
+    c.transaction::<_, StoreError, _>(|c| {
+        if version == 0 {
+            c.batch_execute(include_str!(
+                "../../migrations/00000000000001_initial/up.sql"
+            ))?;
+        }
+        if version < 2 {
+            c.batch_execute(include_str!(
+                "../../migrations/00000000000002_draft_barrier/up.sql"
+            ))?;
+        }
+        Ok(())
+    })?;
     Ok(c)
 }
 pub(super) fn default_chat(a: &AccountId, chat: &ChatId) -> ChatSummary {
@@ -66,7 +87,7 @@ pub(super) fn save_draft(
     ensure_chat(c, a, chat)?;
     execute(
         c,
-        "INSERT INTO drafts(account,chat,revision,data) VALUES(?,?,?,?) ON CONFLICT(account,chat) DO UPDATE SET revision=excluded.revision,data=excluded.data WHERE excluded.revision > drafts.revision",
+        "INSERT INTO drafts(account,chat,revision,data) VALUES(?,?,?,?) ON CONFLICT(account,chat) DO UPDATE SET revision=excluded.revision,data=excluded.data,cleared_from=NULL WHERE excluded.revision > drafts.revision OR (excluded.revision = drafts.revision AND drafts.cleared_from IS NOT NULL AND excluded.revision > drafts.cleared_from)",
         &[&a.0, &chat.0, &d.revision.to_string(), &json(d)?],
     )?;
     Ok(())
@@ -204,13 +225,19 @@ pub(super) fn apply(
         })
     })
 }
-pub(super) fn stage(c: &mut SqliteConnection, o: OutboundText) -> Result<(), StoreError> {
+pub(super) fn stage(
+    c: &mut SqliteConnection,
+    o: OutboundText,
+    consume_draft: bool,
+) -> Result<(), StoreError> {
     c.transaction::<_, StoreError, _>(|c| {
         if !o.key.from_me || o.draft.text.trim().is_empty() || get(c, &o.key)?.is_some() {
             return Err(StoreError::InvalidData);
         }
         // First materialize the captured revision. A newer saved draft wins.
-        save_draft(c, &o.key.account, &o.key.chat, &o.draft)?;
+        if consume_draft {
+            save_draft(c, &o.key.account, &o.key.chat, &o.draft)?;
+        }
         let current = draft(c, &o.key.account, &o.key.chat)?;
         let m = MessageRecord {
             key: o.key.clone(),
@@ -222,7 +249,7 @@ pub(super) fn stage(c: &mut SqliteConnection, o: OutboundText) -> Result<(), Sto
             send_state: Some(SendState::Sending),
         };
         put(c, &m, false)?;
-        if current.revision == o.draft.revision {
+        if consume_draft && current.revision == o.draft.revision {
             save_draft(
                 c,
                 &o.key.account,
@@ -234,6 +261,15 @@ pub(super) fn stage(c: &mut SqliteConnection, o: OutboundText) -> Result<(), Sto
                         .ok_or(StoreError::InvalidData)?,
                     ..Default::default()
                 },
+            )?;
+            execute(
+                c,
+                "UPDATE drafts SET cleared_from=? WHERE account=? AND chat=?",
+                &[
+                    &current.revision.to_string(),
+                    &o.key.account.0,
+                    &o.key.chat.0,
+                ],
             )?;
         }
         Ok(())

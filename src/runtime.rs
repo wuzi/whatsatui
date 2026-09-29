@@ -206,13 +206,19 @@ pub async fn execute(
             }
             return None;
         }
-        Effect::Stage { request, message } => StoreCompletion::Staged {
+        Effect::Stage {
+            request,
+            message,
+            preserve_draft,
+        } => StoreCompletion::Staged {
             request,
             message: message.clone(),
-            result: store
-                .stage_outgoing(message)
-                .await
-                .map_err(|e| e.to_string()),
+            result: if preserve_draft {
+                store.stage_resend(message).await
+            } else {
+                store.stage_outgoing(message).await
+            }
+            .map_err(|e| e.to_string()),
         },
         Effect::Transmit(message) => {
             if commands
