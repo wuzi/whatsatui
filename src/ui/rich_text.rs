@@ -1,83 +1,5 @@
 use super::*;
-use std::collections::BTreeMap;
-
-#[derive(Clone, Copy)]
-struct Mark {
-    length: usize,
-    modifier: Modifier,
-    code: bool,
-    open: bool,
-}
-
-// Only matched delimiters become marks. A stack of the three emphasis kinds
-// bounds nesting and keeps malformed input literal without recursive parsing.
-fn marks(text: &str) -> BTreeMap<usize, Mark> {
-    let mut result = BTreeMap::new();
-    let mut stack: Vec<(char, usize, Modifier)> = vec![];
-    let mut i = 0;
-    while i < text.len() {
-        let rest = &text[i..];
-        let ch = rest.chars().next().unwrap();
-        if ch == '`' {
-            let length = if rest.starts_with("```") { 3 } else { 1 };
-            let delimiter = &rest[..length];
-            if let Some(offset) = rest[length..].find(delimiter)
-                && offset > 0
-                && (length == 3 || !rest[length..length + offset].contains('\n'))
-            {
-                let end = i + length + offset;
-                for (at, open) in [(i, true), (end, false)] {
-                    result.insert(
-                        at,
-                        Mark {
-                            length,
-                            modifier: Modifier::DIM,
-                            code: true,
-                            open,
-                        },
-                    );
-                }
-                i = end + length;
-                continue;
-            }
-            i += length;
-            continue;
-        }
-        let modifier = match ch {
-            '*' => Modifier::BOLD,
-            '_' => Modifier::ITALIC,
-            '~' => Modifier::CROSSED_OUT,
-            _ => {
-                i += ch.len_utf8();
-                continue;
-            }
-        };
-        let before = text[..i].chars().next_back();
-        let after = rest[1..].chars().next();
-        let opens = after.is_some_and(|c| !c.is_whitespace() && c != ch)
-            && !before.is_some_and(|c| c.is_alphanumeric() || c == ch);
-        let closes = before.is_some_and(|c| !c.is_whitespace() && c != ch)
-            && !after.is_some_and(|c| c.is_alphanumeric() || c == ch);
-        if closes && stack.last().is_some_and(|(c, _, _)| *c == ch) {
-            let (_, start, modifier) = stack.pop().unwrap();
-            for (at, open) in [(start, true), (i, false)] {
-                result.insert(
-                    at,
-                    Mark {
-                        length: 1,
-                        modifier,
-                        code: false,
-                        open,
-                    },
-                );
-            }
-        } else if opens && !stack.iter().any(|(c, _, _)| *c == ch) {
-            stack.push((ch, i, modifier));
-        }
-        i += 1;
-    }
-    result
-}
+use crate::message_text::{Format, marks};
 
 pub(super) fn lines(source: &str, width: usize, accent: Style, muted: Style) -> Vec<Line<'static>> {
     let text = safe_text(source);
@@ -95,12 +17,18 @@ pub(super) fn lines(source: &str, width: usize, accent: Style, muted: Style) -> 
             continue;
         }
         if let Some(mark) = marks.get(&i) {
+            let style = match mark.format {
+                Format::Bold => Modifier::BOLD,
+                Format::Italic => Modifier::ITALIC,
+                Format::Strike => Modifier::CROSSED_OUT,
+                Format::Code => Modifier::DIM,
+            };
             if mark.open {
-                modifier.insert(mark.modifier);
+                modifier.insert(style);
             } else {
-                modifier.remove(mark.modifier);
+                modifier.remove(style);
             }
-            if mark.code {
+            if mark.format == Format::Code {
                 code = mark.open;
             }
             skip_until = i + mark.length;
@@ -116,11 +44,13 @@ pub(super) fn lines(source: &str, width: usize, accent: Style, muted: Style) -> 
         let mut display = grapheme;
         if line_start && !code {
             let rest = &text[i..];
-            if rest.starts_with("> ") {
+            // Prefix replacement must not consume a space's combining marks.
+            let plain_space = rest.graphemes(true).nth(1) == Some(" ");
+            if grapheme == ">" && plain_space {
                 quote = true;
                 display = "│ ";
                 skip_until = i + 2;
-            } else if rest.starts_with("- ") || rest.starts_with("* ") {
+            } else if matches!(grapheme, "-" | "*") && plain_space {
                 display = "• ";
                 skip_until = i + 2;
             }

@@ -4,7 +4,7 @@
 
 **Goal:** Make formatted conversations readable and let users copy, reply, resend, or open a selected message's links without leaving the keyboard.
 
-**Architecture:** Add a presentation-only formatter, pure action/link helpers plus an asynchronous desktop adapter, and two small overlays wired through existing reducer effects. Re-read the full message key before external actions; retain existing reply/resend workflows.
+**Architecture:** Add a presentation-only formatter, pure action/link helpers plus an asynchronous desktop adapter, and two small overlays wired through existing reducer effects. Share matched delimiter ranges through `src/message_text.rs` so rendering and link discovery agree. Re-read the full message key before external actions; retain existing reply/resend workflows.
 
 **Tech Stack:** Rust 1.98.0, Ratatui, Tokio, Diesel/SQLite, linkify.
 
@@ -24,7 +24,7 @@
 - Malformed/nested markup and Unicode must preserve readable content and avoid runaway parsing (Task 1).
 - Formatting must keep wrapping and long-message scroll metrics consistent, including captions and control characters (Task 1).
 - URL punctuation, credentials, unsupported schemes, and shell metacharacters must not change the chosen destination or execute commands (Task 2).
-- Edits, deletion, expiry, aliases, or account changes between selection and execution must not act on stale content (Tasks 2/3).
+- Edits, deletion, expiry, or aliases between selection and execution must not act on stale content; account changes dismiss old menus and isolate old completions (Tasks 2/3).
 - Missing or stalled helpers and repeated activation must leave navigation and shutdown responsive (Tasks 2/3).
 
 ### Task 1: Styled message rendering
@@ -65,5 +65,5 @@
 
 ## Completion
 
-- [ ] Independent review; reproduce and fix material findings; record any deferred issues.
+- [x] Independent review; reproduce and fix material findings; record any deferred issues.
 - [ ] Verify and merge locally, preserve evidence, deliver runnable binary and completed plan.

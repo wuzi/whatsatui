@@ -1,5 +1,4 @@
 use crate::app::model::{MessageBody, MessageRecord};
-use linkify::{LinkFinder, LinkKind};
 use std::collections::HashSet;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,20 +43,12 @@ pub fn text(message: &MessageRecord, now_ms: i64) -> Option<&str> {
     }
 }
 pub fn web_links(text: &str) -> Vec<String> {
-    let mut finder = LinkFinder::new();
-    finder.kinds(&[LinkKind::Url]);
     let mut seen = HashSet::new();
-    finder
-        .links(text)
-        .filter_map(|link| {
-            let mut url = link.as_str();
-            if let Some(marker) = text[..link.start()].chars().next_back()
-                && matches!(marker, '*' | '_' | '~' | '`')
-                && url.ends_with(marker)
-            {
-                url = &url[..url.len() - marker.len_utf8()];
-            }
-            let adjacent_control = text[link.end()..]
+    crate::message_text::links(text)
+        .into_iter()
+        .filter_map(|range| {
+            let url = &text[range.clone()];
+            let adjacent_control = text[range.end..]
                 .chars()
                 .next()
                 .is_some_and(|c| c.is_control() && !c.is_whitespace());

@@ -107,6 +107,41 @@ fn unicode_wraps_keep_styles_and_controls_are_sanitized() {
     );
     assert!(!contents(&b).contains(['\u{1b}', '\u{7}']));
 }
+#[test]
+fn formatting_delimiters_must_be_complete_graphemes() {
+    for source in [
+        "*️⃣ *bold*",
+        "*\u{301}x* *bold*",
+        "`\u{301}x` *bold*",
+        "> \u{301}note *bold*",
+        "* \u{301}note *bold*",
+    ] {
+        let (b, _) = draw(MessageBody::Text(source.into()), 120, 40);
+        let literal = source.strip_suffix(" *bold*").unwrap();
+        assert!(contents(&b).contains(literal), "lost content from {source}");
+        assert!(styled_word(&b, "bold", Modifier::BOLD));
+    }
+}
+#[test]
+fn url_paths_remain_literal_inside_and_outside_emphasis() {
+    for source in [
+        "https://example.org/_path_",
+        "_*https://example.org/_path_*_",
+    ] {
+        let (b, _) = draw(MessageBody::Text(source.into()), 120, 40);
+        assert!(
+            contents(&b).contains("https://example.org/_path_"),
+            "{source}"
+        );
+        if source.starts_with('_') {
+            assert!(styled_word(
+                &b,
+                "https://example.org/_path_",
+                Modifier::BOLD | Modifier::ITALIC
+            ));
+        }
+    }
+}
 
 #[test]
 fn formatted_long_message_metrics_match_visible_scroll() {

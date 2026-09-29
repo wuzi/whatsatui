@@ -2,6 +2,7 @@ pub mod app;
 pub mod config;
 pub mod desktop;
 pub mod message_actions;
+mod message_text;
 pub mod runtime;
 pub mod storage;
 pub mod terminal;
