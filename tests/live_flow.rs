@@ -352,6 +352,7 @@ fn typing_during_initial_load_is_replayed_over_saved_draft() {
                 draft: draft("saved", 7),
                 receipts: vec![],
                 has_older: false,
+                has_newer: false,
             })),
         }),
         now,

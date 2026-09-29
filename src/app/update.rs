@@ -108,6 +108,9 @@ pub struct App {
     editor: Editor,
     drafts: HashMap<ChatId, LocalDraft>,
     pending: HashMap<RequestId, PendingSend>,
+    reading: std::collections::HashSet<ChatId>,
+    read_watermarks: HashMap<ChatId, Option<MessageKey>>,
+    last_expiry_ms: i64,
     draft_loads: HashMap<(AccountId, ChatId), RequestId>,
     buffered: HashMap<(AccountId, ChatId), Vec<EditAction>>,
     serial: u64,
@@ -145,12 +148,16 @@ impl App {
                 at_bottom: true,
                 new_messages: 0,
                 has_older: false,
+                has_newer: false,
                 loading: false,
                 truecolor: true,
             },
             editor: Editor::default(),
             drafts: HashMap::new(),
             pending: HashMap::new(),
+            reading: Default::default(),
+            read_watermarks: Default::default(),
+            last_expiry_ms: 0,
             draft_loads: HashMap::new(),
             buffered: HashMap::new(),
             serial: 0,
@@ -339,12 +346,23 @@ impl App {
                     .saturating_add_signed(delta)
                     .min(self.view.messages.len().saturating_sub(1));
                 self.view.selected_message = self.view.messages.get(next).map(|m| m.key.clone());
-                self.view.at_bottom =
-                    next + 1 == self.view.messages.len() && self.page_cursor.is_none();
+                self.view.at_bottom = next + 1 == self.view.messages.len() && !self.view.has_newer;
+                if self.view.at_bottom {
+                    self.page_cursor = None;
+                } else if self.page_cursor.is_none() {
+                    if let Some(last) = self.view.messages.last() {
+                        self.page_cursor = Some(PageCursor {
+                            direction: PageDirection::AtOrBefore,
+                            created_at_ms: last.created_at_ms,
+                            key: last.key.clone(),
+                        });
+                    }
+                }
                 if delta < 0 && i == 0 && self.view.has_older {
                     if let Some(m) = self.view.messages.first() {
                         self.load_chat(
                             Some(PageCursor {
+                                direction: PageDirection::Before,
                                 created_at_ms: m.created_at_ms,
                                 key: m.key.clone(),
                             }),
@@ -397,9 +415,20 @@ impl App {
             A::Previous => self.move_selection(-1, effects),
             A::PageUp => self.move_selection(-20, effects),
             A::PageDown => {
-                if self.page_cursor.is_some() {
-                    self.view.at_bottom = true;
-                    self.load_chat(None, effects);
+                let last = self.view.messages.last();
+                let on_last =
+                    last.is_some_and(|m| Some(&m.key) == self.view.selected_message.as_ref());
+                if on_last && self.view.has_newer {
+                    if let Some(m) = last {
+                        self.load_chat(
+                            Some(PageCursor {
+                                direction: PageDirection::After,
+                                created_at_ms: m.created_at_ms,
+                                key: m.key.clone(),
+                            }),
+                            effects,
+                        );
+                    }
                 } else {
                     self.move_selection(20, effects);
                 }
@@ -618,7 +647,7 @@ impl App {
         }
     }
     fn changed(&mut self, change: StoreChange, effects: &mut Vec<Effect>) {
-        if self.view.account.as_ref() != Some(&change.account) {
+        if self.view.account.as_ref() != Some(&change.account) || change.chats.is_empty() {
             return;
         }
         self.load_list(effects);
@@ -628,9 +657,6 @@ impl App {
             .as_ref()
             .is_some_and(|chat| change.chats.contains(chat))
         {
-            if !self.view.at_bottom {
-                self.view.new_messages = self.view.new_messages.saturating_add(1);
-            }
             if self.chat_request.is_some() {
                 self.reload_chat = true;
             } else {
@@ -650,6 +676,8 @@ impl App {
                     self.view.draft = Draft::default();
                     self.editor = Editor::default();
                     self.drafts.clear();
+                    self.reading.clear();
+                    self.read_watermarks.clear();
                     self.pending.retain(|_, p| p.staging);
                     self.view.overlay = None;
                     self.view.receipts.clear();
@@ -757,8 +785,8 @@ impl App {
                 request,
                 account,
                 chat,
+                cursor,
                 result,
-                ..
             } => {
                 let pair = (account.clone(), chat.clone());
                 let active_account = self.view.account.as_ref() == Some(&account);
@@ -814,16 +842,93 @@ impl App {
                 match result {
                     Ok(snapshot) => {
                         self.view.loading = false;
+                        let canonical = snapshot.summary.chat.clone();
+                        if canonical != chat {
+                            if let Some(mut local) = self.drafts.remove(&chat) {
+                                if local.dirty {
+                                    local.data.revision = local
+                                        .data
+                                        .revision
+                                        .max(snapshot.draft.revision)
+                                        .saturating_add(1);
+                                    if let Some(q) = &mut local.data.reply {
+                                        if q.key.chat == chat {
+                                            q.key.chat = canonical.clone();
+                                        }
+                                    }
+                                }
+                                self.drafts.insert(canonical.clone(), local);
+                            }
+                            self.view.chat = Some(canonical.clone());
+                        }
+                        let chat = canonical;
                         let old = self.view.selected_message.clone();
                         self.view.messages = snapshot.messages;
                         self.view.receipts = snapshot.receipts;
                         self.view.has_older = snapshot.has_older;
+                        self.view.has_newer = snapshot.has_newer;
+                        if !self.view.at_bottom {
+                            self.view.new_messages = u32::from(snapshot.has_newer);
+                        }
                         self.view.selected_message = if self.view.at_bottom {
                             self.view.messages.last().map(|m| m.key.clone())
                         } else {
                             old.filter(|k| self.view.messages.iter().any(|m| &m.key == k))
-                                .or_else(|| self.view.messages.last().map(|m| m.key.clone()))
+                                .or_else(|| {
+                                    if cursor
+                                        .as_ref()
+                                        .is_some_and(|c| c.direction == PageDirection::After)
+                                    {
+                                        self.view.messages.first()
+                                    } else {
+                                        self.view.messages.last()
+                                    }
+                                    .map(|m| m.key.clone())
+                                })
                         };
+                        self.view.at_bottom = !self.view.has_newer
+                            && self.view.selected_message.as_ref()
+                                == self.view.messages.last().map(|m| &m.key);
+                        self.page_cursor = if self.view.at_bottom {
+                            None
+                        } else {
+                            self.view.messages.last().map(|m| PageCursor {
+                                direction: PageDirection::AtOrBefore,
+                                key: m.key.clone(),
+                                created_at_ms: m.created_at_ms,
+                            })
+                        };
+                        if let Some(local) = self.drafts.get_mut(&chat) {
+                            if let Some(q) = &mut local.data.reply {
+                                if let Some(stored) = snapshot.draft.reply.as_ref().filter(|r| {
+                                    r.key == q.key
+                                        && matches!(
+                                            r.availability,
+                                            QuoteAvailability::Deleted | QuoteAvailability::Expired
+                                        )
+                                }) {
+                                    *q = stored.clone();
+                                }
+                                if let Some(original) =
+                                    self.view.messages.iter().find(|m| m.key == q.key)
+                                {
+                                    if matches!(
+                                        original.body,
+                                        MessageBody::Deleted | MessageBody::Expired
+                                    ) {
+                                        q.preview.clear();
+                                        q.availability =
+                                            if matches!(original.body, MessageBody::Expired) {
+                                                QuoteAvailability::Expired
+                                            } else {
+                                                QuoteAvailability::Deleted
+                                            };
+                                    }
+                                }
+                            }
+                            self.view.draft.reply = local.data.reply.clone();
+                            self.view.draft.revision = local.data.revision;
+                        }
                         if self
                             .drafts
                             .get(&chat)
@@ -929,8 +1034,61 @@ impl App {
                     Err(e) => self.view.notice = Some(e),
                 }
             }
-            StoreCompletion::Read { .. } => {}
+            StoreCompletion::Read {
+                account,
+                chat,
+                keys,
+                result,
+            } => {
+                if self.view.account.as_ref() == Some(&account) {
+                    self.reading.remove(&chat);
+                    match result {
+                        Ok(()) => {
+                            self.read_watermarks
+                                .insert(chat.clone(), keys.last().cloned());
+                            if let Some(c) = self.view.chats.iter_mut().find(|c| c.chat == chat) {
+                                c.unread = 0;
+                            }
+                        }
+                        Err(e) => self.view.notice = Some(e),
+                    }
+                }
+            }
         }
+    }
+    fn maybe_read(&mut self, effects: &mut Vec<Effect>) {
+        if self.quitting
+            || self.view.overlay.is_some()
+            || self.view.focus == Focus::Chats
+            || !self.view.at_bottom
+            || self.view.loading
+            || self.foreground == Some(false)
+        {
+            return;
+        }
+        let (Some(account), Some(chat)) = (self.view.account.clone(), self.view.chat.clone())
+        else {
+            return;
+        };
+        let keys = self
+            .view
+            .messages
+            .iter()
+            .filter(|m| {
+                !m.key.from_me && !matches!(m.body, MessageBody::Expired | MessageBody::Deleted)
+            })
+            .map(|m| m.key.clone())
+            .collect::<Vec<_>>();
+        let watermark = keys.last().cloned();
+        if self.reading.contains(&chat) || self.read_watermarks.get(&chat) == Some(&watermark) {
+            return;
+        }
+        self.reading.insert(chat.clone());
+        effects.push(Effect::MarkRead {
+            account,
+            chat,
+            keys,
+        });
     }
     pub fn request_shutdown(&mut self) -> Vec<Effect> {
         self.quitting = true;
@@ -945,7 +1103,16 @@ impl App {
             Input::Terminal(event) => self.terminal(event, &mut effects),
             Input::Backend(event) => self.backend(event, &mut effects),
             Input::Store(event) => self.completion(event, &mut effects),
-            Input::Tick(_) => {
+            Input::Tick(epoch_ms) => {
+                if epoch_ms.saturating_sub(self.last_expiry_ms) >= 1000 {
+                    self.last_expiry_ms = epoch_ms;
+                    if let Some(account) = self.view.account.clone() {
+                        effects.push(Effect::Expire {
+                            account,
+                            now_ms: epoch_ms,
+                        });
+                    }
+                }
                 if self.drafts.values().any(|d| {
                     d.dirty
                         && d.saving != Some(d.data.revision)
@@ -956,6 +1123,7 @@ impl App {
                 }
             }
         }
+        self.maybe_read(&mut effects);
         effects
     }
 }

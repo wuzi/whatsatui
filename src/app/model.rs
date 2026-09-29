@@ -144,6 +144,9 @@ pub struct ChatSummary {
     pub account: AccountId,
     pub chat: ChatId,
     pub name: String,
+    /// Fallback=0, push name=1, history name=2, saved contact/group subject=3.
+    #[serde(default)]
+    pub name_priority: u8,
     pub phone: Option<String>,
     pub is_group: bool,
     pub preview: String,
@@ -158,9 +161,17 @@ pub struct ChatSnapshot {
     pub draft: Draft,
     pub receipts: Vec<Receipt>,
     pub has_older: bool,
+    pub has_newer: bool,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PageDirection {
+    Before,
+    AtOrBefore,
+    After,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PageCursor {
+    pub direction: PageDirection,
     pub created_at_ms: i64,
     pub key: MessageKey,
 }

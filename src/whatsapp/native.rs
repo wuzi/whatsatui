@@ -35,6 +35,7 @@ impl EventHandler for RawHandler {
             EventKind::ServerAck,
             EventKind::HistorySync,
             EventKind::ContactUpdate,
+            EventKind::ContactNumberChanged,
             EventKind::PushNameUpdate,
             EventKind::GroupUpdate,
             EventKind::OfflineSyncCompleted,
@@ -238,6 +239,7 @@ fn chat(a: &AccountId, id: String, name: String) -> ChatSummary {
         account: a.clone(),
         is_group: id.ends_with("@g.us"),
         phone: id.strip_suffix("@s.whatsapp.net").map(str::to_owned),
+        name_priority: u8::from(!name.is_empty()),
         name: if name.is_empty() { id.clone() } else { name },
         chat: ChatId(id),
         ..Default::default()
@@ -327,12 +329,9 @@ async fn handle_event(
     match event {
         Event::Messages(batch) => {
             for chunk in batch.messages.chunks(100) {
-                let change = super::durability::persist_normalized(
-                    store,
-                    normalize::message_batch(a.clone(), MessageSource::Live, chunk),
-                )
-                .await
-                .map_err(storage_error)?;
+                let change = super::durability::persist_inbound(store, a.clone(), chunk)
+                    .await
+                    .map_err(storage_error)?;
                 emit(tx, BackendEvent::StoreChanged(change)).await?;
             }
             for m in batch
@@ -400,21 +399,33 @@ async fn handle_event(
             }
         }
         Event::ContactUpdate(c) => {
-            names(
-                store,
-                tx,
+            let mut summary = chat(
                 &a,
-                vec![chat(
-                    &a,
-                    normalize::jid(&c.jid),
-                    c.action
-                        .full_name
-                        .clone()
-                        .or(c.action.first_name.clone())
-                        .unwrap_or_default(),
-                )],
-            )
-            .await?;
+                normalize::jid(&c.jid),
+                c.action
+                    .full_name
+                    .clone()
+                    .or(c.action.first_name.clone())
+                    .unwrap_or_default(),
+            );
+            summary.name_priority = 3;
+            names(store, tx, &a, vec![summary]).await?;
+        }
+        Event::ContactNumberChanged(c) => {
+            for old in [Some(&c.old_jid), c.old_lid.as_ref(), c.new_lid.as_ref()]
+                .into_iter()
+                .flatten()
+            {
+                let change = store
+                    .merge_alias(
+                        a.clone(),
+                        normalize::jid(old).into(),
+                        normalize::jid(&c.new_jid).into(),
+                    )
+                    .await
+                    .map_err(storage_error)?;
+                emit(tx, BackendEvent::StoreChanged(change)).await?;
+            }
         }
         Event::PushNameUpdate(c) => {
             names(
@@ -431,18 +442,33 @@ async fn handle_event(
                 ..
             } = &g.action
             {
-                names(
-                    store,
-                    tx,
-                    &a,
-                    vec![chat(&a, normalize::jid(&g.group_jid), subject.clone())],
-                )
-                .await?;
+                let mut summary = chat(&a, normalize::jid(&g.group_jid), subject.clone());
+                summary.name_priority = 3;
+                names(store, tx, &a, vec![summary]).await?;
             }
         }
         Event::HistorySync(lazy) => {
             emit(tx, BackendEvent::HistoryProgress(None)).await?;
             if let Some(history) = lazy.get() {
+                let mappings = history
+                    .phone_number_to_lid_mappings
+                    .iter()
+                    .filter_map(|m| m.lid_jid.as_ref().zip(m.pn_jid.as_ref()))
+                    .chain(
+                        history
+                            .conversations
+                            .iter()
+                            .filter_map(|c| c.lid_jid.as_ref().zip(c.pn_jid.as_ref())),
+                    );
+                for (lid, pn) in mappings {
+                    if lid.ends_with("@lid") && pn.ends_with("@s.whatsapp.net") {
+                        let change = store
+                            .merge_alias(a.clone(), lid.clone().into(), pn.clone().into())
+                            .await
+                            .map_err(storage_error)?;
+                        emit(tx, BackendEvent::StoreChanged(change)).await?;
+                    }
+                }
                 for c in &history.conversations {
                     if c.id.ends_with("@broadcast") || c.id.ends_with("@newsletter") {
                         continue;
@@ -456,6 +482,13 @@ async fn handle_event(
                             .unwrap_or_default(),
                     );
                     summary.unread = c.unread_count.unwrap_or(0);
+                    summary.latest_at_ms = c
+                        .last_msg_timestamp
+                        .or(c.conversation_timestamp)
+                        .unwrap_or(0)
+                        .saturating_mul(1000)
+                        .min(i64::MAX as u64) as i64;
+                    summary.name_priority = 2;
                     names(store, tx, &a, vec![summary.clone()]).await?;
                     for chunk in c.messages.chunks(100) {
                         let changes = chunk

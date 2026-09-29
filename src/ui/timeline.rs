@@ -11,7 +11,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, view: &ViewModel, config: &C
         .map(|c| single(&c.name))
         .unwrap_or_default();
     let new = if view.new_messages > 0 {
-        format!(" · {} new", view.new_messages)
+        " · new messages".into()
     } else {
         String::new()
     };

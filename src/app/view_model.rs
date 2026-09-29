@@ -36,6 +36,7 @@ pub struct ViewModel {
     pub at_bottom: bool,
     pub new_messages: u32,
     pub has_older: bool,
+    pub has_newer: bool,
     pub loading: bool,
     pub truecolor: bool,
 }

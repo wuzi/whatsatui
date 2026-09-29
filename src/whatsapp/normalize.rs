@@ -7,6 +7,27 @@ use whatsapp_rust::{prelude::wa, types::events::InboundMessage};
 pub(super) fn jid(value: &whatsapp_rust::Jid) -> String {
     value.with_device(0).to_string()
 }
+pub(super) fn identity_aliases(messages: &[InboundMessage]) -> Vec<(ParticipantId, ParticipantId)> {
+    let mut pairs = std::collections::BTreeSet::new();
+    for message in messages {
+        let source = &message.info.source;
+        for (first, second) in [
+            (&source.sender, source.sender_alt.as_ref()),
+            (&source.chat, source.recipient_alt.as_ref()),
+        ] {
+            if let Some(second) = second {
+                let first = jid(first);
+                let second = jid(second);
+                if first.ends_with("@lid") && second.ends_with("@s.whatsapp.net") {
+                    pairs.insert((first.into(), second.into()));
+                } else if second.ends_with("@lid") && first.ends_with("@s.whatsapp.net") {
+                    pairs.insert((second.into(), first.into()));
+                }
+            }
+        }
+    }
+    pairs.into_iter().collect()
+}
 pub(super) fn message_batch(
     account: AccountId,
     source: MessageSource,
@@ -277,6 +298,18 @@ pub(super) mod tests {
             .message(Arc::new(message))
             .info(Arc::new(info))
             .build()
+    }
+    #[test]
+    fn alternate_identifiers_only_map_authoritative_person_pairs() {
+        let mut inbound = fixture();
+        let info = Arc::make_mut(&mut inbound.info);
+        info.source.sender = "123@lid".parse().unwrap();
+        info.source.sender_alt = Some("551100000001@s.whatsapp.net".parse().unwrap());
+        assert_eq!(
+            identity_aliases(&[inbound]),
+            vec![("123@lid".into(), "551100000001@s.whatsapp.net".into())]
+        );
+        assert!(identity_aliases(&[fixture()]).is_empty());
     }
     #[test]
     fn normalizes_group_quote_and_media_caption() {

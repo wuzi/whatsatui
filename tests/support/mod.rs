@@ -99,6 +99,7 @@ pub fn ready_app() -> whatsapp_tui::app::App {
                 draft: Draft::default(),
                 receipts: vec![],
                 has_older: false,
+                has_newer: false,
             })),
         }),
         now,

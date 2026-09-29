@@ -1,3 +1,4 @@
+mod merge;
 pub mod paths;
 mod records;
 mod worker;
@@ -114,6 +115,44 @@ impl Store {
     ) -> Result<StoreChange, StoreError> {
         self.call(move |c| worker::upsert_chats(c, &account, chats))
             .await
+    }
+    pub async fn merge_alias(
+        &self,
+        account: AccountId,
+        alias: ParticipantId,
+        canonical: ParticipantId,
+    ) -> Result<StoreChange, StoreError> {
+        self.call(move |c| merge::merge_alias(c, &account, &alias, &canonical))
+            .await
+    }
+    pub async fn mark_read(
+        &self,
+        account: AccountId,
+        chat: ChatId,
+        keys: Vec<MessageKey>,
+    ) -> Result<StoreChange, StoreError> {
+        self.call(move |c| merge::mark_read(c, &account, &chat, keys))
+            .await
+    }
+    pub async fn expire(&self, account: AccountId, now_ms: i64) -> Result<StoreChange, StoreError> {
+        self.call(move |c| merge::expire(c, &account, now_ms)).await
+    }
+    pub async fn stored_outbound(
+        &self,
+        mut message: OutboundText,
+    ) -> Result<OutboundText, StoreError> {
+        self.call(move |c| {
+            let row = worker::get(c, &message.key)?.ok_or(StoreError::InvalidData)?;
+            let MessageBody::Text(text) = row.body else {
+                return Err(StoreError::InvalidData);
+            };
+            message.key = row.key;
+            message.draft.text = text;
+            message.draft.reply = row.quote;
+            message.created_at_ms = row.created_at_ms;
+            Ok(message)
+        })
+        .await
     }
     pub async fn flush(&self) -> Result<(), StoreError> {
         self.call(|c| {

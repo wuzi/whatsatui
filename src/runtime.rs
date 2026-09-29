@@ -221,6 +221,15 @@ pub async fn execute(
             .map_err(|e| e.to_string()),
         },
         Effect::Transmit(message) => {
+            let message = match store.stored_outbound(message.clone()).await {
+                Ok(message) => message,
+                Err(e) => {
+                    return Some(Input::Store(StoreCompletion::Changed {
+                        account: message.key.account,
+                        result: Err(e.to_string()),
+                    }));
+                }
+            };
             if commands
                 .send(BackendCommand::Transmit(message.clone()))
                 .await
@@ -246,6 +255,9 @@ pub async fn execute(
         Effect::RecoverAccount(account) => {
             let result = async {
                 store.recover_sends(account.clone()).await?;
+                store
+                    .expire(account.clone(), chrono::Utc::now().timestamp_millis())
+                    .await?;
                 let chats = store
                     .list_chats(account.clone())
                     .await?
@@ -267,13 +279,30 @@ pub async fn execute(
             account,
             chat,
             keys,
-        } => StoreCompletion::Read {
-            account,
-            chat,
-            keys,
-            result: Ok(()),
+        } => {
+            let result = store
+                .mark_read(account.clone(), chat.clone(), keys.clone())
+                .await
+                .map(|_| ())
+                .map_err(|e| e.to_string());
+            if result.is_ok() && !keys.is_empty() {
+                let _ = commands.send(BackendCommand::MarkRead(keys.clone())).await;
+            }
+            StoreCompletion::Read {
+                account,
+                chat,
+                keys,
+                result,
+            }
+        }
+        Effect::Expire { account, now_ms } => StoreCompletion::Changed {
+            account: account.clone(),
+            result: store
+                .expire(account, now_ms)
+                .await
+                .map_err(|e| e.to_string()),
         },
-        Effect::Expire { .. } | Effect::Shutdown => return None,
+        Effect::Shutdown => return None,
     };
     Some(Input::Store(event))
 }
