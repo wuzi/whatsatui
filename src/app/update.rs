@@ -5,6 +5,11 @@ mod actions;
 mod search;
 #[derive(Clone, Debug)]
 pub enum Effect {
+    MediaAction {
+        request: RequestId,
+        message: Box<MessageRecord>,
+        action: crate::media::MediaAction,
+    },
     DesktopAction {
         request: RequestId,
         message: Box<MessageRecord>,
@@ -491,6 +496,10 @@ impl App {
             A::MessageActions => self.open_message_actions(),
             A::CopyText => self.copy_message_or_link(effects),
             A::OpenLinks => self.open_message_links(),
+            A::DownloadMedia => {
+                self.start_media_action(crate::media::MediaAction::Download, effects)
+            }
+            A::OpenMedia => self.start_media_action(crate::media::MediaAction::Open, effects),
             A::MessageSearch => self.open_message_search(),
             A::Quit => {
                 effects.extend(self.request_shutdown());
@@ -769,6 +778,8 @@ impl App {
                                 | ActionId::Quit
                                 | ActionId::CopyText
                                 | ActionId::OpenLinks
+                                | ActionId::DownloadMedia
+                                | ActionId::OpenMedia
                                 | ActionId::MessageActions
                         )
                     {

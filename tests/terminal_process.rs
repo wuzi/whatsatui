@@ -167,6 +167,60 @@ fn demo_finds_chats_messages_and_unreads_then_restores_tty() {
     p.restored();
 }
 #[test]
+fn demo_downloads_then_explicitly_opens_media_and_restores_tty() {
+    let dir = tempfile::tempdir().unwrap();
+    let viewer = dir.path().join("xdg-open");
+    std::fs::write(
+        &viewer,
+        "#!/bin/sh\nprintf '%s\\n' \"$#\" \"$1\" > \"$WHATSAPP_TUI_TEST_OPEN\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(viewer, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let opened = dir.path().join("opened");
+    let mut command = binary();
+    command
+        .arg("--demo")
+        .env("PATH", dir.path())
+        .env("WHATSAPP_TUI_TEST_OPEN", &opened);
+    let mut p = Process::launch(command);
+    p.wait_for("Alice");
+    p.master.write_all(b"\x10").unwrap();
+    p.wait_for("Switch chat");
+    p.master.write_all(b"\x1b[200~weekend\x1b[201~\r").unwrap();
+    p.wait_for("corner");
+    p.master.write_all(b"\x1b[Z\r").unwrap();
+    p.wait_for("Download attachment");
+    assert!(!opened.exists());
+    p.master.write_all(b"d").unwrap();
+    p.wait_for("/media/");
+    assert!(!opened.exists(), "download must not launch a viewer");
+    p.master.write_all(b"v").unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !std::fs::read_to_string(&opened).is_ok_and(|s| s.ends_with(".png\n")) {
+        p.drain();
+        assert!(
+            Instant::now() < deadline,
+            "viewer did not receive the saved image"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let args = std::fs::read_to_string(&opened).unwrap();
+    let args = args.lines().collect::<Vec<_>>();
+    assert_eq!(args.len(), 2);
+    assert_eq!(args[0], "1");
+    let path = std::path::Path::new(args[1]);
+    assert!(path.is_absolute());
+    assert_eq!(path.extension().unwrap(), "png");
+    assert!(
+        std::fs::read(path)
+            .unwrap()
+            .starts_with(b"\x89PNG\r\n\x1a\n")
+    );
+    p.master.write_all(b"\x11").unwrap();
+    assert!(p.finish().success());
+    p.restored();
+}
+#[test]
 fn demo_actions_use_isolated_desktop_helpers_and_restore_tty() {
     let dir = tempfile::tempdir().unwrap();
     for (name, script) in [
@@ -305,6 +359,7 @@ fn terminal_child() {
             Ok(())
         });
         let backend = BackendHandle {
+            media: std::sync::Arc::new(whatsapp_tui::whatsapp::demo::DemoDownloader),
             commands,
             events,
             control: BackendControl::new(stop, task),

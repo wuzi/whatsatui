@@ -30,6 +30,7 @@ fn backend() -> BackendHandle {
         Ok(())
     });
     BackendHandle {
+        media: Arc::new(whatsapp_tui::whatsapp::demo::DemoDownloader),
         commands,
         events,
         control: BackendControl::new(stop, task),
@@ -152,6 +153,122 @@ fn backend_errors_are_sanitized() {
             .to_string()
             .contains("PRIVATE_SENTINEL")
     );
+}
+#[tokio::test]
+async fn media_download_allows_typing_and_is_cancelled_before_exit() {
+    use whatsapp_tui::{app::model::*, media::*, whatsapp::BackendEvent};
+    struct Waiting {
+        started: tokio::sync::Notify,
+        cancelled: AtomicUsize,
+    }
+    #[async_trait::async_trait]
+    impl Downloader for Waiting {
+        async fn download(
+            &self,
+            _: &Attachment,
+            _: &std::path::Path,
+            mut cancel: tokio::sync::watch::Receiver<bool>,
+        ) -> Result<(), String> {
+            self.started.notify_one();
+            cancel.changed().await.unwrap();
+            assert!(*cancel.borrow());
+            self.cancelled.store(1, Ordering::SeqCst);
+            Err("Cancelled".into())
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db");
+    let store = Store::open(path.clone()).await.unwrap();
+    let mut app = ready_app();
+    let mut view = app.view();
+    view.messages[0].body = MessageBody::Media(Box::new(Attachment {
+        kind: AttachmentKind::Document,
+        filename: Some("test.txt".into()),
+        mime: Some("text/plain".into()),
+        caption: None,
+        size: 6,
+        direct_path: "/v/test".into(),
+        media_key: [1; 32],
+        sha256: [2; 32],
+        encrypted_sha256: [3; 32],
+    }));
+    store
+        .apply_batch(batch(view.messages.clone()))
+        .await
+        .unwrap();
+    let effects = app.update(
+        Input::Backend(BackendEvent::StoreChanged(StoreChange {
+            account: account("test"),
+            chats: vec!["chat".into()],
+        })),
+        Instant::now(),
+    );
+    let request = effects
+        .iter()
+        .find_map(|e| {
+            if let Effect::LoadChat { request, .. } = e {
+                Some(*request)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    app.update(
+        Input::Store(StoreCompletion::Chat {
+            request,
+            account: account("test"),
+            chat: "chat".into(),
+            cursor: None,
+            result: Ok(Box::new(ChatSnapshot {
+                summary: view.chats[0].clone(),
+                messages: view.messages,
+                draft: view.draft,
+                receipts: vec![],
+                has_older: false,
+                has_newer: false,
+            })),
+        }),
+        Instant::now(),
+    );
+    let source = Arc::new(Waiting {
+        started: tokio::sync::Notify::new(),
+        cancelled: AtomicUsize::new(0),
+    });
+    let mut backend = backend();
+    backend.media = source.clone();
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let input = Box::pin(futures_util::stream::unfold(rx, |mut rx| async {
+        rx.recv().await.map(|event| (Ok(event), rx))
+    }));
+    let send_key = |s| {
+        tx.send(Event::Key(
+            whatsapp_tui::config::bindings::parse_key(s).unwrap(),
+        ))
+        .unwrap()
+    };
+    send_key("tab");
+    send_key("d");
+    let interact = async {
+        source.started.notified().await;
+        send_key("tab");
+        tx.send(Event::Paste("exit draft".into())).unwrap();
+        send_key("ctrl-q");
+    };
+    let mut screen = CheckScreen {
+        path,
+        finished: false,
+    };
+    tokio::time::timeout(Duration::from_secs(2), async {
+        let (result, ()) = tokio::join!(
+            runtime::run_with_screen(app, store, backend, &mut screen, input),
+            interact
+        );
+        result.unwrap();
+    })
+    .await
+    .expect("quit must cancel the download promptly");
+    assert_eq!(source.cancelled.load(Ordering::SeqCst), 1);
+    assert!(screen.finished);
 }
 #[tokio::test]
 async fn committed_demo_attempt_reaches_backend() {

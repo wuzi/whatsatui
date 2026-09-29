@@ -16,6 +16,8 @@ The message reading/actions iteration passed **138 test cases**, formatting, Cli
 
 Its single independent review had two axes. Standards found no structural violations and one correctness issue: links with fragments immediately after a hostname were truncated. Spec found two issues: formatting could change link destinations, and delimiter parsing could consume emoji or combining characters. Each issue was reproduced before its fix. Shared delimiter rules now preserve URL paths and complete graphemes, including quote/bullet prefixes; link discovery preserves original fragment bytes. All regressions passed, and no material finding was deferred. Already-activated desktop requests retain their original account; old completion notices remain isolated after switching accounts.
 
+The received-media iteration passed **158 test cases**, formatting, Clippy with warnings denied, and an optimized build (two jobs/two test threads). Synthetic cases cover image/document reference persistence, old JSON compatibility, caption search/rendering, view-once rejection, encrypted streaming/decryption, exact size/hash checks, corrupt/symlinked files, private storage and capacity limits, reuse and cleanup, stale identities, worker timeout/cancellation/reaping, remapped controls, and account-scoped completions. A stalled-download runtime test verifies continued typing and draft persistence before shutdown. A Linux PTY test downloads the offline demo PNG, verifies that downloading does not open it, explicitly opens it through an isolated fake viewer, and checks terminal restoration. No real account, WhatsApp CDN, clipboard, or viewer was used by these checks.
+
 Run the interactive probe yourself in a dedicated test directory:
 
 ```sh
@@ -32,6 +34,7 @@ Scan the displayed QR from WhatsApp → Linked devices. Type `chats` for cached 
 | Names, initial history, live/history deduplication | Not run | Requires linked account |
 | Network interruption, reconnect, uncertain send reconciliation | Not run | Requires linked account and user-operated network interruption |
 | Drafts in two real chats, arrival while scrolled, resize, restart | Not run | Local fixtures passed; the live-account workflow remains user-operated |
+| Receive image/document, download/open, reuse after restart, interrupted or expired-reference transfer | Not run | Synthetic encrypted fixtures and offline demo only; requires a linked account for CDN acceptance |
 
 No automated tests or CI jobs send messages to contacts. Live release acceptance remains outstanding until this table is updated with actual observed results.
 

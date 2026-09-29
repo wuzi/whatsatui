@@ -18,7 +18,8 @@ pub(super) fn attachment(payload: &wa::Message) -> Option<Attachment> {
             sha256: image.file_sha256.as_deref()?.try_into().ok()?,
             encrypted_sha256: image.file_enc_sha256.as_deref()?.try_into().ok()?,
         }
-    } else if let Some(document) = base.document_message.as_option() {
+    } else {
+        let document = base.document_message.as_option()?;
         Attachment {
             kind: AttachmentKind::Document,
             filename: document.file_name.clone(),
@@ -30,8 +31,6 @@ pub(super) fn attachment(payload: &wa::Message) -> Option<Attachment> {
             sha256: document.file_sha256.as_deref()?.try_into().ok()?,
             encrypted_sha256: document.file_enc_sha256.as_deref()?.try_into().ok()?,
         }
-    } else {
-        return None;
     };
     attachment.validate().ok()?;
     Some(attachment)

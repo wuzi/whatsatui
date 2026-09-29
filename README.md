@@ -34,12 +34,13 @@ whatsapp-tui
 - Unicode composition, multiline paste, quoted replies, and persistent per-chat drafts.
 - Styled message text and captions: emphasis, code, quotes, and lists.
 - A message action menu, original-text copying, and an explicit web-link picker.
+- Explicit downloads for received images/documents, with a separate action to open a saved file.
 - Local history, unread counts, delivery states, and known group receipt counts.
 - Durable outgoing attempts before transmission, with explicit confirmation for resending uncertain attempts.
 - Phone-number/LID reconciliation, edits, deletion/expiry placeholders, and bounded message pages.
 - Configurable colors and scoped bindings; layouts for ordinary and narrow terminals.
 
-Media appears as a placeholder with its caption when available. Media transfer, calls, reactions, group management, statuses, and newsletters are outside v0.1. History is limited to what WhatsApp syncs and what this client has cached.
+Images and documents show their type, filename when supplied, size, and caption. Other media remains a placeholder. Sending media, inline image previews, calls, reactions, group management, statuses, and newsletters are outside this iteration. History is limited to what WhatsApp syncs and what this client has cached.
 
 ## Main controls
 
@@ -58,6 +59,7 @@ Media appears as a placeholder with its caption when available. Media transfer, 
 | Enter in Messages | Show the selected message's actions |
 | y in Messages / link picker | Copy original text / selected URL |
 | o in Messages | Choose a link to open in your browser |
+| d / v in Messages | Download attachment / open its downloaded file |
 | r in Messages | Quote the selected message |
 | R in Messages | Confirm a resend of a failed/unconfirmed attempt |
 | Alt-R in Composer | Remove the quote, keep your text |
@@ -76,6 +78,7 @@ Defaults:
 - Configuration: `~/.config/whatsapp-tui/config.toml`
 - History/drafts: `~/.local/share/whatsapp-tui/chat.sqlite3`
 - Linked-device credentials: `~/.local/share/whatsapp-tui/session.sqlite3`
+- Downloaded attachments: `~/.local/share/whatsapp-tui/media/`
 
 Absolute `XDG_CONFIG_HOME` and `XDG_DATA_HOME` override those bases. `--config PATH` and `--data-dir PATH` select explicit locations. Copy [examples/config.toml](examples/config.toml) to customize the palette and keys.
 
@@ -85,7 +88,7 @@ See [usage and recovery](docs/usage.md), [design](docs/superpowers/specs/2026-09
 
 ## Next iterations
 
-The [navigation plan](docs/superpowers/plans/2026-09-29-navigation.md) applies ideas from [Concord's fuzzy switcher, search, and unread inbox](https://github.com/chojs23/concord#features) to this app's pane controls. The [message reading and actions plan](docs/superpowers/plans/2026-09-29-message-actions.md) adds formatting, clipboard support, and a link picker. Next are media previews and attachments. Real-account pairing, restoration, and messaging acceptance remains necessary before relying on the client daily.
+The [navigation plan](docs/superpowers/plans/2026-09-29-navigation.md) applies ideas from [Concord's fuzzy switcher, search, and unread inbox](https://github.com/chojs23/concord#features) to this app's pane controls. The [message reading and actions plan](docs/superpowers/plans/2026-09-29-message-actions.md) adds formatting, clipboard support, and a link picker. The [received-media plan](docs/superpowers/plans/2026-09-29-received-media.md) adds downloads and external viewers. Real-account pairing, restoration, messaging, and media acceptance remain the next step before relying on the client daily; sending attachments and inline previews can follow.
 
 ## Development
 

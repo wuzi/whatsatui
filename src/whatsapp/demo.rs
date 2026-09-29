@@ -1,6 +1,22 @@
 //! Synthetic offline account. This module never constructs a network client.
 use super::*;
 use crate::app::model::*;
+use crate::media::{Attachment, AttachmentKind};
+use sha2::{Digest, Sha256};
+const IMAGE: &[u8] = include_bytes!("demo-image.png");
+fn image_attachment() -> Attachment {
+    Attachment {
+        kind: AttachmentKind::Image,
+        filename: Some("demo-cyan.png".into()),
+        mime: Some("image/png".into()),
+        caption: Some("The café on the corner · synthetic image demo".into()),
+        size: IMAGE.len() as u64,
+        direct_path: "/v/offline-demo".into(),
+        media_key: [0; 32],
+        sha256: Sha256::digest(IMAGE).into(),
+        encrypted_sha256: [0; 32],
+    }
+}
 const ACCOUNT: &str = "you@demo";
 const TIME: i64 = 1_790_640_000_000;
 fn key(chat: &str, sender: &str, id: &str) -> MessageKey {
@@ -99,10 +115,7 @@ async fn initialize(store: &Store) -> Result<StoreChange, BackendError> {
         ),
     ];
     let mut photo = message("weekend@g.us", "maya@demo", "g3", "", 150_000);
-    photo.body = MessageBody::Unsupported {
-        kind: "image".into(),
-        caption: Some("The café on the corner".into()),
-    };
+    photo.body = MessageBody::Media(Box::new(image_attachment()));
     messages.push(photo);
     store
         .apply_batch(MessageBatch {
@@ -151,8 +164,28 @@ pub fn start(store: Store) -> BackendHandle {
         Ok(())
     });
     BackendHandle {
+        media: std::sync::Arc::new(DemoDownloader),
         commands,
         events,
         control: BackendControl::new(stop, task),
+    }
+}
+
+pub struct DemoDownloader;
+#[async_trait::async_trait]
+impl crate::media::Downloader for DemoDownloader {
+    async fn download(
+        &self,
+        attachment: &Attachment,
+        destination: &std::path::Path,
+        cancel: tokio::sync::watch::Receiver<bool>,
+    ) -> Result<(), String> {
+        if *cancel.borrow() || cancel.has_changed().is_err() {
+            return Err("Demo download canceled".into());
+        }
+        if attachment != &image_attachment() {
+            return Err("Attachment is not an offline demo fixture".into());
+        }
+        std::fs::write(destination, IMAGE).map_err(|_| "Could not write the demo image".into())
     }
 }

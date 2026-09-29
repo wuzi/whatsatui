@@ -196,7 +196,7 @@ pub(super) fn normalize(
     let body = if let Some(text) = message.text_content() {
         MessageBody::Text(text.into())
     } else if let Some(attachment) = super::media::attachment(payload) {
-        MessageBody::Media(attachment)
+        MessageBody::Media(Box::new(attachment))
     } else {
         let kind = if message.image_message.is_set() {
             "image"
@@ -440,11 +440,9 @@ pub(super) mod tests {
                 message: MessageField::some(wa::Message {
                     view_once_message_v2: MessageField::some(wa::message::FutureProofMessage {
                         message: MessageField::some(payload),
-                        ..Default::default()
                     }),
                     ..Default::default()
                 }),
-                ..Default::default()
             }),
             ..Default::default()
         };

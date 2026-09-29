@@ -136,6 +136,7 @@ pub(super) async fn start(
         result
     });
     Ok(BackendHandle {
+        media: std::sync::Arc::new(crate::media::NativeDownloader),
         commands,
         events: rx,
         control: BackendControl::new(stop, task),

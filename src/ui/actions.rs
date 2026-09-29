@@ -1,4 +1,5 @@
 use super::*;
+use crate::app::model::MessageBody;
 use crate::{config::bindings::ActionId as A, message_actions};
 use ratatui::widgets::{Clear, List, ListItem, ListState};
 
@@ -12,9 +13,13 @@ pub(super) fn menu(frame: &mut Frame, area: Rect, view: &ViewModel, config: &Con
     let inner = border.inner(rect);
     frame.render_widget(border, rect);
     let body = message_actions::text(&menu.message, chrono::Utc::now().timestamp_millis())
-        .unwrap_or_default();
+        .map(str::to_owned)
+        .unwrap_or_else(|| match &menu.message.body {
+            MessageBody::Media(attachment) => attachment.label(),
+            _ => String::new(),
+        });
     frame.render_widget(
-        Paragraph::new(single(body)).style(style(config, view, ThemeRole::Inactive)),
+        Paragraph::new(single(&body)).style(style(config, view, ThemeRole::Inactive)),
         Rect::new(inner.x, inner.y, inner.width, 1),
     );
     let items = message_actions::available(&menu.message, chrono::Utc::now().timestamp_millis())
@@ -23,6 +28,8 @@ pub(super) fn menu(frame: &mut Frame, area: Rect, view: &ViewModel, config: &Con
             let label = match action {
                 A::CopyText => "Copy text",
                 A::OpenLinks => "Open links",
+                A::DownloadMedia => "Download attachment",
+                A::OpenMedia => "Open downloaded file",
                 A::Reply => "Reply to message",
                 A::Resend => "Resend message",
                 _ => "",

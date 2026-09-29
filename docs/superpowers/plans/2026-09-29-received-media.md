@@ -31,7 +31,7 @@
 
 **Files:** Create `src/media/model.rs`, `src/media/mod.rs`, `src/whatsapp/media.rs`; modify `src/lib.rs`, `src/app/model.rs`, `src/whatsapp/normalize.rs`, `src/storage/{worker,search}.rs`, `src/message_actions.rs`, `src/ui/timeline.rs`; extend normalization/store/search/render tests.
 
-**Interfaces:** `Attachment` contains `kind: AttachmentKind`, `filename/mime/caption: Option<String>`, `size: u64`, `direct_path: String`, and `[u8; 32]` key/plain/encrypted hashes. `MessageBody::Media(Attachment)`. `whatsapp::media::attachment(&wa::Message) -> Option<Attachment>` rejects view-once/incomplete references. `Attachment::validate() -> Result<(), String>` owns bounded metadata/reference checks; `Attachment::extension() -> Option<&'static str>` owns supported viewer suffixes.
+**Interfaces:** `Attachment` contains `kind: AttachmentKind`, `filename/mime/caption: Option<String>`, `size: u64`, `direct_path: String`, and `[u8; 32]` key/plain/encrypted hashes. `MessageBody::Media(Box<Attachment>)`. `whatsapp::media::attachment(&wa::Message) -> Option<Attachment>` rejects view-once/incomplete references. `Attachment::validate() -> Result<(), String>` owns bounded metadata/reference checks; `Attachment::extension() -> Option<&'static str>` owns supported viewer suffixes.
 
 - [x] Write failing tests for image/document live/history capture, nested view-once rejection, incomplete keys/hashes/paths, legacy JSON, and original caption copying/search/style.
 - [x] Run normalization and targeted store/search/render targets; confirm meaningful failures before implementation.
@@ -57,11 +57,11 @@
 
 **Interfaces:** `ActionId::{DownloadMedia, OpenMedia}` with Messages/menu defaults `d` and `v`. `Effect::MediaAction { request, message, action }` completes through existing `Input::DesktopAction { request, account, result }`. `BackendHandle` carries an `Arc<dyn Downloader>` so the demo/test backend supplies an inert implementation. Runtime execution passes a shutdown watch channel to downloads, invokes cache maintenance, and preserves the existing command/storage scheduling.
 
-- [ ] Write failing reducer/render tests for captionless attachment menus, `d` download without opening, `v` explicit open, remapping, repeated activation, full identity/stale account handling, and ordinary composer typing/draft preservation. Add a synthetic PTY flow that downloads demo bytes, opens through a fake viewer, and restores the terminal on quit.
-- [ ] Run the focused flow target and confirm missing behavior fails.
-- [ ] Wire applicable menu rows, notices, runtime downloader injection/cancellation/maintenance, demo fixtures, configurable controls, and user documentation. Explain old-cache limitations and managed storage behavior.
-- [ ] Run fmt check, Clippy all-targets with `-D warnings`, all-target tests, and the optimized build under the resource limits. Inspect terminal cleanup using only fake external helpers.
-- [ ] Commit `feat: add received media actions`.
+- [x] Write failing reducer/render tests for captionless attachment menus, `d` download without opening, `v` explicit open, remapping, repeated activation, full identity/stale account handling, and ordinary composer typing/draft preservation. Add a synthetic PTY flow that downloads demo bytes, opens through a fake viewer, and restores the terminal on quit.
+- [x] Run the focused flow target and confirm missing behavior fails.
+- [x] Wire applicable menu rows, notices, runtime downloader injection/cancellation/maintenance, demo fixtures, configurable controls, and user documentation. Explain old-cache limitations and managed storage behavior.
+- [x] Run fmt check, Clippy all-targets with `-D warnings`, all-target tests, and the optimized build under the resource limits. Inspect terminal cleanup using only fake external helpers.
+- [x] Commit `feat: add received media actions`.
 
 ## Completion
 

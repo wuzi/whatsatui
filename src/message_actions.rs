@@ -9,14 +9,25 @@ pub enum DesktopAction {
 }
 pub fn available(message: &MessageRecord, now_ms: i64) -> Vec<crate::config::bindings::ActionId> {
     use crate::{app::model::SendState, config::bindings::ActionId as A};
-    let Some(text) = text(message, now_ms) else {
+    if message.expires_at_ms.is_some_and(|at| at <= now_ms) {
         return vec![];
-    };
-    let mut actions = vec![A::CopyText];
-    if !web_links(text).is_empty() {
-        actions.push(A::OpenLinks);
     }
-    if matches!(message.body, MessageBody::Text(_)) {
+    let mut actions = vec![];
+    if let MessageBody::Media(attachment) = &message.body
+        && attachment.validate().is_ok()
+    {
+        actions.push(A::DownloadMedia);
+        if attachment.extension().is_some() {
+            actions.push(A::OpenMedia);
+        }
+    }
+    if let Some(text) = text(message, now_ms) {
+        actions.push(A::CopyText);
+        if !web_links(text).is_empty() {
+            actions.push(A::OpenLinks);
+        }
+    }
+    if matches!(message.body, MessageBody::Text(_)) && !actions.is_empty() {
         actions.push(A::Reply);
         if message.key.from_me
             && matches!(

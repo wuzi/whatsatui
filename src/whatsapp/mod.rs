@@ -63,6 +63,7 @@ pub struct BackendHandle {
     pub commands: mpsc::Sender<BackendCommand>,
     pub events: mpsc::Receiver<BackendEvent>,
     pub control: BackendControl,
+    pub media: std::sync::Arc<dyn crate::media::Downloader>,
 }
 pub struct BackendControl {
     stop: Option<oneshot::Sender<()>>,

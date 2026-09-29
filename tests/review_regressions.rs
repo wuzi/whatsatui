@@ -408,6 +408,7 @@ async fn shutdown_bypasses_full_command_jobs_and_flushes_the_draft() {
         Ok(())
     });
     let backend = BackendHandle {
+        media: std::sync::Arc::new(whatsapp_tui::whatsapp::demo::DemoDownloader),
         commands,
         events,
         control: BackendControl::new(stop, task),

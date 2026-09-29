@@ -84,7 +84,7 @@ pub enum ConnectionState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MessageBody {
     Text(String),
-    Media(crate::media::Attachment),
+    Media(Box<crate::media::Attachment>),
     Unsupported {
         kind: String,
         caption: Option<String>,

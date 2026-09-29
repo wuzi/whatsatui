@@ -27,6 +27,8 @@ pub enum AppError {
     Terminal(#[from] std::io::Error),
     #[error("{0}")]
     Arguments(&'static str),
+    #[error("{0}")]
+    Media(String),
 }
 pub trait Screen {
     fn draw(&mut self, view: &ViewModel, config: &Config) -> std::io::Result<()>;
@@ -100,6 +102,9 @@ where
         .unwrap_or(paths.data);
     let guard = DataDirGuard::acquire(&path)?;
     let store = Store::open(path.join("chat.sqlite3")).await?;
+    crate::media::prune(store.clone())
+        .await
+        .map_err(AppError::Media)?;
     let backend = if options.demo {
         crate::whatsapp::demo::start(store.clone())
     } else {
@@ -160,7 +165,45 @@ pub async fn execute(
     store: Store,
     commands: mpsc::Sender<BackendCommand>,
 ) -> Option<Input> {
+    let (_stop, cancel) = tokio::sync::watch::channel(false);
+    execute_with_media(
+        effect,
+        store,
+        commands,
+        &crate::media::NativeDownloader,
+        cancel,
+    )
+    .await
+}
+async fn execute_with_media(
+    effect: Effect,
+    store: Store,
+    commands: mpsc::Sender<BackendCommand>,
+    downloader: &dyn crate::media::Downloader,
+    cancel: tokio::sync::watch::Receiver<bool>,
+) -> Option<Input> {
     let event = match effect {
+        Effect::MediaAction {
+            request,
+            message,
+            action,
+        } => {
+            let account = message.key.account.clone();
+            let result = crate::media::execute(
+                *message,
+                action,
+                store,
+                downloader,
+                &crate::desktop::NativeDesktop,
+                cancel,
+            )
+            .await;
+            return Some(Input::DesktopAction {
+                request,
+                account,
+                result,
+            });
+        }
         Effect::DesktopAction {
             request,
             message,
@@ -338,13 +381,20 @@ pub async fn execute(
                 result,
             }
         }
-        Effect::Expire { account, now_ms } => StoreCompletion::Changed {
-            account: account.clone(),
-            result: store
-                .expire(account, now_ms)
+        Effect::Expire { account, now_ms } => {
+            let mut result = store
+                .expire(account.clone(), now_ms)
                 .await
-                .map_err(|e| e.to_string()),
-        },
+                .map_err(|e| e.to_string());
+            // Expiry runs once a second; scan managed downloads about twice a minute.
+            if result.is_ok()
+                && now_ms.div_euclid(1000) % 30 == 0
+                && let Err(error) = crate::media::prune(store.clone()).await
+            {
+                result = Err(error);
+            }
+            StoreCompletion::Changed { account, result }
+        }
         Effect::Shutdown => return None,
     };
     Some(Input::Store(event))
@@ -364,7 +414,9 @@ where
         commands,
         mut events,
         control,
+        media,
     } = backend;
+    let (cancel_media, media_cancelled) = tokio::sync::watch::channel(false);
     let mut control = Some(control);
     let mut pending = VecDeque::new();
     let mut jobs = JoinSet::new();
@@ -387,6 +439,7 @@ where
         if let Some(index) = pending.iter().position(|e| matches!(e, Effect::Shutdown)) {
             pending.remove(index);
             closing = true;
+            let _ = cancel_media.send(true);
             if let Some(control) = control.take() {
                 shutdown = Some(Box::pin(control.shutdown()));
             }
@@ -403,7 +456,14 @@ where
             command_jobs += usize::from(command);
             let store = store.clone();
             let commands = commands.clone();
-            jobs.spawn(async move { (command, execute(effect, store, commands).await) });
+            let media = media.clone();
+            let cancelled = media_cancelled.clone();
+            jobs.spawn(async move {
+                (
+                    command,
+                    execute_with_media(effect, store, commands, media.as_ref(), cancelled).await,
+                )
+            });
         }
         if dirty {
             screen.draw(&app.view(), &app.config)?;

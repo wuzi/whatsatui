@@ -12,7 +12,9 @@ impl App {
             .messages
             .iter()
             .find(|m| m.key == message.key && m.body == message.body)
-            .filter(|m| message_actions::text(m, chrono::Utc::now().timestamp_millis()).is_some())
+            .filter(|m| {
+                !message_actions::available(m, chrono::Utc::now().timestamp_millis()).is_empty()
+            })
             .cloned()
     }
     pub(super) fn reconcile_message_actions(&mut self) {
@@ -138,6 +140,39 @@ impl App {
             DesktopAction::CopyText
         };
         self.start_desktop_action(message, action, effects);
+    }
+    pub(super) fn start_media_action(
+        &mut self,
+        action: crate::media::MediaAction,
+        effects: &mut Vec<Effect>,
+    ) {
+        let Some(message) = self.action_message() else {
+            self.view.notice = Some("Select an available attachment first".into());
+            return;
+        };
+        if !matches!(message.body, MessageBody::Media(_)) {
+            self.view.notice = Some("No downloadable attachment in this message".into());
+            return;
+        }
+        if self.desktop_request.is_some() {
+            self.view.notice = Some("An attachment or desktop action is still running".into());
+            return;
+        }
+        let request = self.request();
+        self.desktop_request = Some((request, message.key.account.clone()));
+        self.view.overlay = None;
+        self.view.notice = Some(
+            match action {
+                crate::media::MediaAction::Download => "Downloading attachment…",
+                crate::media::MediaAction::Open => "Opening downloaded file…",
+            }
+            .into(),
+        );
+        effects.push(Effect::MediaAction {
+            request,
+            message: Box::new(message),
+            action,
+        });
     }
     fn start_desktop_action(
         &mut self,

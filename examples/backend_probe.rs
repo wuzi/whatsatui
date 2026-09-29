@@ -27,6 +27,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         commands,
         mut events,
         control,
+        ..
     } = backend;
     println!(
         "Commands: chats | send CHAT_JID TEXT | reply CHAT_JID MESSAGE_ID SENDER_JID TEXT | quit"

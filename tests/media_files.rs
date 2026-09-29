@@ -34,7 +34,7 @@ fn attachment() -> Attachment {
 }
 fn record(id: &str) -> MessageRecord {
     let mut m = message(key("chat", "alice", id), "");
-    m.body = MessageBody::Media(attachment());
+    m.body = MessageBody::Media(Box::new(attachment()));
     m
 }
 #[derive(Default)]

@@ -33,6 +33,8 @@ pub enum ActionId {
     MessageActions,
     CopyText,
     OpenLinks,
+    DownloadMedia,
+    OpenMedia,
     FocusNext,
     FocusPrevious,
     Search,
@@ -62,6 +64,8 @@ impl ActionId {
             Self::MessageActions => "actions",
             Self::CopyText => "copy",
             Self::OpenLinks => "links",
+            Self::DownloadMedia => "download",
+            Self::OpenMedia => "open file",
             Self::FocusNext => "next pane",
             Self::FocusPrevious => "previous pane",
             Self::Search => "chats",
@@ -119,6 +123,10 @@ impl Default for Bindings {
         b.add(C::Messages, A::MessageActions, "enter");
         b.add(C::Messages, A::CopyText, "y");
         b.add(C::Messages, A::OpenLinks, "o");
+        for c in [C::Messages, C::MessageActions] {
+            b.add(c, A::DownloadMedia, "d");
+            b.add(c, A::OpenMedia, "v");
+        }
         for (a, k) in [
             (A::Back, "esc"),
             (A::Reply, "r"),
@@ -329,6 +337,8 @@ fn allowed(c: Context, a: ActionId) -> bool {
                 | A::Previous
                 | A::CopyText
                 | A::OpenLinks
+                | A::DownloadMedia
+                | A::OpenMedia
                 | A::Reply
                 | A::Resend
         ),

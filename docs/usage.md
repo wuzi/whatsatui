@@ -42,6 +42,20 @@ Clipboard support uses `wl-copy` from wl-clipboard on Wayland, or `xclip`/`xsel`
 
 Bindings live in `[bindings.messages]`, `[bindings.message_actions]`, and `[bindings.message_links]`; the complete example includes the defaults. The menu and link picker require an Open and Back binding. In the demo, open Alice, Shift-Tab from the composer to Messages, then Enter to explore the actions. Its newest message includes formatting and an example.org link. Copying and opening from an interactive demo use your real desktop helpers when you select those actions.
 
+## Received images and files
+
+Select an image or document in Messages and press `d` to download it, or choose **Download attachment** from Enter's action menu. The notice gives the saved path. Press `v` separately to request your desktop's default viewer with `xdg-open`. Opening never starts a download, and downloading never opens a viewer. Captions remain searchable and copyable with `y`. These actions also work on attachments without captions, and `d`/`v` remain ordinary text in the composer.
+
+Downloads require a usable reference from a newly received message or history sync. Media cached by an older version contains only a placeholder and cannot be retroactively downloaded unless WhatsApp supplies that message again. View-once attachments are excluded. Audio, video, stickers, sending files, and inline terminal image previews are not included yet.
+
+Files are saved under `<data-dir>/media/`, with generated filenames and private directory/file permissions (0700/0600). The received filename is display-only. The client checks the declared size and content hash before publishing a download and again before opening an existing copy. Repeating `d` reuses a verified copy. Supported viewer types are JPEG, PNG, GIF, WebP, PDF, plain text, CSV, Word/Excel/PowerPoint, and ODT/ODS. Other MIME types download as `.bin` and cannot be opened from the app.
+
+One attachment/desktop action runs at a time; navigation and typing remain available. Files are limited to 50 MiB and a transfer to 60 seconds. Quitting cancels the transfer. Failed, interrupted, expired-reference, and full-storage downloads show a notice and can be retried with `d`; no partial file is offered for opening. The managed folder allows up to 128 attachments and 512 MiB. When full, quit the app and remove unneeded files from that folder (or clear the folder) before retrying.
+
+Managed copies for deleted, expired, changed, or reconciled-away messages are removed at startup and during periodic maintenance while the app is running; an active transfer may delay cleanup. Files you copy elsewhere are outside this cleanup. Downloads are plaintext and private permissions are not encryption or forensic erasure. The app rechecks message availability before downloading and opening. Switching accounts prevents an old completion notice appearing in the new account; a download already requested may finish for its original account.
+
+Try this offline: Ctrl-P → `weekend` → Enter, Shift-Tab to Messages, then `d` and `v`. The demo downloads a small synthetic cyan PNG without contacting WhatsApp; `v` uses your real desktop viewer when explicitly selected. Demo files disappear on exit. Remap `download_media` and `open_media` in both `[bindings.messages]` and `[bindings.message_actions]`.
+
 ## Connection and send state
 
 An outgoing attempt receives a stable ID and is committed locally before transmission. Text typed while an earlier revision is being sent remains in the composer. The states shown are:
@@ -85,4 +99,4 @@ Ctrl-Q, Ctrl-C, and SIGTERM request a graceful shutdown. Terminal state is resto
 
 ## Live acceptance
 
-Use your own test conversations. Run through pairing and restoration, direct/group text in both directions, a quoted reply, drafts in two chats, scrolling during new arrivals, narrow-terminal resizing, restart, and a network interruption. Record actual observations in [backend-validation.md](backend-validation.md). These checks require a user-linked account and are not performed by the automated suite.
+Use your own test conversations. Run through pairing and restoration, direct/group text in both directions, a quoted reply, drafts in two chats, scrolling during new arrivals, narrow-terminal resizing, restart, and a network interruption. For media, receive a fresh image and document, download and explicitly open each, restart and reuse a saved copy, and try an expired reference or interrupted download. Record actual observations in [backend-validation.md](backend-validation.md). These checks require a user-linked account and are not performed by the automated suite.

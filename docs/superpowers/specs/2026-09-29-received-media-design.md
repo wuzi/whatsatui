@@ -12,7 +12,7 @@ External viewers are the first delivery: they work with the current desktop boun
 
 ## Data and compatibility
 
-Add `MessageBody::Media(Attachment)` with kind, filename, MIME type, caption, declared byte length, direct path, media key, and encrypted/plaintext hashes. Capture it from live and history messages before acknowledging through the existing durable ingestion path. Require complete encrypted references with 32-byte keys/hashes, positive length, and a bounded relative CDN path. Malformed or incomplete media stays a readable placeholder. Preserve caption copying, styling, chat previews, and literal cached search.
+Add `MessageBody::Media(Box<Attachment>)` with kind, filename, MIME type, caption, declared byte length, direct path, media key, and encrypted/plaintext hashes. Capture it from live and history messages before acknowledging through the existing durable ingestion path. Require complete encrypted references with 32-byte keys/hashes, positive length, and a bounded relative CDN path. Malformed or incomplete media stays a readable placeholder. Preserve caption copying, styling, chat previews, and literal cached search.
 
 The existing JSON message column can store the additive variant without a SQL migration. Old records still deserialize. Earlier versions discarded download metadata, so existing placeholders cannot gain downloads until fresh WhatsApp history/message data arrives. Never claim that old media can be recovered from captions.
 

@@ -119,7 +119,7 @@ async fn current(message: &MessageRecord, store: &Store) -> Result<Attachment, S
         return Err("Attachment changed or expired; reopen its actions".into());
     }
     match current.body {
-        MessageBody::Media(attachment) => Ok(attachment),
+        MessageBody::Media(attachment) => Ok(*attachment),
         _ => Err("Attachment is not available".into()),
     }
 }
