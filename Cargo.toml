@@ -1,0 +1,36 @@
+[package]
+name = "whatsapp-tui"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+description = "A personal WhatsApp terminal client with a cyan Ratatui interface"
+license = "MIT"
+
+[dependencies]
+whatsapp-rust = { version = "=0.7.0", default-features = false, features = ["sqlite-storage", "tokio-transport", "tokio-runtime", "ureq-client", "tokio-native", "signal"] }
+tokio = { version = "1", features = ["full", "test-util"] }
+ratatui = "0.30"
+crossterm = { version = "0.29", features = ["event-stream"] }
+diesel = { version = "2.3", features = ["sqlite"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.9"
+clap = { version = "4", features = ["derive"] }
+unicode-segmentation = "1.12"
+unicode-width = "0.2"
+qrcode = { version = "0.14", default-features = false }
+thiserror = "2"
+anyhow = "1"
+async-trait = "0.1"
+futures-util = "0.3"
+fs2 = "0.4"
+tempfile = "3"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+[dev-dependencies]
+nix = { version = "0.30", features = ["term", "process", "poll", "fs"] }
+
+[profile.release]
+lto = "thin"
+strip = true
+
