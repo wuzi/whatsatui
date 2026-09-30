@@ -71,5 +71,5 @@
 - [x] Add cursor positioning that snaps to grapheme boundaries; generate hit regions from renderer list offsets and shared text geometry.
 - [x] Enable/restore mouse capture; add configuration and clickable Help/close controls. Keep hidden and background regions inert during popups.
 - [x] Update Help and usage docs with selection vs scroll controls, mouse gestures, photo fallback and sticker preparation.
-- [ ] Run focused tests, then complete suite, fmt, Clippy and optimized demo smoke test. Commit and record verification.
-- [ ] Request one independent whole-branch review; address important findings with regression tests. Integrate locally and preserve validation evidence.
+- [x] Run focused tests, then complete suite, fmt, Clippy and optimized demo smoke test. Commit and record verification.
+- [x] Request one independent whole-branch review; address important findings with regression tests. Integrate locally and preserve validation evidence.
