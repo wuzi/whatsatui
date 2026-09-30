@@ -82,3 +82,12 @@ The optimized demo passed with the complete example configuration: Ghostty graph
 User-operated acceptance: check direct/group participant photos and private-photo fallback, own-message contrast, mouse selection in Ghostty, scrolling during incoming messages, and resending an oversized static sticker after reviewing the prepared preview. Reactions and outgoing message edits remain the next feature iteration.
 
 Its single independent review found hidden-item mouse targets, missing visual CRLF line breaks, and sender names obscuring timestamps in narrow terminals. Each was reproduced with a failing regression and fixed; unused list rows are inert, CRLF retains correct rows and byte-based caret positions, and long Unicode names shorten to reserve time and edit metadata. All 223 tests pass after the fixes. No finding was deferred and no second review was performed.
+
+
+## Sidebar profile photos
+
+The user confirmed conversation profile photos looked good in their Ghostty session. The sidebar now reuses those account-scoped photos and initials, including group photos, without changing its two-line rows. Long names shorten to preserve unread counts and draft indicators.
+
+The sidebar iteration passes **225 synthetic tests**, formatting and Clippy with warnings denied. New checks cover actual decoded sidebar pixels, group identity, fetching only complete visible rows across scrolling, avatar click targets, hidden/disabled-photo cleanup, and badge visibility with long names. One independent review found no actionable issues. Automated checks use synthetic photos and demo data; no live profile fetches or messages were performed by the agent.
+
+The optimized demo also passed clicking a sidebar avatar to switch conversations, opening message actions, resizing 80×24 → 40×13 → 120×32, mouse Help/close, and terminal restoration. The smoke harness waits for each resized frame before sending its next action.
