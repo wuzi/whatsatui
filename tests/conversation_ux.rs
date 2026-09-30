@@ -153,9 +153,12 @@ fn keyboard_selects_whole_messages_and_scrolling_keeps_selection() {
 }
 
 fn interactive(app: &mut App) -> Buffer {
+    interactive_size(app, 100, 24)
+}
+fn interactive_size(app: &mut App, width: u16, height: u16) -> Buffer {
     let view = app.view();
     let config = app.config.clone();
-    let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
     let mut map = None;
     terminal
         .draw(|f| {
@@ -169,7 +172,11 @@ fn interactive(app: &mut App) -> Buffer {
         })
         .unwrap();
     app.update(Input::Rendered(map.unwrap()), Instant::now());
-    metrics(app);
+    if let Some(viewport) =
+        ui::timeline_viewport(Rect::new(0, 0, width, height), &app.view(), &app.config)
+    {
+        app.update(Input::TimelineViewport(viewport), Instant::now());
+    }
     terminal.backend().buffer().clone()
 }
 fn point(buffer: &Buffer, text: &str) -> (u16, u16) {
@@ -350,6 +357,26 @@ fn selecting_past_the_cached_page_requests_next_history_page() {
 #[test]
 fn clicking_a_scrolled_popup_item_keeps_it_under_the_pointer() {
     use crossterm::event::{MouseButton, MouseEventKind::Down};
+    let mut app = many_chats();
+    press(&mut app, "ctrl-p");
+    for _ in 0..25 {
+        press(&mut app, "down");
+    }
+    let screen = interactive(&mut app);
+    let target = point(&screen, "Person 24");
+    mouse(&mut app, target, Down(MouseButton::Left));
+    let screen = interactive(&mut app);
+    assert_eq!(
+        point(&screen, "Person 24"),
+        target,
+        "clicking must not shift the item before the second click"
+    );
+    mouse(&mut app, target, Down(MouseButton::Left));
+    assert_eq!(app.view().chat, Some("person24".into()));
+    assert!(app.view().overlay.is_none());
+}
+
+fn many_chats() -> App {
     let mut app = ready_app();
     let effects = app.update(
         Input::Backend(BackendEvent::StoreChanged(StoreChange {
@@ -388,20 +415,77 @@ fn clicking_a_scrolled_popup_item_keeps_it_under_the_pointer() {
         }),
         Instant::now(),
     );
+    app
+}
+
+#[test]
+fn unused_list_rows_never_select_hidden_conversations() {
+    use crossterm::event::{MouseButton, MouseEventKind::Down};
+    let mut app = many_chats();
     press(&mut app, "ctrl-p");
-    for _ in 0..25 {
-        press(&mut app, "down");
-    }
-    let screen = interactive(&mut app);
-    let target = point(&screen, "Person 24");
-    mouse(&mut app, target, Down(MouseButton::Left));
-    let screen = interactive(&mut app);
-    assert_eq!(
-        point(&screen, "Person 24"),
-        target,
-        "clicking must not shift the item before the second click"
+    let screen = interactive_size(&mut app, 80, 20);
+    let (x, y) = point(&screen, "Person 05");
+    assert_eq!(screen[(x, y + 2)].symbol(), " ");
+    mouse(&mut app, (x, y + 2), Down(MouseButton::Left));
+    assert!(matches!(
+        app.view().overlay,
+        Some(Overlay::Search { selected: 0, .. })
+    ));
+
+    press(&mut app, "esc");
+    let screen = interactive_size(&mut app, 80, 21);
+    let (x, y) = point(&screen, "Person 07");
+    assert_eq!(screen[(x, y + 2)].symbol(), " ");
+    mouse(&mut app, (x, y + 2), Down(MouseButton::Left));
+    assert_eq!(app.view().chat, Some("chat".into()));
+}
+
+#[test]
+fn crlf_paste_renders_lines_and_clicks_preserve_original_byte_offsets() {
+    use crossterm::event::{Event, MouseButton, MouseEventKind::Down};
+    let mut app = ready_app();
+    press(&mut app, "enter");
+    app.update(
+        Input::Terminal(Event::Paste("first\r\nA👩‍💻second".into())),
+        Instant::now(),
     );
-    mouse(&mut app, target, Down(MouseButton::Left));
-    assert_eq!(app.view().chat, Some("person24".into()));
-    assert!(app.view().overlay.is_none());
+    let screen = interactive(&mut app);
+    let first = point(&screen, "first");
+    let second = point(&screen, "A👩‍💻");
+    assert_eq!(
+        second.1,
+        first.1 + 1,
+        "CRLF must occupy one visual line break"
+    );
+    mouse(&mut app, (second.0 + 1, second.1), Down(MouseButton::Left));
+    press(&mut app, "X");
+    assert_eq!(app.view().draft.text, "first\r\nAX👩‍💻second");
+}
+
+#[test]
+fn long_sender_names_keep_time_and_edited_state_visible_at_forty_columns() {
+    let mut view = ready_app().view();
+    view.focus = Focus::Messages;
+    view.chats.push(ChatSummary {
+        account: account("test"),
+        chat: "alice".into(),
+        name: "Alexandria 👩‍💻 李 Elizabeth Very Long Contact Name".into(),
+        ..Default::default()
+    });
+    let mut original = message(key("chat", "alice", "long-name"), "Readable message");
+    original.edited_at_ms = Some(original.created_at_ms + 1);
+    let time = chrono::DateTime::from_timestamp_millis(original.created_at_ms)
+        .unwrap()
+        .with_timezone(&chrono::Local)
+        .format("%H:%M")
+        .to_string();
+    view.selected_message = Some(original.key.clone());
+    view.messages = vec![original];
+    let text = timeline_text(&draw(&view, &Config::default(), 40, 20), view.focus);
+    assert!(
+        text.contains(&time),
+        "sender names cannot hide message time"
+    );
+    assert!(text.contains("edited"), "edited state must remain visible");
+    assert!(text.contains("Alexandria"));
 }

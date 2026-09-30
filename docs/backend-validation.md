@@ -71,3 +71,14 @@ Its single independent review found two Important issues and one Minor, all repr
 
 
 The final optimized binary passed with the complete example configuration and an isolated fake clipboard helper: image paste with caption, reuse of a received animated sticker, creation and sending of a pasted sticker, retained composer text, and picker resize 80×24 → 40×12 → 120×32. Kitty protocol output/cleanup and terminal-mode restoration passed. Formatting and Clippy with warnings denied also pass. These checks validate terminal protocol output, not actual Ghostty pixels or live WhatsApp delivery.
+
+
+## Conversation layout, profile photos, and mouse
+
+The conversation UX iteration passes **223 synthetic tests**, formatting, Clippy with warnings denied, and an optimized build with two build jobs and two test threads. Checks cover oversized static sticker optimization and explicit prepared-preview confirmation, preserving received animation, bounded account-scoped avatar caching and privacy/missing-photo invalidation, sender grouping, own-message styling, independent selection and scrolling, stable popup offsets, exact message hit targets, grapheme-safe composer clicks, resize invalidation, and mouse capture restoration.
+
+The optimized demo passed with the complete example configuration: Ghostty graphics protocol output, mouse Help/close, Unicode send and automatic reply, message actions, keyboard navigation, resizing 80×24 → 40×12 → 120×32, a received sticker, and terminal/Kitty cleanup. Automated avatar tests use fake providers and decoded synthetic images; the demo uses initials. No real profile photos, clipboard contents, account, or live sends were accessed.
+
+User-operated acceptance: check direct/group participant photos and private-photo fallback, own-message contrast, mouse selection in Ghostty, scrolling during incoming messages, and resending an oversized static sticker after reviewing the prepared preview. Reactions and outgoing message edits remain the next feature iteration.
+
+Its single independent review found hidden-item mouse targets, missing visual CRLF line breaks, and sender names obscuring timestamps in narrow terminals. Each was reproduced with a failing regression and fixed; unused list rows are inert, CRLF retains correct rows and byte-based caret positions, and long Unicode names shorten to reserve time and edit metadata. All 223 tests pass after the fixes. No finding was deferred and no second review was performed.

@@ -82,10 +82,11 @@ impl InteractionMap {
         self.list_offsets.insert(context, offset);
         let mut y = rect.y;
         for (index, height) in heights.into_iter().enumerate().skip(offset) {
-            let height = height.min(rect.bottom().saturating_sub(y) as usize) as u16;
-            if height == 0 {
+            // Ratatui's List only renders items that fit in full.
+            if height == 0 || height > rect.bottom().saturating_sub(y) as usize {
                 break;
             }
+            let height = height as u16;
             self.push(Rect::new(rect.x, y, rect.width, height), target(index));
             y += height;
         }

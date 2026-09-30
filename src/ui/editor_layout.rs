@@ -15,7 +15,7 @@ impl TextLayout {
         };
         let (mut row, mut column) = (0, 0);
         for (byte, g) in text.grapheme_indices(true) {
-            if g == "\n" {
+            if g == "\n" || g == "\r\n" {
                 result.carets.push((
                     byte,
                     row + usize::from(column >= width),

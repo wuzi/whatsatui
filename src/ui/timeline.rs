@@ -44,25 +44,10 @@ fn who(message: &MessageRecord, view: &ViewModel) -> String {
 fn header(
     message: &MessageRecord,
     show_name: bool,
+    width: usize,
     view: &ViewModel,
     config: &Config,
 ) -> Line<'static> {
-    let mut spans = vec![];
-    if show_name {
-        spans.push(Span::styled(
-            format!("{}  ", who(message, view)),
-            style(
-                config,
-                view,
-                if message.key.from_me {
-                    ThemeRole::Own
-                } else {
-                    ThemeRole::Accent
-                },
-            )
-            .add_modifier(Modifier::BOLD),
-        ));
-    }
     let mut details = timestamp(message.created_at_ms);
     if let Some(state) = message.send_state {
         details.push_str(&format!(" · {state:?}"));
@@ -86,6 +71,40 @@ fn header(
                     .count()
             ));
         }
+    }
+    let mut spans = vec![];
+    if show_name {
+        // Keep timing/status visible even when the contact has a long name.
+        let name = who(message, view);
+        let budget = width.saturating_sub(details.width() + 2).max(3).min(width);
+        let name = if name.width() > budget {
+            let mut short = String::new();
+            let mut columns = 0;
+            for grapheme in name.graphemes(true) {
+                if columns + grapheme.width() > budget.saturating_sub(1) {
+                    break;
+                }
+                short.push_str(grapheme);
+                columns += grapheme.width();
+            }
+            short.push('…');
+            short
+        } else {
+            name
+        };
+        spans.push(Span::styled(
+            format!("{name}  "),
+            style(
+                config,
+                view,
+                if message.key.from_me {
+                    ThemeRole::Own
+                } else {
+                    ThemeRole::Accent
+                },
+            )
+            .add_modifier(Modifier::BOLD),
+        ));
     }
     spans.push(Span::styled(
         details,
@@ -154,7 +173,7 @@ pub(super) fn layout(area: Rect, view: &ViewModel, config: &Config) -> Timeline 
         }
         let start = lines.len();
         lines.push(gutter(
-            header(message, avatar, view, config),
+            header(message, avatar, width, view, config),
             message,
             true,
             view,
@@ -341,7 +360,13 @@ pub(super) fn render(
         && let Some(first) = visible.first_mut()
     {
         *first = gutter(
-            header(&view.messages[index], true, view, config),
+            header(
+                &view.messages[index],
+                true,
+                layout.area.width.saturating_sub(layout.gutter) as usize,
+                view,
+                config,
+            ),
             &view.messages[index],
             true,
             view,
