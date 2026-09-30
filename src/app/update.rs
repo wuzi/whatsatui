@@ -3,12 +3,18 @@ use crate::{config::Config, whatsapp::BackendEvent};
 use tokio::time::Instant;
 mod actions;
 mod attachments;
+mod interactions;
 mod mouse;
 mod navigation;
 mod search;
 mod stickers;
 #[derive(Clone, Debug)]
 pub enum Effect {
+    Mutate {
+        request: RequestId,
+        message: Box<MessageRecord>,
+        kind: MutationKind,
+    },
     LoadStickers {
         request: RequestId,
         account: AccountId,
@@ -173,6 +179,7 @@ pub struct App {
     timeline_tail_rows: usize,
     drafts: HashMap<ChatId, LocalDraft>,
     pending: HashMap<RequestId, PendingSend>,
+    mutation_requests: HashMap<RequestId, (MessageRecord, MutationKind)>,
     reading: std::collections::HashSet<ChatId>,
     read_watermarks: HashMap<ChatId, Option<MessageKey>>,
     last_expiry_ms: i64,
@@ -198,6 +205,8 @@ impl App {
             last_click: None,
             help_max_scroll: 0,
             view: ViewModel {
+                interactions: Default::default(),
+                editing: None,
                 list_offsets: Default::default(),
                 help_scroll: 0,
                 focus: Focus::Chats,
@@ -234,6 +243,7 @@ impl App {
             timeline_tail_rows: 0,
             drafts: HashMap::new(),
             pending: HashMap::new(),
+            mutation_requests: HashMap::new(),
             reading: Default::default(),
             read_watermarks: Default::default(),
             last_expiry_ms: 0,
@@ -254,7 +264,26 @@ impl App {
     }
     pub fn view(&self) -> ViewModel {
         let mut view = self.view.clone();
-        view.cursor = self.editor.cursor();
+        view.cursor = view
+            .editing
+            .as_ref()
+            .map_or(self.editor.cursor(), |e| e.editor.cursor());
+        for (request, (message, kind)) in &self.mutation_requests {
+            if view.account.as_ref() == Some(&message.key.account)
+                && view.chat.as_ref() == Some(&message.key.chat)
+            {
+                view.interactions
+                    .mutations
+                    .retain(|a| a.target.key != message.key);
+                view.interactions.mutations.push(MutationAttempt {
+                    id: format!("ui-{}", request.0),
+                    target: message.clone(),
+                    kind: kind.clone(),
+                    created_at_ms: 0,
+                    state: MutationState::Pending,
+                });
+            }
+        }
         view.chats = self.chat_summaries();
         view.search_results = self.search_results();
         view
@@ -300,6 +329,7 @@ impl App {
             Some(Overlay::Emoji { .. }) => Context::Emoji,
             Some(Overlay::Attachment { .. }) => Context::Attachment,
             Some(Overlay::MessageActions(_)) => Context::MessageActions,
+            Some(Overlay::Reactions(_)) => Context::Reactions,
             Some(Overlay::MessageLinks(_)) => Context::MessageLinks,
             Some(Overlay::MessageSearch(_)) => Context::MessageSearch,
             Some(Overlay::Search { .. }) => Context::Search,
@@ -393,6 +423,8 @@ impl App {
         }
         effects.extend(self.flush_drafts());
         self.clipboard_request = None;
+        self.view.editing = None;
+        self.view.interactions = Default::default();
         self.view.chat = Some(chat.clone());
         self.view.messages.clear();
         self.view.receipts.clear();
@@ -444,6 +476,20 @@ impl App {
             .and_then(|k| self.view.messages.iter().find(|m| &m.key == k))
     }
     fn move_selection(&mut self, delta: isize, effects: &mut Vec<Effect>) {
+        if let Some(Overlay::Reactions(menu)) = &mut self.view.overlay {
+            let len = self
+                .view
+                .interactions
+                .reactions
+                .iter()
+                .filter(|r| r.key == menu.message.key)
+                .count();
+            menu.selected = menu
+                .selected
+                .saturating_add_signed(delta)
+                .min(len.saturating_sub(1));
+            return;
+        }
         if matches!(self.view.overlay, Some(Overlay::Help)) {
             self.view.help_scroll = self
                 .view
@@ -461,7 +507,10 @@ impl App {
             }
             return;
         }
-        if let Some(Overlay::Emoji { editor, selected }) = &mut self.view.overlay {
+        if let Some(Overlay::Emoji {
+            editor, selected, ..
+        }) = &mut self.view.overlay
+        {
             *selected = selected
                 .saturating_add_signed(delta)
                 .min(super::emoji::search(editor.text()).len().saturating_sub(1));
@@ -599,6 +648,22 @@ impl App {
     }
     fn action(&mut self, action: ActionId, effects: &mut Vec<Effect>) {
         use ActionId as A;
+        if self.view.editing.is_some()
+            && matches!(
+                action,
+                A::AttachImage
+                    | A::Stickers
+                    | A::PasteClipboard
+                    | A::RemoveAttachment
+                    | A::RemoveReply
+                    | A::Reply
+                    | A::Resend
+            )
+        {
+            self.view.notice =
+                Some("Finish or cancel the edit before attaching or replying".into());
+            return;
+        }
         if matches!(action, A::Reply | A::Resend)
             && matches!(self.view.overlay, Some(Overlay::MessageActions(_)))
             && !self.activate_menu_target(action)
@@ -606,10 +671,15 @@ impl App {
             return;
         }
         match action {
+            A::React => self.open_reaction_picker(),
+            A::Reactions => self.open_reactions(),
+            A::RemoveReaction => self.remove_reaction(effects),
+            A::EditMessage => self.start_edit(effects),
             A::Stickers => self.open_stickers(effects),
             A::Emoji => {
                 if !self.view.loading && self.view.chat.is_some() {
                     self.view.overlay = Some(Overlay::Emoji {
+                        target: None,
                         editor: Editor::default(),
                         selected: 0,
                     });
@@ -643,6 +713,20 @@ impl App {
                 self.focus(next, effects);
             }
             A::Back => {
+                if self.view.overlay.is_none() && self.view.editing.is_some() {
+                    if self
+                        .view
+                        .editing
+                        .as_ref()
+                        .is_some_and(|e| e.request.is_some())
+                    {
+                        self.view.notice = Some("Saving edit; waiting for WhatsApp".into());
+                        return;
+                    }
+                    self.view.editing = None;
+                    self.focus(Focus::Composer, effects);
+                    return;
+                }
                 if let Some(Overlay::Stickers(picker)) = &self.view.overlay
                     && let Some(request) = picker.sending
                     && let Some(pending) = self.pending.get(&request)
@@ -720,13 +804,26 @@ impl App {
                     self.send_sticker(effects);
                     return;
                 }
-                if let Some(Overlay::Emoji { editor, selected }) = &self.view.overlay {
+                if matches!(self.view.overlay, Some(Overlay::Reactions(_))) {
+                    self.open_reaction_picker();
+                    return;
+                }
+                if let Some(Overlay::Emoji {
+                    editor,
+                    selected,
+                    target,
+                }) = &self.view.overlay
+                {
                     let emoji = super::emoji::search(editor.text())
                         .get(*selected)
                         .map(|e| e.as_str().to_owned());
                     if let Some(emoji) = emoji {
-                        self.view.overlay = None;
-                        self.edit_current(EditAction::Insert(emoji));
+                        if let Some(target) = target.clone() {
+                            self.choose_reaction(*target, emoji, effects);
+                        } else {
+                            self.view.overlay = None;
+                            self.edit_current(EditAction::Insert(emoji));
+                        }
                     }
                     return;
                 }
@@ -821,6 +918,10 @@ impl App {
                 }
             }
             A::Send => {
+                if self.view.editing.is_some() {
+                    self.save_edit(effects);
+                    return;
+                }
                 if self.clipboard_request.is_some() {
                     self.view.notice = Some("Wait for the clipboard image before sending".into());
                     return;
@@ -887,6 +988,12 @@ impl App {
         });
     }
     fn edit_current(&mut self, edit: EditAction) {
+        if let Some(editing) = &mut self.view.editing {
+            if editing.request.is_none() {
+                editing.editor.apply(edit);
+            }
+            return;
+        }
         let (Some(account), Some(chat)) = (self.view.account.clone(), self.view.chat.clone())
         else {
             return;
@@ -928,7 +1035,10 @@ impl App {
                     if key.kind == KeyEventKind::Repeat
                         && matches!(
                             action,
-                            ActionId::PasteClipboard
+                            ActionId::React
+                                | ActionId::EditMessage
+                                | ActionId::RemoveReaction
+                                | ActionId::PasteClipboard
                                 | ActionId::Stickers
                                 | ActionId::Send
                                 | ActionId::Open
@@ -968,7 +1078,10 @@ impl App {
             _ => None,
         };
         if let Some(edit) = edit {
-            if let Some(Overlay::Emoji { editor, selected }) = &mut self.view.overlay {
+            if let Some(Overlay::Emoji {
+                editor, selected, ..
+            }) = &mut self.view.overlay
+            {
                 if super::search::edit_query(editor, edit) {
                     *selected = 0;
                 }
@@ -1029,11 +1142,18 @@ impl App {
     }
     fn backend(&mut self, event: BackendEvent, effects: &mut Vec<Effect>) {
         match event {
-            BackendEvent::MutationOutcome { .. } => {}
+            BackendEvent::MutationOutcome {
+                request,
+                account,
+                result,
+            } => self.mutation_outcome(request, account, result),
             BackendEvent::AccountKnown(account) => {
                 if self.view.account.as_ref() != Some(&account) {
                     effects.extend(self.flush_drafts());
                     self.clipboard_request = None;
+                    self.view.editing = None;
+                    self.view.interactions = Default::default();
+                    self.mutation_requests.clear();
                     self.view.account = Some(account.clone());
                     self.view.list_offsets.clear();
                     self.view.chat = None;
@@ -1311,6 +1431,7 @@ impl App {
                         let old = self.view.selected_message.clone();
                         self.view.messages = snapshot.messages;
                         self.view.receipts = snapshot.receipts;
+                        self.view.interactions = snapshot.interactions;
                         self.view.has_older = snapshot.has_older;
                         self.view.has_newer = snapshot.has_newer;
                         if !self.view.at_bottom {
@@ -1648,6 +1769,7 @@ impl App {
         }
         let mut effects = vec![];
         self.reconcile_message_actions();
+        self.reconcile_editing();
         match input {
             Input::Rendered(map) => {
                 if map.matches(&self.view) {
@@ -1726,6 +1848,7 @@ impl App {
             }
         }
         self.reconcile_message_actions();
+        self.reconcile_editing();
         self.maybe_read(&mut effects);
         self.finish_shutdown(&mut effects);
         effects

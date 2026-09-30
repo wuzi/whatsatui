@@ -1,5 +1,6 @@
 mod actions;
 mod avatars;
+mod reactions;
 pub use avatars::Avatars;
 mod attachments;
 mod chat_list;

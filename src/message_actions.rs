@@ -47,6 +47,12 @@ pub fn available(message: &MessageRecord, now_ms: i64) -> Vec<crate::config::bin
     {
         actions.push(A::Resend);
     }
+    if can_react(message, now_ms) {
+        actions.extend([A::React, A::Reactions]);
+    }
+    if can_edit(message, now_ms) {
+        actions.push(A::EditMessage);
+    }
     actions
 }
 pub fn text(message: &MessageRecord, now_ms: i64) -> Option<&str> {

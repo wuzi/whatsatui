@@ -16,6 +16,7 @@ struct Binding {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Context {
+    Reactions,
     Stickers,
     Emoji,
     Attachment,
@@ -33,6 +34,10 @@ pub enum Context {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ActionId {
+    React,
+    Reactions,
+    RemoveReaction,
+    EditMessage,
     Stickers,
     Emoji,
     AttachImage,
@@ -71,6 +76,10 @@ pub(super) type Overrides = BTreeMap<Context, BTreeMap<ActionId, Vec<String>>>;
 impl ActionId {
     pub fn label(self) -> &'static str {
         match self {
+            Self::React => "react",
+            Self::Reactions => "view reactions",
+            Self::RemoveReaction => "remove reaction",
+            Self::EditMessage => "edit message",
             Self::Stickers => "stickers",
             Self::Emoji => "emoji",
             Self::PasteClipboard => "paste image/text",
@@ -112,6 +121,23 @@ impl Default for Bindings {
         use {ActionId as A, Context as C};
         let mut b = Self { entries: vec![] };
         b.add(C::Global, A::Quit, "ctrl-q");
+        for c in [C::Messages, C::MessageActions] {
+            for (a, k) in [(A::React, "a"), (A::Reactions, "i"), (A::EditMessage, "e")] {
+                b.add(c, a, k);
+            }
+        }
+        for (a, k) in [
+            (A::Back, "esc"),
+            (A::Open, "enter"),
+            (A::React, "a"),
+            (A::RemoveReaction, "x"),
+            (A::Next, "down"),
+            (A::Previous, "up"),
+            (A::Next, "j"),
+            (A::Previous, "k"),
+        ] {
+            b.add(C::Reactions, a, k);
+        }
         for c in [C::Chats, C::Messages, C::Composer] {
             for (a, k) in [
                 (A::FocusNext, "tab"),
@@ -283,6 +309,7 @@ impl Bindings {
             }
         }
         for context in [
+            Context::Reactions,
             Context::Stickers,
             Context::Emoji,
             Context::Attachment,
@@ -315,7 +342,8 @@ impl Bindings {
             let mut required = vec![ActionId::Quit];
             if matches!(
                 context,
-                Context::Stickers
+                Context::Reactions
+                    | Context::Stickers
                     | Context::MessageActions
                     | Context::MessageLinks
                     | Context::Attachment
@@ -359,6 +387,10 @@ impl Bindings {
 fn allowed(c: Context, a: ActionId) -> bool {
     use {ActionId as A, Context as C};
     match c {
+        C::Reactions => matches!(
+            a,
+            A::Back | A::Open | A::React | A::RemoveReaction | A::Next | A::Previous
+        ),
         C::Stickers => matches!(
             a,
             A::Open | A::Back | A::Next | A::Previous | A::PasteClipboard
@@ -393,6 +425,7 @@ fn allowed(c: Context, a: ActionId) -> bool {
                 | A::Confirm
                 | A::Unread
                 | A::ToggleUnread
+                | A::RemoveReaction
         ),
         C::Composer => matches!(
             a,
@@ -418,7 +451,10 @@ fn allowed(c: Context, a: ActionId) -> bool {
         C::MessageSearch => matches!(a, A::Back | A::Open | A::Next | A::Previous),
         C::MessageActions => matches!(
             a,
-            A::Back
+            A::React
+                | A::Reactions
+                | A::EditMessage
+                | A::Back
                 | A::Open
                 | A::Next
                 | A::Previous

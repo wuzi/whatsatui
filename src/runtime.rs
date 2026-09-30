@@ -244,6 +244,29 @@ async fn execute_with_media(
     cancel: tokio::sync::watch::Receiver<bool>,
 ) -> Option<Input> {
     let event = match effect {
+        Effect::Mutate {
+            request,
+            message,
+            kind,
+        } => {
+            let account = message.key.account.clone();
+            if commands
+                .send(BackendCommand::Mutate {
+                    request,
+                    message,
+                    kind,
+                })
+                .await
+                .is_err()
+            {
+                return Some(Input::Backend(BackendEvent::MutationOutcome {
+                    request,
+                    account,
+                    result: Err("WhatsApp service is unavailable; action was not sent".into()),
+                }));
+            }
+            return None;
+        }
         Effect::PasteClipboard {
             request,
             account,
@@ -674,7 +697,10 @@ where
 fn uses_commands(effect: &Effect) -> bool {
     matches!(
         effect,
-        Effect::Prepare { .. } | Effect::Transmit(_) | Effect::MarkRead { .. }
+        Effect::Prepare { .. }
+            | Effect::Mutate { .. }
+            | Effect::Transmit(_)
+            | Effect::MarkRead { .. }
     )
 }
 

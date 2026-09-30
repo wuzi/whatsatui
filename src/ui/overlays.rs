@@ -111,13 +111,14 @@ pub(super) fn render(
         Some(Overlay::Stickers(picker)) => {
             super::stickers::render(frame, area, view, config, picker, images, hits)
         }
-        Some(Overlay::Emoji { editor, selected }) => {
-            super::emoji::render(frame, area, view, config, editor, *selected, hits)
-        }
+        Some(Overlay::Emoji {
+            editor, selected, ..
+        }) => super::emoji::render(frame, area, view, config, editor, *selected, hits),
         Some(Overlay::Attachment { .. }) => {
             super::attachments::dialog(frame, area, view, config, hits)
         }
         Some(Overlay::MessageActions(_)) => actions::menu(frame, area, view, config, hits),
+        Some(Overlay::Reactions(_)) => reactions::popup(frame, area, view, config, hits),
         Some(Overlay::MessageLinks(_)) => actions::links(frame, area, view, config, hits),
         Some(Overlay::MessageSearch(_)) => search::messages(frame, area, view, config, hits),
         Some(Overlay::Search { .. }) => search::chats(frame, area, view, config, hits),

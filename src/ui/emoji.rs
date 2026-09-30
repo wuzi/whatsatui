@@ -19,8 +19,20 @@ pub(super) fn render(
     let height = (bottom - area.y).min(13);
     let rect = Rect::new(right.x, bottom - height, right.width, height);
     frame.render_widget(Clear, rect);
+    let reacting = matches!(
+        view.overlay,
+        Some(Overlay::Emoji {
+            target: Some(_),
+            ..
+        })
+    );
     let border = block(
-        " Emoji · search names or :shortcodes: ".into(),
+        if reacting {
+            " React · search emoji "
+        } else {
+            " Emoji · search names or :shortcodes: "
+        }
+        .into(),
         true,
         view,
         config,
@@ -75,12 +87,17 @@ pub(super) fn render(
     }
     frame.render_widget(
         Paragraph::new(format!(
-            "{} insert · {} close",
+            "{} {} · {} close",
             search::key(
                 config,
                 Context::Emoji,
                 crate::config::bindings::ActionId::Open
             ),
+            if reacting {
+                "react (same removes)"
+            } else {
+                "insert"
+            },
             search::key(
                 config,
                 Context::Emoji,

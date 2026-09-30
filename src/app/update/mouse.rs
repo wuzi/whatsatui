@@ -29,7 +29,7 @@ impl App {
                 }
             } else {
                 match target {
-                    Target::Message(_) | Target::Pane(Focus::Messages) => {
+                    Target::Message(_) | Target::Reactions(_) | Target::Pane(Focus::Messages) => {
                         self.scroll_timeline(delta, effects)
                     }
                     Target::Chat(_) | Target::Pane(Focus::Chats) => {
@@ -85,9 +85,18 @@ impl App {
                     self.action(ActionId::MessageActions, effects);
                 }
             }
+            Target::Reactions(key) if self.view.messages.iter().any(|m| m.key == key) => {
+                self.focus(Focus::Messages, effects);
+                self.view.selected_message = Some(key);
+                self.open_reactions();
+            }
             Target::Composer(byte) if button == MouseButton::Left => {
                 self.focus(Focus::Composer, effects);
-                self.editor.set_cursor(byte);
+                if let Some(editing) = &mut self.view.editing {
+                    editing.editor.set_cursor(byte);
+                } else {
+                    self.editor.set_cursor(byte);
+                }
             }
             Target::Query(byte) if button == MouseButton::Left => match &mut self.view.overlay {
                 Some(

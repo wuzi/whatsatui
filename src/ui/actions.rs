@@ -33,6 +33,9 @@ pub(super) fn menu(
         .into_iter()
         .map(|action| {
             let label = match action {
+                A::React => "React / change reaction",
+                A::Reactions => "View reactions",
+                A::EditMessage => "Edit message",
                 A::CopyText => "Copy text",
                 A::OpenLinks => "Open links",
                 A::DownloadMedia => "Download attachment",

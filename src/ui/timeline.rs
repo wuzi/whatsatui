@@ -7,6 +7,7 @@ struct Run {
     end: usize,
     avatar: bool,
     preview: Option<usize>,
+    reactions: std::ops::Range<usize>,
 }
 pub(super) struct Timeline {
     pub area: Rect,
@@ -195,7 +196,40 @@ pub(super) fn layout(area: Rect, view: &ViewModel, config: &Config) -> Timeline 
                 gutter_width,
             ));
         }
+        let reactions_start = lines.len();
+        for line in reactions::summary(message, view, config, width) {
+            lines.push(gutter(line, message, false, view, config, gutter_width));
+        }
+        let reactions = reactions_start..lines.len();
+        if let Some(attempt) = view
+            .interactions
+            .mutations
+            .iter()
+            .find(|a| a.target.key == message.key && a.state != MutationState::Sent)
+        {
+            let action = if matches!(attempt.kind, MutationKind::Edit { .. }) {
+                "Edit"
+            } else {
+                "Reaction"
+            };
+            let status = match attempt.state {
+                MutationState::Pending => "sending…",
+                MutationState::Failed => "failed",
+                _ => "unconfirmed · check WhatsApp",
+            };
+            for line in wrap(&format!("{action} {status}"), width) {
+                lines.push(gutter(
+                    Line::styled(line, style(config, view, ThemeRole::Hints)),
+                    message,
+                    false,
+                    view,
+                    config,
+                    gutter_width,
+                ));
+            }
+        }
         runs.push(Run {
+            reactions,
             index,
             start,
             end: lines.len(),
@@ -296,7 +330,11 @@ pub(super) fn render(
                     layout.area.width,
                     1,
                 ),
-                Target::Message(view.messages[run.index].key.clone()),
+                if run.reactions.contains(row) {
+                    Target::Reactions(view.messages[run.index].key.clone())
+                } else {
+                    Target::Message(view.messages[run.index].key.clone())
+                },
             );
         }
     }

@@ -2,9 +2,13 @@ use super::*;
 use crate::message_actions::{self, DesktopAction};
 
 impl App {
-    fn action_message(&self) -> Option<MessageRecord> {
+    pub(super) fn action_message(&self) -> Option<MessageRecord> {
         let message = match &self.view.overlay {
-            Some(Overlay::MessageActions(menu)) => &menu.message,
+            Some(Overlay::MessageActions(menu) | Overlay::Reactions(menu)) => &menu.message,
+            Some(Overlay::Emoji {
+                target: Some(message),
+                ..
+            }) => message,
             Some(Overlay::MessageLinks(links)) => &links.message,
             _ => self.selected()?,
         };
@@ -20,7 +24,15 @@ impl App {
     pub(super) fn reconcile_message_actions(&mut self) {
         if matches!(
             self.view.overlay,
-            Some(Overlay::MessageActions(_) | Overlay::MessageLinks(_))
+            Some(
+                Overlay::MessageActions(_)
+                    | Overlay::MessageLinks(_)
+                    | Overlay::Reactions(_)
+                    | Overlay::Emoji {
+                        target: Some(_),
+                        ..
+                    }
+            )
         ) && self.action_message().is_none()
         {
             self.view.overlay = None;

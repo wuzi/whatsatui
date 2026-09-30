@@ -11,7 +11,23 @@ pub(super) fn render(
     if area.is_empty() {
         return;
     }
-    let title = if view.draft.recovered.is_empty() {
+    let title = if let Some(editing) = &view.editing {
+        let save = search::key(
+            config,
+            Context::Composer,
+            crate::config::bindings::ActionId::Send,
+        );
+        let cancel = search::key(
+            config,
+            Context::Composer,
+            crate::config::bindings::ActionId::Back,
+        );
+        if editing.request.is_some() {
+            " Editing · saving… ".into()
+        } else {
+            format!(" Editing · {save} save · {cancel} cancel ")
+        }
+    } else if view.draft.recovered.is_empty() {
         " Message ".into()
     } else {
         let key = search::key(
@@ -27,7 +43,12 @@ pub(super) fn render(
     let border = block(title, view.focus == Focus::Composer, view, config);
     let mut inner = border.inner(area);
     frame.render_widget(border, area);
-    if let Some(image) = &view.draft.attachment {
+    if let Some(image) = view
+        .draft
+        .attachment
+        .as_ref()
+        .filter(|_| view.editing.is_none())
+    {
         let remove = search::key(
             config,
             Context::Composer,
@@ -54,7 +75,7 @@ pub(super) fn render(
             inner.width = inner.width.saturating_sub(14);
         }
     }
-    if let Some(quote) = &view.draft.reply {
+    if let Some(quote) = view.draft.reply.as_ref().filter(|_| view.editing.is_none()) {
         let preview = if quote.availability == QuoteAvailability::Available {
             single(&quote.preview)
         } else {
@@ -67,13 +88,25 @@ pub(super) fn render(
         inner.y += 1;
         inner.height = inner.height.saturating_sub(1);
     }
+    if let Some(error) = view.editing.as_ref().and_then(|e| e.error.as_ref()) {
+        frame.render_widget(
+            Paragraph::new(single(error)).style(style(config, view, ThemeRole::Accent)),
+            Rect::new(inner.x, inner.y, inner.width, inner.height.min(1)),
+        );
+        inner.y += 1;
+        inner.height = inner.height.saturating_sub(1);
+    }
     if inner.is_empty() {
         return;
     }
-    let layout = editor_layout::TextLayout::new(&view.draft.text, inner.width as usize);
+    let text = view
+        .editing
+        .as_ref()
+        .map_or(view.draft.text.as_str(), |e| e.editor.text());
+    let layout = editor_layout::TextLayout::new(text, inner.width as usize);
     let (row, col) = layout.position(view.cursor);
     let top = row.saturating_sub(inner.height.saturating_sub(1) as usize);
-    if view.draft.text.is_empty() {
+    if text.is_empty() {
         frame.render_widget(
             Paragraph::new("Write a message…").style(style(config, view, ThemeRole::Inactive)),
             inner,

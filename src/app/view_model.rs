@@ -11,6 +11,7 @@ pub enum Focus {
 pub enum Overlay {
     Stickers(Box<StickerPicker>),
     Emoji {
+        target: Option<Box<MessageRecord>>,
         editor: Editor,
         selected: usize,
     },
@@ -21,6 +22,7 @@ pub enum Overlay {
         error: Option<String>,
     },
     MessageActions(Box<MessageMenu>),
+    Reactions(Box<MessageMenu>),
     MessageLinks(Box<MessageLinks>),
     MessageSearch(Box<super::search::MessageSearch>),
     Search {
@@ -56,6 +58,8 @@ pub struct TimelineViewport {
 }
 #[derive(Clone, Debug)]
 pub struct ViewModel {
+    pub interactions: MessageInteractions,
+    pub editing: Option<EditingMessage>,
     pub list_offsets: std::collections::BTreeMap<crate::config::bindings::Context, usize>,
     pub help_scroll: usize,
     pub focus: Focus,
@@ -117,5 +121,13 @@ pub struct StickerPicker {
     pub loading: Option<RequestId>,
     pub reload: bool,
     pub sending: Option<RequestId>,
+    pub error: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct EditingMessage {
+    pub message: MessageRecord,
+    pub editor: Editor,
+    pub request: Option<RequestId>,
     pub error: Option<String>,
 }
