@@ -183,6 +183,39 @@ async fn missing_player_produces_an_actionable_error() {
     assert!(p.error.unwrap().contains("mpv"));
 }
 #[tokio::test]
+async fn post_start_stalls_fail_and_release_both_child_and_snapshot_even_while_paused() {
+    for paused in [false, true] {
+        let f = Fixture::new().await;
+        let mut player = f.player();
+        let mut request = f.request(1, "late-stall").await;
+        request.paused = paused;
+        player.set(Some(request));
+        observed(&mut player, |p| {
+            p.phase
+                == if paused {
+                    Phase::Paused
+                } else {
+                    Phase::Playing
+                }
+        })
+        .await;
+        let snapshot = std::fs::read_to_string(f.exe.with_extension("snapshot")).unwrap();
+        assert!(Path::new(&snapshot).exists());
+        let failure = observed(&mut player, |p| p.phase == Phase::Failed).await;
+        assert!(failure.error.unwrap().contains("did not respond"));
+        f.reaped().await;
+        assert!(!Path::new(&snapshot).exists());
+    }
+}
+#[tokio::test]
+async fn eof_during_a_health_query_finishes_normally() {
+    let f = Fixture::new().await;
+    let mut player = f.player();
+    player.set(Some(f.request(1, "eof-on-health").await));
+    observed(&mut player, |p| p.phase == Phase::Finished).await;
+    f.reaped().await;
+}
+#[tokio::test]
 async fn eof_finishes_and_expired_offscreen_content_stops_the_player() {
     let f = Fixture::new().await;
     let mut player = f.player();

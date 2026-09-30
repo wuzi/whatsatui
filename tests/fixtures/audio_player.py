@@ -5,6 +5,7 @@ import json, os, pathlib, select, sys, time
 base = pathlib.Path(__file__)
 base.with_suffix('.pid').write_text(str(os.getpid()))
 mode = pathlib.Path(sys.argv[-1]).read_text()
+base.with_suffix('.snapshot').write_text(sys.argv[-1])
 with base.with_suffix('.starts').open('a') as log:
     log.write(mode + '\n')
 if mode == 'exit':
@@ -21,7 +22,11 @@ if mode == 'malformed':
 state = {'pause': True, 'speed': 1.0, 'duration': 20.0, 'time-pos': 0.0}
 emit({'event': 'file-loaded'})
 pending = b''
+stall_at = time.monotonic() + .4
 while True:
+    if mode == 'late-stall' and time.monotonic() >= stall_at:
+        time.sleep(30)
+        sys.exit(0)
     if select.select([0], [], [], .04)[0]:
         chunk = os.read(0, 4096)
         if not chunk:
@@ -31,6 +36,9 @@ while True:
             line, pending = pending.split(b'\n', 1)
             value = json.loads(line)
             command = value['command']
+            if mode == 'eof-on-health' and command[0] == 'get_property':
+                emit({'event': 'end-file', 'reason': 'eof'})
+                sys.exit(0)
             error = 'success'
             if command[0] == 'observe_property':
                 name = command[2]

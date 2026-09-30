@@ -99,6 +99,12 @@ impl Mpv {
                 .map_err(|_| "Audio player closed its control channel")?;
             loop {
                 let value = self.read().await?;
+                // EOF can arrive while a health query/control is in flight.
+                // Let the session publish Finished without waiting for a reply
+                // from the player that is now exiting normally.
+                if self.state.finished {
+                    return Ok(());
+                }
                 if value["request_id"].as_u64() == Some(id) {
                     return if value["error"] == "success" {
                         Ok(())

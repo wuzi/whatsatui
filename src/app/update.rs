@@ -1797,7 +1797,9 @@ impl App {
                 | Input::Terminal(Event::Key(_) | Event::Paste(_) | Event::Resize(..))
         ) {
             self.rendered = None;
-            self.last_click = None;
+            if !matches!(&input, Input::Playback(_)) {
+                self.last_click = None;
+            }
         }
         let mut effects = vec![];
         self.reconcile_message_actions();

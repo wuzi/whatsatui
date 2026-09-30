@@ -366,3 +366,23 @@ fn covered_clipped_and_stale_controls_cannot_change_playback() {
         Some(Target::Playback(_, ActionId::AudioStop))
     )));
 }
+
+#[test]
+fn playback_observations_between_clicks_preserve_double_click_actions() {
+    let mut app = app();
+    let first = request(press(&mut app, "p"));
+    observe(&mut app, first.clone(), Phase::Playing);
+    let map = rendered(&app, 120);
+    let point = coordinate(&map, |target| matches!(target, Target::Message(_)));
+    app.update(Input::Rendered(map), Instant::now());
+    click(&mut app, point, MouseButton::Left);
+    assert!(app.view().overlay.is_none());
+    observe(&mut app, first, Phase::Playing);
+    let map = rendered(&app, 120);
+    app.update(Input::Rendered(map), Instant::now());
+    click(&mut app, point, MouseButton::Left);
+    assert!(matches!(
+        app.view().overlay,
+        Some(Overlay::MessageActions(_))
+    ));
+}

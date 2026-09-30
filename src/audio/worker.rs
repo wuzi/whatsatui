@@ -81,6 +81,11 @@ async fn session(
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut validation = tokio::time::interval(Duration::from_secs(1));
     validation.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut health = tokio::time::interval_at(
+        tokio::time::Instant::now() + Duration::from_secs(2),
+        Duration::from_secs(2),
+    );
+    health.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let startup = tokio::time::Instant::now() + Duration::from_secs(5);
     loop {
         playback.request = request.clone();
@@ -111,6 +116,11 @@ async fn session(
                 events.send_replace(Some(playback.clone()));
             }
             _=validation.tick()=>{media::current(&initial.message,store).await?;}
+            _=health.tick()=>{
+                // Paused audio legitimately emits no progress. Require an IPC
+                // reply instead, using the same bounded deadline as controls.
+                player.command(serde_json::json!(["get_property", "pause"])).await?;
+            }
         }
     }
 }
