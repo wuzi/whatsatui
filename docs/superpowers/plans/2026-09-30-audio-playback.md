@@ -32,9 +32,9 @@
 
 **Interfaces:** `AttachmentKind::Audio`; serde-defaulted `Attachment.audio: Option<AudioMetadata { seconds: Option<u32>, voice: bool }>`; `media::audio::prepare(&MessageRecord, &Store, &dyn Downloader, watch::Receiver<bool>) -> Result<NamedTempFile,String>`. Snapshot remains private and unlinked on drop.
 
-- [ ] Write tests for live/history voice/audio metadata, view-once exclusion, correct Audio decryption type, old attachment JSON, verified cache reuse/snapshot lifetime, corruption, cancellation and expiry during preparation. Run focused tests and observe missing behavior.
-- [ ] Implement the metadata/normalization, common cache acquisition, audio snapshot and typed quotes. Update existing attachment literals/exhaustive matches.
-- [ ] Run `cargo test -j 2 --lib --test audio_media --test media_files --test media_model --test media_replies -- --test-threads=2`; expect all pass, commit.
+- [x] Write tests for live/history voice/audio metadata, view-once exclusion, correct Audio decryption type, old attachment JSON, verified cache reuse/snapshot lifetime, corruption, cancellation and expiry during preparation. Run focused tests and observe missing behavior.
+- [x] Implement the metadata/normalization, common cache acquisition, audio snapshot and typed quotes. Update existing attachment literals/exhaustive matches.
+- [x] Run `cargo test -j 2 --lib --test audio_media --test media_files --test media_model --test media_replies -- --test-threads=2`; expect all pass, commit.
 
 ## Task 2: Cancellable controlled player
 

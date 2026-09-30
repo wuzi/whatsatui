@@ -14,6 +14,7 @@ fn app() -> App {
     let mut app = ready_app();
     let mut view = app.view();
     view.messages[0].body = MessageBody::Media(Box::new(Attachment {
+        audio: None,
         kind: AttachmentKind::Document,
         filename: Some("report.pdf".into()),
         mime: Some("application/pdf".into()),

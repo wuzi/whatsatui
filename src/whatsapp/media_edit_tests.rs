@@ -14,6 +14,7 @@ fn original(kind: AttachmentKind) -> MessageRecord {
     MessageRecord {
         key,
         body: MessageBody::Media(Box::new(Attachment {
+            audio: None,
             kind,
             filename: Some("test.txt".into()),
             mime: Some("text/plain".into()),
@@ -37,7 +38,9 @@ fn edit(message: &MessageRecord, caption: &str, at: i64) -> MessageChange {
     };
     // Caption edits need not repeat the original encrypted media references.
     let content = match attachment.kind {
-        AttachmentKind::Sticker => panic!("stickers do not have editable captions"),
+        AttachmentKind::Sticker | AttachmentKind::Audio => {
+            panic!("attachment has no editable caption")
+        }
         AttachmentKind::Image => wa::Message {
             image_message: MessageField::some(wa::message::ImageMessage {
                 caption: Some(caption.into()),

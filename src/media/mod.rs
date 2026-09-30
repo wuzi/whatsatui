@@ -3,6 +3,7 @@ mod download;
 mod worker;
 pub use download::NativeDownloader;
 pub use worker::run as run_worker;
+pub mod audio;
 mod model;
 pub mod outgoing;
 pub mod preview;
@@ -12,7 +13,7 @@ use crate::{
     desktop::Desktop,
     storage::Store,
 };
-pub use model::{Attachment, AttachmentKind};
+pub use model::{Attachment, AttachmentKind, AudioMetadata};
 use tokio::sync::watch;
 
 pub const MAX_FILE_BYTES: u64 = 50 * 1024 * 1024;
@@ -41,19 +42,53 @@ pub async fn execute(
     desktop: &impl Desktop,
     cancel: watch::Receiver<bool>,
 ) -> Result<String, String> {
+    let attachment = current(&message, &store).await?;
+    let (_cache, path, ready) = acquire(
+        &message,
+        &store,
+        downloader,
+        matches!(action, MediaAction::Download),
+        cancel.clone(),
+    )
+    .await?;
+    check_cancel(&cancel)?;
+    current(&message, &store).await?;
+    match action {
+        MediaAction::Open => {
+            if attachment.extension().is_none() {
+                return Err("Downloaded; opening this file type is not supported".into());
+            }
+            desktop.open_file(&path).await?;
+            Ok("Viewer request sent".into())
+        }
+        MediaAction::Download => Ok(format!(
+            "{}: {}",
+            if ready {
+                "Already downloaded"
+            } else {
+                "Downloaded attachment"
+            },
+            path.display()
+        )),
+    }
+}
+
+async fn acquire(
+    message: &MessageRecord,
+    store: &Store,
+    downloader: &dyn Downloader,
+    download: bool,
+    cancel: watch::Receiver<bool>,
+) -> Result<(cache::Cache, std::path::PathBuf, bool), String> {
     check_cancel(&cancel)?;
     let attachment = current(&message, &store).await?;
     attachment.validate()?;
     if attachment.size > MAX_FILE_BYTES {
         return Err("Attachment exceeds the 50 MiB download limit".into());
     }
-    let cache = cache::wait_open(
-        store.data_dir(),
-        matches!(action, MediaAction::Download),
-        cancel.clone(),
-    )
-    .await?
-    .ok_or("Download the attachment first, or wait for the current media action")?;
+    let cache = cache::wait_open(store.data_dir(), download, cancel.clone())
+        .await?
+        .ok_or("Download the attachment first, or wait for the current media action")?;
     cache.remove_orphans()?;
     let id = cache::token(&message.key, &attachment);
     let path = cache.path(&id, &attachment);
@@ -63,45 +98,29 @@ pub async fn execute(
             ready = true;
         } else {
             cache.remove(&id)?;
-            if matches!(action, MediaAction::Open) {
+            if !download {
                 return Err("Downloaded file changed; download it again".into());
             }
         }
     } else {
         cache.remove(&id)?;
     }
-    match action {
-        MediaAction::Open => {
-            if !ready {
-                return Err("Download this attachment before opening it".into());
-            }
-            if attachment.extension().is_none() {
-                return Err("Downloaded; opening this file type is not supported".into());
-            }
-            check_cancel(&cancel)?;
-            current(&message, &store).await?;
-            desktop.open_file(&path).await?;
-            Ok("Viewer request sent".into())
+    if !ready {
+        if !download {
+            return Err("Download this attachment before opening it".into());
         }
-        MediaAction::Download => {
-            if ready {
-                check_cancel(&cancel)?;
-                current(&message, &store).await?;
-                return Ok(format!("Already downloaded: {}", path.display()));
-            }
-            cache.reserve(attachment.size)?;
-            let temporary = cache.temporary()?;
-            downloader
-                .download(&attachment, temporary.path(), cancel.clone())
-                .await?;
-            check_cancel(&cancel)?;
-            cache::verify(temporary.path().to_owned(), &attachment).await?;
-            current(&message, &store).await?;
-            check_cancel(&cancel)?;
-            let path = cache.publish(temporary, &message.key, &attachment)?;
-            Ok(format!("Downloaded attachment: {}", path.display()))
-        }
+        cache.reserve(attachment.size)?;
+        let temporary = cache.temporary()?;
+        downloader
+            .download(&attachment, temporary.path(), cancel.clone())
+            .await?;
+        check_cancel(&cancel)?;
+        cache::verify(temporary.path().to_owned(), &attachment).await?;
+        current(&message, &store).await?;
+        check_cancel(&cancel)?;
+        cache.publish(temporary, &message.key, &attachment)?;
     }
+    Ok((cache, path, ready))
 }
 
 pub(super) fn check_cancel(cancel: &watch::Receiver<bool>) -> Result<(), String> {
@@ -112,7 +131,7 @@ pub(super) fn check_cancel(cancel: &watch::Receiver<bool>) -> Result<(), String>
     }
 }
 
-async fn current(message: &MessageRecord, store: &Store) -> Result<Attachment, String> {
+pub(crate) async fn current(message: &MessageRecord, store: &Store) -> Result<Attachment, String> {
     let current = store
         .get_message(message.key.clone())
         .await

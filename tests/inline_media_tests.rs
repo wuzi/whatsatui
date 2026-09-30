@@ -51,6 +51,7 @@ async fn previews_verify_cache_and_reject_deleted_messages() {
     let store = Store::open(temp.path().join("chat.sqlite3")).await.unwrap();
     let mut record = support::message(support::key("chat", "alice", "preview"), "");
     record.body = MessageBody::Media(Box::new(Attachment {
+        audio: None,
         kind: AttachmentKind::Image,
         filename: None,
         caption: None,

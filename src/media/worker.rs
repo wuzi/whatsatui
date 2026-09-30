@@ -51,6 +51,7 @@ async fn receive(input: WorkerInput, downloader: &MediaDownloader) -> Result<(),
         AttachmentKind::Image => MediaType::Image,
         AttachmentKind::Sticker => MediaType::Sticker,
         AttachmentKind::Document => MediaType::Document,
+        AttachmentKind::Audio => MediaType::Audio,
     };
     let params = DownloadParams::encrypted(
         attachment.direct_path.clone(),
@@ -138,10 +139,12 @@ mod tests {
             (AttachmentKind::Image, MediaType::Image),
             (AttachmentKind::Sticker, MediaType::Sticker),
             (AttachmentKind::Document, MediaType::Document),
+            (AttachmentKind::Audio, MediaType::Audio),
         ] {
             let encrypted =
                 whatsapp_rust::wacore::upload::encrypt_media(b"hello\n", media_type).unwrap();
             let attachment = Attachment {
+                audio: None,
                 kind,
                 filename: None,
                 mime: None,

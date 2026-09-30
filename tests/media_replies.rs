@@ -19,6 +19,7 @@ fn media(kind: AttachmentKind) -> MessageRecord {
         "",
     );
     m.body = MessageBody::Media(Box::new(Attachment {
+        audio: None,
         kind,
         filename: (kind == AttachmentKind::Document).then(|| "notes.pdf".into()),
         caption: None,

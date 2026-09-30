@@ -83,6 +83,7 @@ mod tests {
     fn input(dir: &Path) -> WorkerInput {
         WorkerInput {
             attachment: Attachment {
+                audio: None,
                 kind: super::super::AttachmentKind::Image,
                 filename: None,
                 mime: None,

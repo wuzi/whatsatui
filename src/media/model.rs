@@ -5,6 +5,7 @@ pub enum AttachmentKind {
     Image,
     Sticker,
     Document,
+    Audio,
 }
 
 impl AttachmentKind {
@@ -13,13 +14,22 @@ impl AttachmentKind {
             Self::Image => "image",
             Self::Sticker => "sticker",
             Self::Document => "document",
+            Self::Audio => "audio",
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AudioMetadata {
+    pub seconds: Option<u32>,
+    pub voice: bool,
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Attachment {
     pub kind: AttachmentKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio: Option<AudioMetadata>,
     pub filename: Option<String>,
     pub mime: Option<String>,
     pub caption: Option<String>,
@@ -74,6 +84,13 @@ impl Attachment {
             "image/png" => Some("png"),
             "image/gif" => Some("gif"),
             "image/webp" => Some("webp"),
+            "audio/ogg" | "application/ogg" => Some("ogg"),
+            "audio/opus" => Some("opus"),
+            "audio/mpeg" | "audio/mp3" => Some("mp3"),
+            "audio/mp4" | "audio/x-m4a" => Some("m4a"),
+            "audio/aac" => Some("aac"),
+            "audio/wav" | "audio/x-wav" => Some("wav"),
+            "audio/flac" | "audio/x-flac" => Some("flac"),
             "application/pdf" => Some("pdf"),
             "text/plain" => Some("txt"),
             "text/csv" => Some("csv"),

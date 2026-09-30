@@ -801,6 +801,8 @@ fn quoted_summary(payload: &wa::Message) -> Option<(String, Option<crate::media:
         (K::Image, image.caption.as_deref())
     } else if base.sticker_message.is_set() {
         (K::Sticker, None)
+    } else if base.audio_message.is_set() {
+        (K::Audio, None)
     } else {
         let document = base.document_message.as_option()?;
         (

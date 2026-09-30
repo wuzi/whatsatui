@@ -16,6 +16,7 @@ fn received(id: &str) -> MessageRecord {
     let bytes = include_bytes!("fixtures/send-sticker.webp");
     let mut m = message(key("source", "alice", id), "");
     m.body = MessageBody::Media(Box::new(Attachment {
+        audio: None,
         kind: AttachmentKind::Sticker,
         mime: Some("image/webp".into()),
         filename: None,

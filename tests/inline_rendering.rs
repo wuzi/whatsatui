@@ -11,6 +11,7 @@ use whatsapp_tui::{
 fn media_rows_are_reserved_and_can_be_disabled() {
     let mut view = support::ready_app().view();
     view.messages[0].body = MessageBody::Media(Box::new(Attachment {
+        audio: None,
         kind: AttachmentKind::Sticker,
         filename: None,
         mime: Some("image/webp".into()),
@@ -78,6 +79,7 @@ async fn loaded_previews_clip_clear_on_delete_and_survive_resize() {
     let mut view = support::ready_app().view();
     let bytes = include_bytes!("fixtures/sticker.webp");
     view.messages[0].body = MessageBody::Media(Box::new(Attachment {
+        audio: None,
         kind: AttachmentKind::Sticker,
         filename: None,
         mime: Some("image/webp".into()),

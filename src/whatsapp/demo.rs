@@ -7,6 +7,7 @@ const STICKER: &[u8] = include_bytes!("../../tests/fixtures/send-sticker.webp");
 const IMAGE: &[u8] = include_bytes!("demo-image.png");
 fn image_attachment() -> Attachment {
     Attachment {
+        audio: None,
         kind: AttachmentKind::Image,
         filename: Some("demo-cyan.png".into()),
         mime: Some("image/png".into()),
@@ -20,6 +21,7 @@ fn image_attachment() -> Attachment {
 }
 fn sticker_attachment() -> Attachment {
     Attachment {
+        audio: None,
         kind: AttachmentKind::Sticker,
         filename: Some("hello.webp".into()),
         mime: Some("image/webp".into()),

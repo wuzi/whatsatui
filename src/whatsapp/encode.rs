@@ -64,6 +64,7 @@ impl From<whatsapp_rust::upload::UploadResponse> for UploadedImage {
             url: r.url,
             media_key_timestamp: r.media_key_timestamp,
             attachment: crate::media::Attachment {
+                audio: None,
                 kind: crate::media::AttachmentKind::Image,
                 filename: None,
                 caption: None,
@@ -181,6 +182,10 @@ fn quoted_body(quote: &Quote, preview: &str) -> wa::Message {
         return wa::Message::text(preview);
     }
     match quote.media_kind {
+        Some(AttachmentKind::Audio) => wa::Message {
+            audio_message: MessageField::some(wa::message::AudioMessage::default()),
+            ..Default::default()
+        },
         Some(AttachmentKind::Image) => wa::Message {
             image_message: MessageField::some(wa::message::ImageMessage {
                 caption: Some(preview.into()),
@@ -221,6 +226,7 @@ mod tests {
             url: "https://mmg.whatsapp.net/v/photo".into(),
             media_key_timestamp: 123,
             attachment: crate::media::Attachment {
+                audio: None,
                 kind: crate::media::AttachmentKind::Image,
                 filename: None,
                 caption: None,

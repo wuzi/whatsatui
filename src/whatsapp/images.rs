@@ -154,6 +154,7 @@ mod tests {
                 url: "https://mmg.whatsapp.net/v/test".into(),
                 media_key_timestamp: 123,
                 attachment: crate::media::Attachment {
+                    audio: None,
                     kind: crate::media::AttachmentKind::Image,
                     filename: None,
                     mime: Some("image/jpeg".into()),

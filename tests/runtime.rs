@@ -183,6 +183,7 @@ async fn media_download_allows_typing_and_is_cancelled_before_exit() {
     let mut app = ready_app();
     let mut view = app.view();
     view.messages[0].body = MessageBody::Media(Box::new(Attachment {
+        audio: None,
         kind: AttachmentKind::Document,
         filename: Some("test.txt".into()),
         mime: Some("text/plain".into()),

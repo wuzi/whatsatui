@@ -17,6 +17,7 @@ use whatsapp_tui::{
 
 fn attachment() -> Attachment {
     Attachment {
+        audio: None,
         kind: AttachmentKind::Document,
         filename: Some("../../outside;$(touch nope).txt".into()),
         mime: Some("text/plain".into()),
