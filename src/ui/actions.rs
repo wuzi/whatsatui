@@ -3,7 +3,13 @@ use crate::app::model::MessageBody;
 use crate::{config::bindings::ActionId as A, message_actions};
 use ratatui::widgets::{Clear, List, ListItem, ListState};
 
-pub(super) fn menu(frame: &mut Frame, area: Rect, view: &ViewModel, config: &Config) {
+pub(super) fn menu(
+    frame: &mut Frame,
+    area: Rect,
+    view: &ViewModel,
+    config: &Config,
+    hits: &mut InteractionMap,
+) {
     let Some(Overlay::MessageActions(menu)) = &view.overlay else {
         return;
     };
@@ -12,6 +18,7 @@ pub(super) fn menu(frame: &mut Frame, area: Rect, view: &ViewModel, config: &Con
     let border = block(" Message actions ".into(), true, view, config);
     let inner = border.inner(rect);
     frame.render_widget(border, rect);
+    hits.popup(frame, rect, view, config);
     let body = message_actions::text(&menu.message, chrono::Utc::now().timestamp_millis())
         .map(str::to_owned)
         .unwrap_or_else(|| match &menu.message.body {
@@ -40,17 +47,34 @@ pub(super) fn menu(frame: &mut Frame, area: Rect, view: &ViewModel, config: &Con
             ))
         })
         .collect::<Vec<_>>();
+    let list = Rect::new(
+        inner.x,
+        inner.y + 2,
+        inner.width,
+        inner.height.saturating_sub(4),
+    );
+    let count = items.len();
+    let mut state = ListState::default()
+        .with_offset(
+            view.list_offsets
+                .get(&Context::MessageActions)
+                .copied()
+                .unwrap_or(0),
+        )
+        .with_selected(Some(menu.selected));
     frame.render_stateful_widget(
         List::new(items)
             .highlight_symbol("> ")
             .highlight_style(style(config, view, ThemeRole::Accent)),
-        Rect::new(
-            inner.x,
-            inner.y + 2,
-            inner.width,
-            inner.height.saturating_sub(4),
-        ),
-        &mut ListState::default().with_selected(Some(menu.selected)),
+        list,
+        &mut state,
+    );
+    hits.list(
+        Context::MessageActions,
+        list,
+        state.offset(),
+        std::iter::repeat_n(1, count),
+        Target::Menu,
     );
     frame.render_widget(
         Paragraph::new(format!(
@@ -63,7 +87,13 @@ pub(super) fn menu(frame: &mut Frame, area: Rect, view: &ViewModel, config: &Con
     );
 }
 
-pub(super) fn links(frame: &mut Frame, area: Rect, view: &ViewModel, config: &Config) {
+pub(super) fn links(
+    frame: &mut Frame,
+    area: Rect,
+    view: &ViewModel,
+    config: &Config,
+    hits: &mut InteractionMap,
+) {
     let Some(Overlay::MessageLinks(links)) = &view.overlay else {
         return;
     };
@@ -72,6 +102,7 @@ pub(super) fn links(frame: &mut Frame, area: Rect, view: &ViewModel, config: &Co
     let border = block(" Message links ".into(), true, view, config);
     let inner = border.inner(rect);
     frame.render_widget(border, rect);
+    hits.popup(frame, rect, view, config);
     let copy_key = search::key(config, Context::MessageLinks, A::CopyText);
     frame.render_widget(
         Paragraph::new(format!(
@@ -83,12 +114,28 @@ pub(super) fn links(frame: &mut Frame, area: Rect, view: &ViewModel, config: &Co
     );
     let detail_height = (inner.height / 2).clamp(2, 5);
     let list_height = inner.height.saturating_sub(detail_height + 3);
+    let mut state = ListState::default()
+        .with_offset(
+            view.list_offsets
+                .get(&Context::MessageLinks)
+                .copied()
+                .unwrap_or(0),
+        )
+        .with_selected(Some(links.selected));
+    let list = Rect::new(inner.x, inner.y + 1, inner.width, list_height);
     frame.render_stateful_widget(
         List::new(links.links.iter().map(|url| ListItem::new(single(url))))
             .highlight_symbol("> ")
             .highlight_style(style(config, view, ThemeRole::Accent)),
-        Rect::new(inner.x, inner.y + 1, inner.width, list_height),
-        &mut ListState::default().with_selected(Some(links.selected)),
+        list,
+        &mut state,
+    );
+    hits.list(
+        Context::MessageLinks,
+        list,
+        state.offset(),
+        std::iter::repeat_n(1, links.links.len()),
+        Target::Menu,
     );
     if let Some(url) = links.links.get(links.selected) {
         let mut rows = wrap(&single(url), inner.width as usize);

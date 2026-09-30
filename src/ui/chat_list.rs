@@ -1,6 +1,12 @@
 use super::*;
 use ratatui::widgets::{List, ListItem, ListState};
-pub(super) fn render(frame: &mut Frame, area: Rect, view: &ViewModel, config: &Config) {
+pub(super) fn render(
+    frame: &mut Frame,
+    area: Rect,
+    view: &ViewModel,
+    config: &Config,
+    hits: &mut InteractionMap,
+) {
     if area.is_empty() {
         return;
     }
@@ -48,11 +54,14 @@ pub(super) fn render(frame: &mut Frame, area: Rect, view: &ViewModel, config: &C
             ])
         })
         .collect::<Vec<_>>();
-    let mut state = ListState::default().with_selected(
-        view.chats
-            .iter()
-            .position(|c| Some(&c.chat) == view.chat.as_ref()),
-    );
+    let inner = border.inner(area);
+    let mut state = ListState::default()
+        .with_offset(view.list_offsets.get(&Context::Chats).copied().unwrap_or(0))
+        .with_selected(
+            view.chats
+                .iter()
+                .position(|c| Some(&c.chat) == view.chat.as_ref()),
+        );
     frame.render_stateful_widget(
         List::new(items)
             .block(border)
@@ -60,5 +69,12 @@ pub(super) fn render(frame: &mut Frame, area: Rect, view: &ViewModel, config: &C
             .highlight_style(style(config, view, ThemeRole::Accent).add_modifier(Modifier::BOLD)),
         area,
         &mut state,
+    );
+    hits.list(
+        Context::Chats,
+        inner,
+        state.offset(),
+        view.chats.iter().map(|_| 2),
+        |i| Target::Chat(view.chats[i].chat.clone()),
     );
 }

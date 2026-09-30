@@ -6,6 +6,7 @@ pub(super) fn render(
     view: &ViewModel,
     config: &Config,
     images: &mut super::Images,
+    hits: &mut InteractionMap,
 ) {
     if area.is_empty() {
         return;
@@ -69,18 +70,10 @@ pub(super) fn render(
     if inner.is_empty() {
         return;
     }
-    let text = safe_text(&view.draft.text);
-    let lines = wrap(&text, inner.width as usize);
-    let prefix = safe_text(&view.draft.text[..view.cursor.min(view.draft.text.len())]);
-    let prefix_lines = wrap(&prefix, inner.width as usize);
-    let mut row = prefix_lines.len().saturating_sub(1);
-    let mut col = prefix_lines.last().map_or(0, |s| s.width());
-    if col >= inner.width as usize {
-        row += 1;
-        col = 0;
-    }
+    let layout = editor_layout::TextLayout::new(&view.draft.text, inner.width as usize);
+    let (row, col) = layout.position(view.cursor);
     let top = row.saturating_sub(inner.height.saturating_sub(1) as usize);
-    if text.is_empty() {
+    if view.draft.text.is_empty() {
         frame.render_widget(
             Paragraph::new("Write a message…").style(style(config, view, ThemeRole::Inactive)),
             inner,
@@ -88,14 +81,24 @@ pub(super) fn render(
     } else {
         frame.render_widget(
             Paragraph::new(
-                lines
-                    .into_iter()
+                layout
+                    .lines
+                    .iter()
                     .skip(top)
+                    .cloned()
                     .map(Line::from)
                     .collect::<Vec<_>>(),
             ),
             inner,
         );
+    }
+    for y in 0..inner.height {
+        for x in 0..inner.width {
+            hits.push(
+                Rect::new(inner.x + x, inner.y + y, 1, 1),
+                Target::Composer(layout.byte_at(top + y as usize, x as usize)),
+            );
+        }
     }
     if view.focus == Focus::Composer && view.overlay.is_none() {
         frame.set_cursor_position((inner.x + col as u16, inner.y + (row - top) as u16));

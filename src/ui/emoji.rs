@@ -7,6 +7,7 @@ pub(super) fn render(
     config: &Config,
     editor: &crate::app::editor::Editor,
     selected: usize,
+    hits: &mut InteractionMap,
 ) {
     let regions = layout::calculate(area, view.focus);
     let right = if regions.composer.is_empty() {
@@ -26,12 +27,14 @@ pub(super) fn render(
     );
     let inner = border.inner(rect);
     frame.render_widget(border, rect);
+    hits.popup(frame, rect, view, config);
     search::query(
         frame,
         Rect::new(inner.x, inner.y, inner.width, 1),
         editor,
         view,
         config,
+        hits,
     );
     let results = crate::app::emoji::search(editor.text());
     let list = Rect::new(
@@ -43,6 +46,7 @@ pub(super) fn render(
     if results.is_empty() {
         frame.render_widget(Paragraph::new("No emoji found"), list);
     } else {
+        let count = results.len();
         let rows = results.into_iter().map(|emoji| {
             ListItem::new(format!(
                 "{}  :{}:  {}",
@@ -51,12 +55,22 @@ pub(super) fn render(
                 emoji.name()
             ))
         });
+        let mut state = ListState::default()
+            .with_offset(view.list_offsets.get(&Context::Emoji).copied().unwrap_or(0))
+            .with_selected(Some(selected));
         frame.render_stateful_widget(
             List::new(rows)
                 .highlight_symbol("> ")
                 .highlight_style(style(config, view, ThemeRole::Accent)),
             list,
-            &mut ListState::default().with_selected(Some(selected)),
+            &mut state,
+        );
+        hits.list(
+            Context::Emoji,
+            list,
+            state.offset(),
+            std::iter::repeat_n(1, count),
+            Target::Menu,
         );
     }
     frame.render_widget(

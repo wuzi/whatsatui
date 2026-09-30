@@ -2,6 +2,7 @@ use super::update::StoreCompletion;
 use crate::whatsapp::BackendEvent;
 #[derive(Debug)]
 pub enum Input {
+    Rendered(crate::ui::InteractionMap),
     StickerImported {
         request: super::model::RequestId,
         account: super::model::AccountId,

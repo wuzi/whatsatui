@@ -40,6 +40,9 @@ pub trait Screen {
     fn timeline_viewport(&self) -> Option<crate::app::TimelineViewport> {
         None
     }
+    fn interaction_map(&self) -> Option<crate::ui::InteractionMap> {
+        None
+    }
 }
 use crate::{
     app::{Effect, Input, StoreCompletion},
@@ -129,6 +132,7 @@ struct TerminalScreen {
     terminal: ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>,
     guard: crate::terminal::TerminalGuard,
     viewport: Option<crate::app::TimelineViewport>,
+    interaction: Option<crate::ui::InteractionMap>,
 }
 impl Screen for TerminalScreen {
     fn poll(&mut self) -> bool {
@@ -141,7 +145,13 @@ impl Screen for TerminalScreen {
     fn draw(&mut self, view: &ViewModel, config: &Config) -> std::io::Result<()> {
         self.terminal.draw(|frame| {
             self.viewport = crate::ui::timeline_viewport(frame.area(), view, config);
-            crate::ui::render_with_media(frame, view, config, &mut self.images, &mut self.avatars);
+            self.interaction = Some(crate::ui::render_interactive(
+                frame,
+                view,
+                config,
+                &mut self.images,
+                &mut self.avatars,
+            ));
         })?;
         self.clean_images()?;
         Ok(())
@@ -154,6 +164,9 @@ impl Screen for TerminalScreen {
     }
     fn timeline_viewport(&self) -> Option<crate::app::TimelineViewport> {
         self.viewport.clone()
+    }
+    fn interaction_map(&self) -> Option<crate::ui::InteractionMap> {
+        self.interaction.clone()
     }
 }
 impl TerminalScreen {
@@ -175,7 +188,7 @@ impl Drop for TerminalScreen {
     }
 }
 pub async fn run(mut app: App, store: Store, backend: BackendHandle) -> Result<(), AppError> {
-    let guard = crate::terminal::TerminalGuard::enter()?;
+    let guard = crate::terminal::TerminalGuard::enter_with_mouse(app.config.ui.mouse)?;
     let terminal =
         ratatui::Terminal::new(ratatui::backend::CrosstermBackend::new(std::io::stdout()))?;
     let truecolor = std::env::var("COLORTERM").is_ok_and(|s| s == "truecolor" || s == "24bit")
@@ -197,6 +210,7 @@ pub async fn run(mut app: App, store: Store, backend: BackendHandle) -> Result<(
         terminal,
         guard,
         viewport: None,
+        interaction: None,
     };
     run_with_screen(
         app,
@@ -597,6 +611,9 @@ where
         }
         if dirty {
             screen.draw(&app.view(), &app.config)?;
+            if let Some(map) = screen.interaction_map() {
+                pending.extend(app.update(Input::Rendered(map), Instant::now()));
+            }
             if let Some(viewport) = screen.timeline_viewport() {
                 pending.extend(app.update(Input::TimelineViewport(viewport), Instant::now()));
             }
@@ -620,6 +637,19 @@ where
             _=terminate.recv(),if !closing=>{pending.extend(app.request_shutdown());None},
         };
         if let Some(event) = next {
+            if matches!(
+                &event,
+                Input::Terminal(crossterm::event::Event::Mouse(
+                    crossterm::event::MouseEvent {
+                        kind: crossterm::event::MouseEventKind::Moved
+                            | crossterm::event::MouseEventKind::Up(_)
+                            | crossterm::event::MouseEventKind::Drag(_),
+                        ..
+                    }
+                ))
+            ) {
+                continue;
+            }
             if !matches!(event, Input::Tick(_)) {
                 dirty = true;
             }

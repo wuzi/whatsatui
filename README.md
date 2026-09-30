@@ -37,6 +37,8 @@ whatsapp-tui
 - Inline images and stickers, with Ghostty/Kitty graphics and a half-block fallback.
 - Clipboard image paste with captions, persistent drafts, a recent-sticker picker, and searchable Unicode emoji.
 - Verified downloads for received images, stickers, and documents, with a separate viewer action.
+- Sender blocks with cached profile photos, date separators, and distinct own-message styling.
+- Mouse selection, message actions, popup controls, and composer cursor placement.
 - Local history, unread counts, delivery states, and known group receipt counts.
 - Durable outgoing attempts before transmission, with explicit confirmation for resending uncertain attempts.
 - Phone-number/LID reconciliation, edits, deletion/expiry placeholders, and bounded message pages.
@@ -53,6 +55,8 @@ Images and stickers load previews within the conversation; animated WebP shows i
 | Enter in Chats | Open the composer |
 | Enter in Composer | Send |
 | Alt-Enter | Insert a newline |
+| J/K in Messages | Scroll rows without changing the selected message |
+| Right-click a message | Open its actions |
 | Ctrl-V in Composer | Paste a clipboard image, copied image file, or text |
 | Ctrl-S in Composer | Choose a recent sticker, or paste an image to create one |
 | Ctrl-O in Composer | Attach an image by path |
@@ -74,7 +78,7 @@ Images and stickers load previews within the conversation; animated WebP shows i
 | ? in lists, F1 | Show help |
 | Ctrl-Q | Save drafts and quit |
 
-Printable keys remain ordinary text in the composer. Bracketed paste never submits a message. The footer and help use your configured bindings.
+Printable keys remain ordinary text in the composer. Bracketed paste never submits a message. Shortcuts live in Help (F1 or the header button) and use your configured bindings. The footer is reserved for status and notices.
 
 The message finder searches downloaded history, including older cached pages, while offline. Type a literal phrase and press Enter; use arrows and Enter to jump to a match. It shows the newest 50 matches and asks you to refine broader searches. Esc returns to your previous pane with your draft intact. See [finding conversations and messages](docs/usage.md#finding-conversations-and-messages) for details.
 

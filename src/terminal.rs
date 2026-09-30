@@ -1,7 +1,10 @@
 use crate::runtime::AppError;
 use crossterm::{
     cursor::{Hide, Show},
-    event::{DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange},
+    event::{
+        DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
+        EnableFocusChange, EnableMouseCapture,
+    },
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -17,6 +20,9 @@ pub struct TerminalGuard {
 }
 impl TerminalGuard {
     pub fn enter() -> Result<Self, AppError> {
+        Self::enter_with_mouse(true)
+    }
+    pub fn enter_with_mouse(mouse: bool) -> Result<Self, AppError> {
         if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
             return Err(AppError::Arguments(
                 "An interactive terminal is required; run --help for options",
@@ -43,6 +49,9 @@ impl TerminalGuard {
             EnableFocusChange,
             Hide
         )?;
+        if mouse {
+            execute!(io::stdout(), EnableMouseCapture)?;
+        }
         Ok(guard)
     }
     pub fn restore(&mut self) -> io::Result<()> {
@@ -61,6 +70,7 @@ fn restore() -> io::Result<()> {
         out,
         DisableBracketedPaste,
         DisableFocusChange,
+        DisableMouseCapture,
         Show,
         LeaveAlternateScreen
     );

@@ -56,6 +56,8 @@ pub struct TimelineViewport {
 }
 #[derive(Clone, Debug)]
 pub struct ViewModel {
+    pub list_offsets: std::collections::BTreeMap<crate::config::bindings::Context, usize>,
+    pub help_scroll: usize,
     pub focus: Focus,
     pub account: Option<AccountId>,
     pub chats: Vec<ChatSummary>,

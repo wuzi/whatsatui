@@ -1,9 +1,13 @@
 # All defaults are shown. Omit any setting to keep its default.
+[ui]
+mouse = true
+
 [theme]
 background = "default"
 text = "default"
 focus = "#00b4b4"
 accent = "#00c8c8"
+own = "#6fdca3"
 inactive = "#808080"
 hints = "#c8c800"
 error = "#ff6464"
@@ -42,6 +46,8 @@ reply = ["r"]
 resend = ["R"]
 page_up = ["pageup"]
 page_down = ["pagedown"]
+scroll_up = ["K"]
+scroll_down = ["J"]
 bottom = ["end"]
 
 # Printable characters always remain text in the composer/search.
@@ -70,6 +76,10 @@ previous = ["up"]
 
 [bindings.help]
 back = ["esc"]
+next = ["down", "j"]
+previous = ["up", "k"]
+page_up = ["pageup"]
+page_down = ["pagedown"]
 
 [bindings.resend]
 back = ["esc"]
@@ -102,6 +112,7 @@ copy_text = ["y"]
 
 # Inline previews download visible images/stickers in the background.
 [media]
+avatars = true
 inline = true
 protocol = "auto" # auto, kitty, halfblocks; tmux/SSH use halfblocks
 

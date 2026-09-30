@@ -11,12 +11,14 @@ pub(super) fn render(
     config: &Config,
     picker: &StickerPicker,
     images: &mut Images,
+    hits: &mut InteractionMap,
 ) {
     let rect = overlays::centered(area, 76, 18);
     frame.render_widget(ratatui::widgets::Clear, rect);
     let border = block(" Stickers · recent & pasted ".into(), true, view, config);
     let inner = border.inner(rect);
     frame.render_widget(border, rect);
+    hits.popup(frame, rect, view, config);
     if inner.height < 5 {
         return;
     }
@@ -49,9 +51,13 @@ pub(super) fn render(
     );
     let available = inner.height.saturating_sub(4);
     let left_width = (inner.width / 2).saturating_sub(1);
-    let start = picker
-        .selected
-        .saturating_sub(available.saturating_sub(1) as usize);
+    let start = view
+        .list_offsets
+        .get(&Context::Stickers)
+        .copied()
+        .unwrap_or(0)
+        .min(picker.selected)
+        .max((picker.selected + 1).saturating_sub(available.max(1) as usize));
     let lines = picker
         .items
         .iter()
@@ -60,7 +66,7 @@ pub(super) fn render(
         .take(available as usize)
         .map(|(i, item)| {
             let label = match item {
-                StickerChoice::Local(_) => "Pasted sticker".into(),
+                StickerChoice::Local(_) => "Prepared sticker".into(),
                 StickerChoice::Recent(m) => format!(
                     "{} · {}",
                     if m.key.from_me {
@@ -92,6 +98,13 @@ pub(super) fn render(
     frame.render_widget(
         Paragraph::new(lines),
         Rect::new(inner.x, inner.y + 4, left_width, available),
+    );
+    hits.list(
+        Context::Stickers,
+        Rect::new(inner.x, inner.y + 4, left_width, available),
+        start,
+        picker.items.iter().map(|_| 1),
+        Target::Menu,
     );
     let preview = Rect::new(
         inner.x + left_width + 1,

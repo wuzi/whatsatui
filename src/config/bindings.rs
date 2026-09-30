@@ -202,6 +202,16 @@ impl Default for Bindings {
             b.add(C::MessageSearch, a, k);
         }
         b.add(C::Help, A::Back, "esc");
+        for (action, key) in [
+            (A::Next, "down"),
+            (A::Previous, "up"),
+            (A::Next, "j"),
+            (A::Previous, "k"),
+            (A::PageUp, "pageup"),
+            (A::PageDown, "pagedown"),
+        ] {
+            b.add(C::Help, action, key);
+        }
         b.add(C::Search, A::ToggleUnread, "ctrl-u");
         b.add(C::Resend, A::Back, "esc");
         b.add(C::Resend, A::Confirm, "enter");
@@ -420,7 +430,7 @@ fn allowed(c: Context, a: ActionId) -> bool {
                 | A::Resend
         ),
         C::MessageLinks => matches!(a, A::Back | A::Open | A::Next | A::Previous | A::CopyText),
-        C::Help => a == A::Back,
+        C::Help => matches!(a, A::Back | A::Next | A::Previous | A::PageUp | A::PageDown),
         C::Resend => matches!(a, A::Back | A::Confirm),
     }
 }

@@ -1,5 +1,11 @@
 use super::*;
-pub(super) fn dialog(frame: &mut Frame, area: Rect, view: &ViewModel, config: &Config) {
+pub(super) fn dialog(
+    frame: &mut Frame,
+    area: Rect,
+    view: &ViewModel,
+    config: &Config,
+    hits: &mut InteractionMap,
+) {
     let Some(Overlay::Attachment {
         editor,
         selected,
@@ -20,6 +26,7 @@ pub(super) fn dialog(frame: &mut Frame, area: Rect, view: &ViewModel, config: &C
     let border = block(" Attach image ".into(), true, view, config);
     let inner = border.inner(rect);
     frame.render_widget(border, rect);
+    hits.popup(frame, rect, view, config);
     let hint = "Image path · PNG, JPEG, WebP · up to 16 MiB";
     frame.render_widget(
         Paragraph::new(hint).style(style(config, view, ThemeRole::Inactive)),
@@ -31,6 +38,7 @@ pub(super) fn dialog(frame: &mut Frame, area: Rect, view: &ViewModel, config: &C
         editor,
         view,
         config,
+        hits,
     );
     let status = if importing.is_some() {
         "Preparing image…"
@@ -44,7 +52,13 @@ pub(super) fn dialog(frame: &mut Frame, area: Rect, view: &ViewModel, config: &C
             Paragraph::new("Saved drafts · ↑/↓ selects · Enter restores · type a path to attach"),
             Rect::new(inner.x, inner.y + 4, inner.width, 1),
         );
-        let start = selected.saturating_sub(count.saturating_sub(1) as usize);
+        let start = view
+            .list_offsets
+            .get(&Context::Attachment)
+            .copied()
+            .unwrap_or(0)
+            .min(*selected)
+            .max((selected + 1).saturating_sub(count.max(1) as usize));
         let rows = view
             .draft
             .recovered
@@ -84,6 +98,18 @@ pub(super) fn dialog(frame: &mut Frame, area: Rect, view: &ViewModel, config: &C
                 inner.width,
                 count.min(inner.height.saturating_sub(5)),
             ),
+        );
+        hits.list(
+            Context::Attachment,
+            Rect::new(
+                inner.x,
+                inner.y + 5,
+                inner.width,
+                count.min(inner.height.saturating_sub(5)),
+            ),
+            start,
+            view.draft.recovered.iter().map(|_| 1),
+            Target::Menu,
         );
         5 + count
     } else {

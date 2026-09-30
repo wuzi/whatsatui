@@ -9,9 +9,20 @@ pub use theme::Theme;
 pub struct ConfigError(pub String);
 #[derive(Clone, Debug, Default)]
 pub struct Config {
+    pub ui: UiConfig,
     pub theme: Theme,
     pub bindings: Bindings,
     pub media: MediaConfig,
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct UiConfig {
+    pub mouse: bool,
+}
+impl Default for UiConfig {
+    fn default() -> Self {
+        Self { mouse: true }
+    }
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -40,6 +51,7 @@ impl Default for MediaConfig {
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct FileConfig {
+    ui: UiConfig,
     theme: Theme,
     bindings: bindings::Overrides,
     media: MediaConfig,
@@ -49,6 +61,7 @@ impl Config {
         let file: FileConfig = toml::from_str(text).map_err(|e| ConfigError(e.to_string()))?;
         file.theme.validate()?;
         Ok(Self {
+            ui: file.ui,
             theme: file.theme,
             bindings: Bindings::configured(file.bindings)?,
             media: file.media,

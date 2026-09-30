@@ -188,7 +188,8 @@ pub(super) fn layout(area: Rect, view: &ViewModel, config: &Config) -> Timeline 
         .timeline_anchor
         .as_ref()
         .and_then(|key| runs.iter().find(|r| &view.messages[r.index].key == key))
-        .map_or(lines.len(), |r| r.end);
+        .map_or(lines.len(), |r| r.end)
+        .max((area.height as usize).min(lines.len()));
     let height = area.height as usize;
     let max_scroll = anchor_end.saturating_sub(height);
     let end = anchor_end.saturating_sub(view.message_scroll.min(max_scroll));
@@ -243,6 +244,7 @@ pub(super) fn render(
     config: &Config,
     images: &mut Images,
     avatars: &mut Avatars,
+    hits: &mut InteractionMap,
 ) {
     if area.is_empty() {
         return;
@@ -266,6 +268,19 @@ pub(super) fn render(
     let border_inner = border.inner(area);
     frame.render_widget(border, area);
     let layout = layout(area, view, config);
+    for (y, row) in layout.visible.iter().enumerate() {
+        if let Some(run) = layout.runs.iter().find(|r| r.start <= *row && *row < r.end) {
+            hits.push(
+                Rect::new(
+                    layout.area.x,
+                    layout.area.y + y as u16,
+                    layout.area.width,
+                    1,
+                ),
+                Target::Message(view.messages[run.index].key.clone()),
+            );
+        }
+    }
     let graphics = view.overlay.is_none() && view.qr.is_none() && view.account.is_some();
     if layout.area.y > border_inner.y {
         let title = Rect::new(

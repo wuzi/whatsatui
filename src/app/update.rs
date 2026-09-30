@@ -3,6 +3,7 @@ use crate::{config::Config, whatsapp::BackendEvent};
 use tokio::time::Instant;
 mod actions;
 mod attachments;
+mod mouse;
 mod navigation;
 mod search;
 mod stickers;
@@ -164,6 +165,9 @@ struct PendingSend {
 pub struct App {
     pub config: Config,
     view: ViewModel,
+    rendered: Option<crate::ui::InteractionMap>,
+    last_click: Option<(crate::ui::interaction::Target, Context, Instant)>,
+    help_max_scroll: usize,
     editor: Editor,
     visible_messages: Vec<MessageKey>,
     timeline_tail_rows: usize,
@@ -190,7 +194,12 @@ impl App {
     pub fn new(config: Config) -> Self {
         Self {
             config,
+            rendered: None,
+            last_click: None,
+            help_max_scroll: 0,
             view: ViewModel {
+                list_offsets: Default::default(),
+                help_scroll: 0,
                 focus: Focus::Chats,
                 account: None,
                 chats: vec![],
@@ -435,6 +444,14 @@ impl App {
             .and_then(|k| self.view.messages.iter().find(|m| &m.key == k))
     }
     fn move_selection(&mut self, delta: isize, effects: &mut Vec<Effect>) {
+        if matches!(self.view.overlay, Some(Overlay::Help)) {
+            self.view.help_scroll = self
+                .view
+                .help_scroll
+                .saturating_add_signed(delta)
+                .min(self.help_max_scroll);
+            return;
+        }
         if let Some(Overlay::Stickers(picker)) = &mut self.view.overlay {
             if picker.sending.is_none() {
                 picker.selected = picker
@@ -532,6 +549,19 @@ impl App {
                     self.load_chat(
                         Some(PageCursor {
                             direction: PageDirection::Before,
+                            created_at_ms: m.created_at_ms,
+                            key: m.key.clone(),
+                        }),
+                        effects,
+                    );
+                } else if delta > 0
+                    && i + 1 == self.view.messages.len()
+                    && self.view.has_newer
+                    && let Some(m) = self.view.messages.last()
+                {
+                    self.load_chat(
+                        Some(PageCursor {
+                            direction: PageDirection::After,
                             created_at_ms: m.created_at_ms,
                             key: m.key.clone(),
                         }),
@@ -659,12 +689,19 @@ impl App {
                 }
             }
             A::Help => {
+                self.view.help_scroll = 0;
                 self.view.overlay = Some(Overlay::Help);
             }
             A::Next => self.move_selection(1, effects),
             A::Previous => self.move_selection(-1, effects),
             A::ScrollUp => self.scroll_timeline(-1, effects),
             A::ScrollDown => self.scroll_timeline(1, effects),
+            A::PageUp if matches!(self.view.overlay, Some(Overlay::Help)) => {
+                self.move_selection(-8, effects)
+            }
+            A::PageDown if matches!(self.view.overlay, Some(Overlay::Help)) => {
+                self.move_selection(8, effects)
+            }
             A::PageUp => self.scroll_timeline(-(self.view.message_page_rows as isize), effects),
             A::PageDown => self.scroll_timeline(self.view.message_page_rows as isize, effects),
             A::Bottom => {
@@ -870,6 +907,10 @@ impl App {
             return;
         }
         let edit = match event {
+            Event::Mouse(event) => {
+                self.mouse(event, effects);
+                None
+            }
             Event::FocusLost => {
                 self.foreground = Some(false);
                 return;
@@ -993,6 +1034,7 @@ impl App {
                     effects.extend(self.flush_drafts());
                     self.clipboard_request = None;
                     self.view.account = Some(account.clone());
+                    self.view.list_offsets.clear();
                     self.view.chat = None;
                     self.view.chats.clear();
                     self.view.messages.clear();
@@ -1594,9 +1636,25 @@ impl App {
     }
     pub fn update(&mut self, input: Input, now: Instant) -> Vec<Effect> {
         self.view.now = now;
+        if matches!(
+            &input,
+            Input::Backend(_)
+                | Input::Store(_)
+                | Input::Terminal(Event::Key(_) | Event::Paste(_) | Event::Resize(..))
+        ) {
+            self.rendered = None;
+            self.last_click = None;
+        }
         let mut effects = vec![];
         self.reconcile_message_actions();
         match input {
+            Input::Rendered(map) => {
+                if map.matches(&self.view) {
+                    self.help_max_scroll = map.help_max_scroll;
+                    self.view.list_offsets.extend(map.list_offsets.clone());
+                    self.rendered = Some(map);
+                }
+            }
             Input::StickerImported {
                 request,
                 account,

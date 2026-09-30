@@ -4,10 +4,14 @@ pub use avatars::Avatars;
 mod attachments;
 mod chat_list;
 mod composer;
+mod editor_layout;
 mod emoji;
 pub mod images;
+pub mod interaction;
 pub mod layout;
 mod message_body;
+pub use interaction::InteractionMap;
+use interaction::Target;
 mod overlays;
 mod rich_text;
 mod search;
@@ -123,11 +127,22 @@ pub fn render_with_media(
     images: &mut Images,
     avatars: &mut Avatars,
 ) {
+    let _ = render_interactive(frame, view, config, images, avatars);
+}
+pub fn render_interactive(
+    frame: &mut Frame,
+    view: &ViewModel,
+    config: &Config,
+    images: &mut Images,
+    avatars: &mut Avatars,
+) -> InteractionMap {
+    let mut hits = InteractionMap::new(frame.area(), view);
     images.begin_frame();
     avatars.begin_frame();
-    render_content(frame, view, config, images, avatars);
+    render_content(frame, view, config, images, avatars, &mut hits);
     images.end_frame();
     avatars.end_frame();
+    hits
 }
 fn render_content(
     frame: &mut Frame,
@@ -135,6 +150,7 @@ fn render_content(
     config: &Config,
     images: &mut Images,
     avatars: &mut Avatars,
+    hits: &mut InteractionMap,
 ) {
     let area = frame.area();
     frame.render_widget(
@@ -172,9 +188,30 @@ fn render_content(
         )),
         regions.header,
     );
-    chat_list::render(frame, regions.chats, view, config);
-    timeline::render(frame, regions.messages, view, config, images, avatars);
-    composer::render(frame, regions.composer, view, config, images);
+    let help = Rect::new(
+        regions.header.right().saturating_sub(7),
+        regions.header.y,
+        6,
+        1,
+    );
+    frame.render_widget(
+        Paragraph::new(" Help ").style(style(config, view, ThemeRole::Accent)),
+        help,
+    );
+    hits.push(
+        help,
+        Target::Action(crate::config::bindings::ActionId::Help),
+    );
+    for (rect, focus) in [
+        (regions.chats, Focus::Chats),
+        (regions.messages, Focus::Messages),
+        (regions.composer, Focus::Composer),
+    ] {
+        hits.push(rect, Target::Pane(focus));
+    }
+    chat_list::render(frame, regions.chats, view, config, hits);
+    timeline::render(frame, regions.messages, view, config, images, avatars, hits);
+    composer::render(frame, regions.composer, view, config, images, hits);
     let second =
         view.notice
             .as_deref()
@@ -199,6 +236,9 @@ fn render_content(
         )]),
         regions.footer,
     );
+    if view.qr.is_some() || view.account.is_none() {
+        hits.clear();
+    }
     if view.qr.is_some() {
         overlays::pairing(frame, area, view, config);
     } else if view.account.is_none() {
@@ -210,5 +250,5 @@ fn render_content(
             rect,
         );
     }
-    overlays::render(frame, area, view, config, images);
+    overlays::render(frame, area, view, config, images, hits);
 }

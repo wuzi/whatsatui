@@ -31,12 +31,12 @@
 
 **Interfaces:** Retain `import_sticker(source: &[u8], data_dir: &Path, preserve: bool) -> Result<LocalImage, String>`. Separate source WebP inspection from final-output size validation. `StickerImported` continues to carry immutable LocalImage snapshots.
 
-- [ ] Add `oversized_received_static_sticker_is_optimized_with_alpha`: source >102400 bytes, result <=102400 bytes, 512×512, transparent padding retained, immutable read succeeds. Keep existing animation preservation test.
-- [ ] Add a reducer regression: a transformed received sticker yields a local preview and no Prepare effect until another explicit activation; draft unchanged.
-- [ ] Run sticker tests and observe the new failures.
-- [ ] Implement static re-encoding only when needed; leave received animation unchanged. Retain the prepared picker choice for confirmation.
-- [ ] Remove footer hints, use one status row; update the existing Help/shortcut rendering assertion for the new requirement.
-- [ ] Run `cargo test -j 2 --test sticker_sending --test rendering -- --test-threads=2`; commit passing change.
+- [x] Add `oversized_received_static_sticker_is_optimized_with_alpha`: source >102400 bytes, result <=102400 bytes, 512×512, transparent padding retained, immutable read succeeds. Keep existing animation preservation test.
+- [x] Add a reducer regression: a transformed received sticker yields a local preview and no Prepare effect until another explicit activation; draft unchanged.
+- [x] Run sticker tests and observe the new failures.
+- [x] Implement static re-encoding only when needed; leave received animation unchanged. Retain the prepared picker choice for confirmation.
+- [x] Remove footer hints, use one status row; update the existing Help/shortcut rendering assertion for the new requirement.
+- [x] Run `cargo test -j 2 --test sticker_sending --test rendering -- --test-threads=2`; commit passing change.
 
 ## Task 2: Profile-photo service and rendering
 
@@ -44,10 +44,10 @@
 
 **Interfaces:** `avatars::Identity { account: AccountId, jid: String }`; async `Provider::fetch(&self, identity: &Identity) -> Result<Option<Vec<u8>>, String>`. A `Cache::load` interface owns validated, bounded disk thumbnails. `ui::Avatars` provides begin/draw/end/poll/stop/cleanup lifecycle like Images. Share image protocol preparation but use distinct Kitty IDs.
 
-- [ ] Write real cache tests with a fake network provider: account isolation, cache reuse, stale/missing removal, invalid bytes and oversize input, bounded disk contents. Observe failures.
-- [ ] Implement HTTPS profile fetch using the pinned contacts API; decode off the render thread with limits and a timeout. Save only sanitized thumbnails in private storage.
-- [ ] Implement bounded visible-avatar scheduling, initials fallback and cleanup, with no live lookups in demo.
-- [ ] Run focused avatar tests plus runtime/terminal tests; commit.
+- [x] Write real cache tests with a fake network provider: account isolation, cache reuse, stale/missing removal, invalid bytes and oversize input, bounded disk contents. Observe failures.
+- [x] Implement HTTPS profile fetch using the pinned contacts API; decode off the render thread with limits and a timeout. Save only sanitized thumbnails in private storage.
+- [x] Implement bounded visible-avatar scheduling, initials fallback and cleanup, with no live lookups in demo.
+- [x] Run focused avatar tests plus runtime/terminal tests; commit.
 
 ## Task 3: Sender blocks and distinct selection/scrolling
 
@@ -55,11 +55,11 @@
 
 **Interfaces:** A shared timeline layout owns wrapped rows, message identities and preview/avatar positions. Separate `timeline_anchor: Option<MessageKey>` from `selected_message`; retain wrapped-row offset metrics for scrolling. Rendering consumes the same layout later used for pointer hit testing.
 
-- [ ] Add sender-block tests for two group senders, own message distinction independent of selection, date boundaries, grouped messages retaining independent timestamps, narrow media clipping.
-- [ ] Add keyboard tests: j/k skips a long message as one item, J/K scroll preserves selection, incoming traffic preserves an older selection, End resumes newest.
-- [ ] Observe failures, then implement layout and reducer changes, integrating profile photos and retaining status/quote/media rendering.
-- [ ] Update regressions whose arrow-scroll contract was intentionally replaced; keep their start/middle/end visibility coverage using scroll controls.
-- [ ] Run focused conversation, rendering, navigation, rich text and preview tests; commit.
+- [x] Add sender-block tests for two group senders, own message distinction independent of selection, date boundaries, grouped messages retaining independent timestamps, narrow media clipping.
+- [x] Add keyboard tests: j/k skips a long message as one item, J/K scroll preserves selection, incoming traffic preserves an older selection, End resumes newest.
+- [x] Observe failures, then implement layout and reducer changes, integrating profile photos and retaining status/quote/media rendering.
+- [x] Update regressions whose arrow-scroll contract was intentionally replaced; keep their start/middle/end visibility coverage using scroll controls.
+- [x] Run focused conversation, rendering, navigation, rich text and preview tests; commit.
 
 ## Task 4: Mouse support, Help, and integration
 
@@ -67,9 +67,9 @@
 
 **Interfaces:** UI returns an `InteractionMap` with account/chat/context identity and actual rendered hit regions. `Input::Rendered` installs it in App; terminal mouse events resolve against it and route through existing reducer actions. Screen's default methods retain compatibility for headless tests.
 
-- [ ] Write pointer tests for exact wrapped-message selection and right-click actions, scroll independent of selection, chat focus, Unicode composer position, popup list scrolling and double-click activation, stale/resized layouts, disabled mouse. Observe failures.
-- [ ] Add cursor positioning that snaps to grapheme boundaries; generate hit regions from renderer list offsets and shared text geometry.
-- [ ] Enable/restore mouse capture; add configuration and clickable Help/close controls. Keep hidden and background regions inert during popups.
-- [ ] Update Help and usage docs with selection vs scroll controls, mouse gestures, photo fallback and sticker preparation.
+- [x] Write pointer tests for exact wrapped-message selection and right-click actions, scroll independent of selection, chat focus, Unicode composer position, popup list scrolling and double-click activation, stale/resized layouts, disabled mouse. Observe failures.
+- [x] Add cursor positioning that snaps to grapheme boundaries; generate hit regions from renderer list offsets and shared text geometry.
+- [x] Enable/restore mouse capture; add configuration and clickable Help/close controls. Keep hidden and background regions inert during popups.
+- [x] Update Help and usage docs with selection vs scroll controls, mouse gestures, photo fallback and sticker preparation.
 - [ ] Run focused tests, then complete suite, fmt, Clippy and optimized demo smoke test. Commit and record verification.
 - [ ] Request one independent whole-branch review; address important findings with regression tests. Integrate locally and preserve validation evidence.

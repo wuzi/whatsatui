@@ -151,3 +151,257 @@ fn keyboard_selects_whole_messages_and_scrolling_keeps_selection() {
     assert_eq!(app.view().message_scroll, 0);
     assert!(app.view().at_bottom);
 }
+
+fn interactive(app: &mut App) -> Buffer {
+    let view = app.view();
+    let config = app.config.clone();
+    let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+    let mut map = None;
+    terminal
+        .draw(|f| {
+            map = Some(ui::render_interactive(
+                f,
+                &view,
+                &config,
+                &mut ui::Images::default(),
+                &mut ui::Avatars::default(),
+            ));
+        })
+        .unwrap();
+    app.update(Input::Rendered(map.unwrap()), Instant::now());
+    metrics(app);
+    terminal.backend().buffer().clone()
+}
+fn point(buffer: &Buffer, text: &str) -> (u16, u16) {
+    for y in 0..buffer.area.height {
+        for x in 0..buffer.area.width {
+            let line: String = (x..buffer.area.width)
+                .map(|x| buffer[(x, y)].symbol())
+                .collect();
+            if line.starts_with(text) {
+                return (x, y);
+            }
+        }
+    }
+    panic!("{text} not on screen");
+}
+fn mouse(app: &mut App, point: (u16, u16), kind: crossterm::event::MouseEventKind) -> Vec<Effect> {
+    app.update(
+        Input::Terminal(crossterm::event::Event::Mouse(
+            crossterm::event::MouseEvent {
+                kind,
+                column: point.0,
+                row: point.1,
+                modifiers: crossterm::event::KeyModifiers::NONE,
+            },
+        )),
+        Instant::now(),
+    )
+}
+
+#[test]
+fn right_click_targets_wrapped_message_and_menu_uses_that_identity() {
+    use crossterm::event::{MouseButton, MouseEventKind::Down};
+    let mut app = ready_app();
+    load(
+        &mut app,
+        vec![
+            message(key("chat", "alice", "first"), "first line\ncontinuation"),
+            message(key("chat", "alice", "second"), "second message"),
+        ],
+    );
+    let screen = interactive(&mut app);
+    mouse(
+        &mut app,
+        point(&screen, "continuation"),
+        Down(MouseButton::Right),
+    );
+    assert_eq!(app.view().selected_message.unwrap().id.0, "first");
+    assert!(
+        matches!(app.view().overlay, Some(Overlay::MessageActions(m)) if m.message.key.id.0 == "first")
+    );
+    let screen = interactive(&mut app);
+    let copy = point(&screen, "Copy text");
+    mouse(&mut app, copy, Down(MouseButton::Left));
+    interactive(&mut app);
+    let effects = mouse(&mut app, copy, Down(MouseButton::Left));
+    assert!(effects.iter().any(
+        |e| matches!(e, Effect::DesktopAction { message, .. } if message.key.id.0 == "first")
+    ));
+}
+
+#[test]
+fn composer_click_snaps_inside_wide_emoji_to_a_grapheme_boundary() {
+    use crossterm::event::{Event, MouseButton, MouseEventKind::Down};
+    let mut app = ready_app();
+    press(&mut app, "enter");
+    app.update(Input::Terminal(Event::Paste("A👩‍💻B".into())), Instant::now());
+    let screen = interactive(&mut app);
+    let (x, y) = point(&screen, "A👩‍💻");
+    mouse(&mut app, (x + 2, y), Down(MouseButton::Left));
+    press(&mut app, "X");
+    assert_eq!(app.view().draft.text, "AX👩‍💻B");
+}
+
+#[test]
+fn popups_capture_clicks_and_close_control_is_clickable() {
+    use crossterm::event::{MouseButton, MouseEventKind::Down};
+    let mut app = ready_app();
+    press(&mut app, "f1");
+    let screen = interactive(&mut app);
+    mouse(&mut app, (99, 22), Down(MouseButton::Left));
+    assert!(matches!(app.view().overlay, Some(Overlay::Help)));
+    interactive(&mut app);
+    mouse(&mut app, point(&screen, "[×]"), Down(MouseButton::Left));
+    assert!(app.view().overlay.is_none());
+}
+
+#[test]
+fn disabled_mouse_and_stale_resize_maps_cannot_change_selection() {
+    use crossterm::event::{Event, MouseButton, MouseEventKind::Down};
+    let mut app = ready_app();
+    let screen = interactive(&mut app);
+    app.update(Input::Terminal(Event::Resize(40, 12)), Instant::now());
+    mouse(&mut app, point(&screen, "Hello"), Down(MouseButton::Right));
+    assert!(app.view().overlay.is_none());
+    app.config = Config::parse("[ui]\nmouse = false").unwrap();
+    interactive(&mut app);
+    mouse(&mut app, point(&screen, "Hello"), Down(MouseButton::Right));
+    assert!(app.view().overlay.is_none());
+}
+
+#[test]
+fn wheel_scroll_preserves_the_action_selection() {
+    use crossterm::event::MouseEventKind::ScrollUp;
+    let mut app = ready_app();
+    load(
+        &mut app,
+        vec![message(
+            key("chat", "alice", "long"),
+            &"many lines\n".repeat(80),
+        )],
+    );
+    interactive(&mut app);
+    let before = app.view().selected_message;
+    mouse(&mut app, (70, 10), ScrollUp);
+    assert_eq!(app.view().selected_message, before);
+    assert!(app.view().message_scroll > 0);
+}
+
+#[test]
+fn selecting_first_message_keeps_following_context_visible() {
+    let mut app = ready_app();
+    load(
+        &mut app,
+        vec![
+            message(key("chat", "alice", "one"), "Earlier context"),
+            message(key("chat", "alice", "two"), "Following context"),
+        ],
+    );
+    press(&mut app, "tab");
+    press(&mut app, "k");
+    let screen = draw(&app.view(), &app.config, 100, 24);
+    assert!(timeline_text(&screen, app.view().focus).contains("Following context"));
+}
+
+#[test]
+fn selecting_past_the_cached_page_requests_next_history_page() {
+    let mut app = ready_app();
+    let effects = app.update(
+        Input::Backend(BackendEvent::StoreChanged(StoreChange {
+            account: account("test"),
+            chats: vec!["chat".into()],
+        })),
+        Instant::now(),
+    );
+    let request = effects
+        .iter()
+        .find_map(|e| {
+            if let Effect::LoadChat { request, .. } = e {
+                Some(*request)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    app.update(
+        Input::Store(StoreCompletion::Chat {
+            request,
+            account: account("test"),
+            chat: "chat".into(),
+            cursor: None,
+            result: Ok(Box::new(ChatSnapshot {
+                summary: app.view().chats[0].clone(),
+                messages: vec![message(key("chat", "alice", "older"), "Cached page")],
+                receipts: vec![],
+                draft: Draft::default(),
+                has_older: true,
+                has_newer: true,
+            })),
+        }),
+        Instant::now(),
+    );
+    press(&mut app, "tab");
+    metrics(&mut app);
+    let effects = press(&mut app, "j");
+    assert!(effects.iter().any(|e| matches!(e, Effect::LoadChat {cursor: Some(PageCursor {direction: PageDirection::After, key, ..}), ..} if key.id.0 == "older")));
+}
+
+#[test]
+fn clicking_a_scrolled_popup_item_keeps_it_under_the_pointer() {
+    use crossterm::event::{MouseButton, MouseEventKind::Down};
+    let mut app = ready_app();
+    let effects = app.update(
+        Input::Backend(BackendEvent::StoreChanged(StoreChange {
+            account: account("test"),
+            chats: vec!["other".into()],
+        })),
+        Instant::now(),
+    );
+    let request = effects
+        .iter()
+        .find_map(|e| {
+            if let Effect::LoadChats { request, .. } = e {
+                Some(*request)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    let chats = (0..30)
+        .map(|n| ChatSummary {
+            account: account("test"),
+            chat: if n == 0 {
+                "chat".into()
+            } else {
+                format!("person{n}").into()
+            },
+            name: format!("Person {n:02}"),
+            ..Default::default()
+        })
+        .collect();
+    app.update(
+        Input::Store(StoreCompletion::Chats {
+            request,
+            account: account("test"),
+            result: Ok(chats),
+        }),
+        Instant::now(),
+    );
+    press(&mut app, "ctrl-p");
+    for _ in 0..25 {
+        press(&mut app, "down");
+    }
+    let screen = interactive(&mut app);
+    let target = point(&screen, "Person 24");
+    mouse(&mut app, target, Down(MouseButton::Left));
+    let screen = interactive(&mut app);
+    assert_eq!(
+        point(&screen, "Person 24"),
+        target,
+        "clicking must not shift the item before the second click"
+    );
+    mouse(&mut app, target, Down(MouseButton::Left));
+    assert_eq!(app.view().chat, Some("person24".into()));
+    assert!(app.view().overlay.is_none());
+}

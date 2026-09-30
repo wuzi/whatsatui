@@ -18,6 +18,7 @@ pub(super) fn query(
     editor: &Editor,
     view: &ViewModel,
     config: &Config,
+    hits: &mut InteractionMap,
 ) {
     if area.is_empty() {
         return;
@@ -31,9 +32,22 @@ pub(super) fn query(
         area,
     );
     frame.set_cursor_position((area.x + (cursor - offset) as u16, area.y));
+    let layout = editor_layout::TextLayout::new(editor.text(), usize::MAX);
+    for x in 0..area.width {
+        hits.push(
+            Rect::new(area.x + x, area.y, 1, 1),
+            Target::Query(layout.byte_at(0, offset + x as usize)),
+        );
+    }
 }
 
-pub(super) fn chats(frame: &mut Frame, area: Rect, view: &ViewModel, config: &Config) {
+pub(super) fn chats(
+    frame: &mut Frame,
+    area: Rect,
+    view: &ViewModel,
+    config: &Config,
+    hits: &mut InteractionMap,
+) {
     let Some(Overlay::Search {
         editor,
         selected,
@@ -55,12 +69,14 @@ pub(super) fn chats(frame: &mut Frame, area: Rect, view: &ViewModel, config: &Co
     );
     let inner = border.inner(r);
     frame.render_widget(border, r);
+    hits.popup(frame, r, view, config);
     query(
         frame,
         Rect::new(inner.x, inner.y, inner.width, 1),
         editor,
         view,
         config,
+        hits,
     );
     frame.render_widget(
         Paragraph::new(format!(
@@ -111,7 +127,15 @@ pub(super) fn chats(frame: &mut Frame, area: Rect, view: &ViewModel, config: &Co
                 ])
             })
             .collect::<Vec<_>>();
-        let mut state = ListState::default().with_selected(Some(*selected));
+        let heights = items.iter().map(ListItem::height).collect::<Vec<_>>();
+        let mut state = ListState::default()
+            .with_offset(
+                view.list_offsets
+                    .get(&Context::Search)
+                    .copied()
+                    .unwrap_or(0),
+            )
+            .with_selected(Some(*selected));
         frame.render_stateful_widget(
             List::new(items)
                 .highlight_symbol("> ")
@@ -119,6 +143,7 @@ pub(super) fn chats(frame: &mut Frame, area: Rect, view: &ViewModel, config: &Co
             list,
             &mut state,
         );
+        hits.list(Context::Search, list, state.offset(), heights, Target::Menu);
     }
     frame.render_widget(
         Paragraph::new(format!(
@@ -131,7 +156,13 @@ pub(super) fn chats(frame: &mut Frame, area: Rect, view: &ViewModel, config: &Co
     );
 }
 
-pub(super) fn messages(frame: &mut Frame, area: Rect, view: &ViewModel, config: &Config) {
+pub(super) fn messages(
+    frame: &mut Frame,
+    area: Rect,
+    view: &ViewModel,
+    config: &Config,
+    hits: &mut InteractionMap,
+) {
     let Some(Overlay::MessageSearch(search)) = &view.overlay else {
         return;
     };
@@ -146,12 +177,14 @@ pub(super) fn messages(frame: &mut Frame, area: Rect, view: &ViewModel, config: 
     let border = block(format!(" Cached messages · {name} "), true, view, config);
     let inner = border.inner(r);
     frame.render_widget(border, r);
+    hits.popup(frame, r, view, config);
     query(
         frame,
         Rect::new(inner.x, inner.y, inner.width, 1),
         &search.editor,
         view,
         config,
+        hits,
     );
     let summary = if search.request.is_some() {
         "Searching cached history…".into()
@@ -233,13 +266,28 @@ pub(super) fn messages(frame: &mut Frame, area: Rect, view: &ViewModel, config: 
                 ListItem::new(lines)
             })
             .collect::<Vec<_>>();
-        let mut state = ListState::default().with_selected(Some(search.selected));
+        let heights = items.iter().map(ListItem::height).collect::<Vec<_>>();
+        let mut state = ListState::default()
+            .with_offset(
+                view.list_offsets
+                    .get(&Context::MessageSearch)
+                    .copied()
+                    .unwrap_or(0),
+            )
+            .with_selected(Some(search.selected));
         frame.render_stateful_widget(
             List::new(items)
                 .highlight_symbol("> ")
                 .highlight_style(style(config, view, ThemeRole::Accent)),
             list,
             &mut state,
+        );
+        hits.list(
+            Context::MessageSearch,
+            list,
+            state.offset(),
+            heights,
+            Target::Menu,
         );
     }
     frame.render_widget(

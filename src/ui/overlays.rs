@@ -102,19 +102,25 @@ pub(super) fn render(
     view: &ViewModel,
     config: &Config,
     images: &mut Images,
+    hits: &mut InteractionMap,
 ) {
+    if view.overlay.is_some() {
+        hits.clear();
+    }
     match &view.overlay {
         Some(Overlay::Stickers(picker)) => {
-            super::stickers::render(frame, area, view, config, picker, images)
+            super::stickers::render(frame, area, view, config, picker, images, hits)
         }
         Some(Overlay::Emoji { editor, selected }) => {
-            super::emoji::render(frame, area, view, config, editor, *selected)
+            super::emoji::render(frame, area, view, config, editor, *selected, hits)
         }
-        Some(Overlay::Attachment { .. }) => super::attachments::dialog(frame, area, view, config),
-        Some(Overlay::MessageActions(_)) => actions::menu(frame, area, view, config),
-        Some(Overlay::MessageLinks(_)) => actions::links(frame, area, view, config),
-        Some(Overlay::MessageSearch(_)) => search::messages(frame, area, view, config),
-        Some(Overlay::Search { .. }) => search::chats(frame, area, view, config),
+        Some(Overlay::Attachment { .. }) => {
+            super::attachments::dialog(frame, area, view, config, hits)
+        }
+        Some(Overlay::MessageActions(_)) => actions::menu(frame, area, view, config, hits),
+        Some(Overlay::MessageLinks(_)) => actions::links(frame, area, view, config, hits),
+        Some(Overlay::MessageSearch(_)) => search::messages(frame, area, view, config, hits),
+        Some(Overlay::Search { .. }) => search::chats(frame, area, view, config, hits),
         Some(Overlay::Help) => {
             let r = centered(area, 72, area.height.saturating_sub(2));
             frame.render_widget(Clear, r);
@@ -123,28 +129,50 @@ pub(super) fn render(
                 Focus::Messages => Context::Messages,
                 Focus::Composer => Context::Composer,
             };
-            let lines = config
-                .bindings
-                .help(context)
+            let mut keys =
+                std::collections::BTreeMap::<crate::config::bindings::ActionId, Vec<String>>::new();
+            for (key, action) in config.bindings.help(context) {
+                keys.entry(action).or_default().push(key);
+            }
+            let mut lines = keys
                 .into_iter()
-                .map(|(key, action)| Line::from(format!("{key:16} {}", action.label())))
+                .map(|(action, keys)| {
+                    Line::from(format!("{:20} {}", keys.join(", "), action.label()))
+                })
                 .collect::<Vec<_>>();
+            lines.extend([
+                Line::from(""),
+                Line::from("Mouse: click selects · double-click opens"),
+                Line::from("Right-click: message actions · wheel: scroll"),
+                Line::from("↑/↓ or Page Up/Down scroll this help"),
+            ]);
+            hits.help_max_scroll = lines
+                .len()
+                .saturating_sub(r.height.saturating_sub(2) as usize);
             frame.render_widget(
-                Paragraph::new(lines).block(block(
-                    format!(
-                        " Help · {context:?} · {} to close ",
-                        key(
-                            config,
-                            Context::Help,
-                            crate::config::bindings::ActionId::Back
-                        )
-                    ),
-                    true,
-                    view,
-                    config,
-                )),
+                Paragraph::new(lines)
+                    .scroll((
+                        view.help_scroll
+                            .min(hits.help_max_scroll)
+                            .min(u16::MAX as usize) as u16,
+                        0,
+                    ))
+                    .block(block(
+                        format!(
+                            " Help · {context:?} · {} to close ",
+                            key(
+                                config,
+                                Context::Help,
+                                crate::config::bindings::ActionId::Back
+                            )
+                        ),
+                        true,
+                        view,
+                        config,
+                    )),
                 r,
             );
+            hits.popup(frame, r, view, config);
         }
         Some(Overlay::Resend { message }) => {
             let r = centered(area, 64, 7);
@@ -171,6 +199,34 @@ pub(super) fn render(
                 .wrap(Wrap { trim: false })
                 .block(block(" Confirm resend ".into(), true, view, config)),
                 r,
+            );
+            hits.popup(frame, r, view, config);
+            let buttons = Rect::new(
+                r.x + 1,
+                r.bottom().saturating_sub(2),
+                r.width.saturating_sub(2),
+                1,
+            );
+            frame.render_widget(
+                Paragraph::new("[ Send again ]   [ Cancel ]").style(style(
+                    config,
+                    view,
+                    ThemeRole::Accent,
+                )),
+                buttons,
+            );
+            hits.push(
+                Rect::new(buttons.x, buttons.y, 14.min(buttons.width), 1),
+                Target::Action(crate::config::bindings::ActionId::Confirm),
+            );
+            hits.push(
+                Rect::new(
+                    buttons.x + 16,
+                    buttons.y,
+                    10.min(buttons.width.saturating_sub(16)),
+                    1,
+                ),
+                Target::Action(crate::config::bindings::ActionId::Back),
             );
         }
         None => {}

@@ -114,6 +114,7 @@ impl Process {
         assert!(out.contains("\u{1b}[?1049l"));
         assert!(out.contains("\u{1b}[?25h"));
         assert!(out.contains("\u{1b}[?2004l"));
+        assert!(out.contains("\u{1b}[?1006l"));
     }
 }
 impl Drop for Process {
@@ -140,6 +141,21 @@ fn demo_restores_tty_after_exit() {
     c.arg("--demo");
     let mut p = Process::launch(c);
     p.wait_for("Alice");
+    p.master.write_all(b"\x11").unwrap();
+    assert!(p.finish().success());
+    p.restored();
+}
+
+#[test]
+fn demo_mouse_opens_help_and_restores_capture() {
+    let mut c = binary();
+    c.arg("--demo");
+    let mut p = Process::launch(c);
+    p.wait_for("Alice");
+    p.wait_for("\u{1b}[?1006h");
+    p.master.write_all(b"\x1b[<0;76;1M").unwrap();
+    p.wait_for("Mouse:"); // Spaces can be skipped by the terminal diff renderer.
+    p.master.write_all(b"\x1b[<0;74;2M").unwrap();
     p.master.write_all(b"\x11").unwrap();
     assert!(p.finish().success());
     p.restored();
@@ -227,15 +243,15 @@ fn demo_sends_received_and_pasted_stickers_and_preserves_the_composer() {
     p.wait_for("recent & pasted");
     p.wait_for("intact.");
     p.master.write_all(b"\r").unwrap();
-    p.wait_for("response.");
+    p.wait_for("received."); // The reply’s final word wraps at 80 columns.
     p.output.clear();
     p.master.write_all(b"\x13").unwrap();
     p.wait_for("intact.");
     p.master.write_all(b"\x16").unwrap();
-    p.wait_for("Pasted sticker");
+    p.wait_for("Prepared sticker");
     p.master.write_all(b"\r").unwrap();
     p.wait_for("Keep"); // Ratatui may emit separate cursor moves between words.
-    p.wait_for("response.");
+    p.wait_for("received."); // The reply’s final word wraps at 80 columns.
     assert!(!String::from_utf8_lossy(&p.output).contains("Attach image"));
     p.master.write_all(b"\x11").unwrap();
     assert!(p.finish().success());
@@ -266,7 +282,7 @@ fn demo_pastes_clipboard_image_without_a_path_and_keeps_the_caption() {
     assert!(String::from_utf8_lossy(&p.output).contains("Caption stays here"));
     assert!(!String::from_utf8_lossy(&p.output).contains("Attach image"));
     p.master.write_all(b"\r").unwrap();
-    p.wait_for("response.");
+    p.wait_for("received."); // The reply’s final word wraps at 80 columns.
     p.master.write_all(b"\x11").unwrap();
     assert!(p.finish().success());
     p.restored();
@@ -299,7 +315,7 @@ fn demo_attaches_images_picks_emoji_renders_kitty_and_restores_tty() {
     p.master.write_all(b"\x1b[200~:rocket:\x1b[201~\r").unwrap();
     p.wait_for("🚀");
     p.master.write_all(b"\r").unwrap();
-    p.wait_for("response.");
+    p.wait_for("received."); // The reply’s final word wraps at 80 columns.
     // The automatic reply scrolls the image header out of view; select it.
     p.master.write_all(b"\x1b[Zk").unwrap();
     p.wait_for("read: 1");

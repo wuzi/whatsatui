@@ -34,6 +34,17 @@ impl Editor {
     pub fn cursor(&self) -> usize {
         self.cursor
     }
+    pub fn set_cursor(&mut self, byte: usize) {
+        self.cursor = self
+            .text
+            .grapheme_indices(true)
+            .map(|(i, _)| i)
+            .chain(std::iter::once(self.text.len()))
+            .take_while(|i| *i <= byte)
+            .last()
+            .unwrap_or(0);
+        self.column = None;
+    }
     fn previous(&self) -> usize {
         self.text
             .grapheme_indices(true)

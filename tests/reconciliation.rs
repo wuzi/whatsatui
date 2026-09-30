@@ -571,13 +571,24 @@ async fn paging_forward_does_not_skip_to_the_last_message() {
         }
     }
     press(&mut app, "tab");
-    for _ in 0..6 {
+    for _ in 0..60 {
+        let metrics = whatsapp_tui::ui::timeline_viewport(
+            ratatui::layout::Rect::new(0, 0, 80, 24),
+            &app.view(),
+            &app.config,
+        )
+        .unwrap();
+        app.update(Input::TimelineViewport(metrics), Instant::now());
+        if app.view().messages.first().unwrap().key.id.0 == "0100" {
+            break;
+        }
         for e in press(&mut app, "pageup") {
             if let Some(i) = runtime::execute(e, s.clone(), tx.clone()).await {
                 app.update(i, Instant::now());
             }
         }
     }
+    assert_eq!(app.view().messages.first().unwrap().key.id.0, "0100");
     // The older page opens at its newest item. Forward paging must open at the next item.
     let effects = press(&mut app, "pagedown");
     for e in effects {
