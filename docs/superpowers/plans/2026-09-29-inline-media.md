@@ -49,9 +49,9 @@ Files: app models/reducer/composer overlays, storage worker, native/demo backend
 
 Interfaces: additive `Draft.attachment: Option<LocalImage>`; local image message body includes caption; import result carries request/account/chat/draft identity; outbound pipeline snapshots current draft, stages, uploads, then sends using original message key and quote.
 
-- [ ] Write and run failing tests for path dialog, cancel/remove, stale import, attachment-only send, restart/staging/newer draft preservation, and image protobuf encoding.
-- [ ] Implement dialog, durable snapshot use, composer preview, upload deadline/cancellation and explicit resend behavior.
-- [ ] Run targeted tests and full suite; commit.
+- [x] Write and run failing tests for path dialog, cancel/remove, stale import, attachment-only send, restart/staging/newer draft preservation, and image protobuf encoding.
+- [x] Implement dialog, durable snapshot use, composer preview, upload deadline/cancellation and explicit resend behavior.
+- [x] Run targeted tests and full suite; commit.
 
 ## Task 4: Emoji picker and delivery verification
 

@@ -29,6 +29,7 @@ const CAPACITY: usize = 8;
 
 #[derive(Clone)]
 struct Request {
+    draft: bool,
     id: String,
     message: MessageRecord,
     size: Size,
@@ -121,6 +122,45 @@ impl Images {
         skip: u16,
         full_size: Size,
     ) {
+        self.draw_source(frame, message, area, skip, full_size, false);
+    }
+    pub fn draw_local(
+        &mut self,
+        frame: &mut Frame,
+        account: &AccountId,
+        chat: &ChatId,
+        image: &media::outgoing::LocalImage,
+        area: Rect,
+    ) {
+        let message = MessageRecord {
+            key: MessageKey {
+                account: account.clone(),
+                chat: chat.clone(),
+                sender: account.0.clone().into(),
+                id: "draft-preview".into(),
+                from_me: true,
+            },
+            body: MessageBody::LocalImage {
+                image: image.clone(),
+                caption: String::new(),
+            },
+            quote: None,
+            created_at_ms: 0,
+            edited_at_ms: None,
+            expires_at_ms: None,
+            send_state: None,
+        };
+        self.draw_source(frame, &message, area, 0, area.as_size(), true);
+    }
+    fn draw_source(
+        &mut self,
+        frame: &mut Frame,
+        message: &MessageRecord,
+        area: Rect,
+        skip: u16,
+        full_size: Size,
+        draft: bool,
+    ) {
         if area.is_empty() || self.stopped {
             return;
         }
@@ -135,6 +175,7 @@ impl Images {
         );
         if self.wanted.len() < CAPACITY && !self.wanted.iter().any(|r| r.id == id) {
             self.wanted.push(Request {
+                draft,
                 id: id.clone(),
                 message: message.clone(),
                 size,
@@ -246,8 +287,15 @@ impl Images {
             receive,
         });
         tokio::spawn(async move {
-            let result =
-                media::preview::load(request.message, store, downloader.as_ref(), cancel).await;
+            let result = if request.draft {
+                if let MessageBody::LocalImage { image, .. } = request.message.body {
+                    media::preview::load_local(image, store.data_dir().to_owned()).await
+                } else {
+                    Err("No attached image".into())
+                }
+            } else {
+                media::preview::load(request.message, store, downloader.as_ref(), cancel).await
+            };
             let protocol = match result {
                 Ok(image) => tokio::task::spawn_blocking(move || {
                     prepare(image, request.size, font, kitty.then_some(kitty_id))

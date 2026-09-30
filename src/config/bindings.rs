@@ -16,6 +16,7 @@ struct Binding {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Context {
+    Attachment,
     Chats,
     Messages,
     Composer,
@@ -30,6 +31,8 @@ pub enum Context {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ActionId {
+    AttachImage,
+    RemoveAttachment,
     MessageActions,
     CopyText,
     OpenLinks,
@@ -61,6 +64,8 @@ pub(super) type Overrides = BTreeMap<Context, BTreeMap<ActionId, Vec<String>>>;
 impl ActionId {
     pub fn label(self) -> &'static str {
         match self {
+            Self::AttachImage => "attach image",
+            Self::RemoveAttachment => "remove image",
             Self::MessageActions => "actions",
             Self::CopyText => "copy",
             Self::OpenLinks => "links",
@@ -118,6 +123,10 @@ impl Default for Bindings {
                 b.add(c, a, k);
             }
         }
+        b.add(C::Composer, A::AttachImage, "ctrl-o");
+        b.add(C::Composer, A::RemoveAttachment, "alt-a");
+        b.add(C::Attachment, A::Open, "enter");
+        b.add(C::Attachment, A::Back, "esc");
         b.add(C::Chats, A::Open, "enter");
         b.add(C::Chats, A::Unread, "u");
         b.add(C::Messages, A::MessageActions, "enter");
@@ -202,7 +211,10 @@ impl Bindings {
                     let key = parse_key(&label)?;
                     if matches!(
                         context,
-                        Context::Composer | Context::Search | Context::MessageSearch
+                        Context::Composer
+                            | Context::Search
+                            | Context::MessageSearch
+                            | Context::Attachment
                     ) && matches!(key.code, KeyCode::Char(_))
                         && !key
                             .modifiers
@@ -222,6 +234,7 @@ impl Bindings {
             }
         }
         for context in [
+            Context::Attachment,
             Context::Chats,
             Context::Messages,
             Context::Composer,
@@ -288,6 +301,7 @@ impl Bindings {
 fn allowed(c: Context, a: ActionId) -> bool {
     use {ActionId as A, Context as C};
     match c {
+        C::Attachment => matches!(a, A::Open | A::Back),
         C::Global => a == A::Quit,
         C::Chats => matches!(
             a,
@@ -303,7 +317,9 @@ fn allowed(c: Context, a: ActionId) -> bool {
         ),
         C::Messages => !matches!(
             a,
-            A::Quit
+            A::AttachImage
+                | A::RemoveAttachment
+                | A::Quit
                 | A::Open
                 | A::Send
                 | A::Newline
@@ -314,7 +330,9 @@ fn allowed(c: Context, a: ActionId) -> bool {
         ),
         C::Composer => matches!(
             a,
-            A::FocusNext
+            A::AttachImage
+                | A::RemoveAttachment
+                | A::FocusNext
                 | A::FocusPrevious
                 | A::Search
                 | A::MessageSearch

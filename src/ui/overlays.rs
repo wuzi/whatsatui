@@ -94,6 +94,19 @@ fn key(config: &Config, context: Context, action: crate::config::bindings::Actio
 }
 pub(super) fn render(frame: &mut Frame, area: Rect, view: &ViewModel, config: &Config) {
     match &view.overlay {
+        Some(Overlay::Attachment {
+            editor,
+            importing,
+            error,
+        }) => super::attachments::dialog(
+            frame,
+            area,
+            view,
+            config,
+            editor,
+            importing.is_some(),
+            error.as_deref(),
+        ),
         Some(Overlay::MessageActions(_)) => actions::menu(frame, area, view, config),
         Some(Overlay::MessageLinks(_)) => actions::links(frame, area, view, config),
         Some(Overlay::MessageSearch(_)) => search::messages(frame, area, view, config),

@@ -176,6 +176,26 @@ fn message_rows(
         }
     }
     let body = match &message.body {
+        MessageBody::LocalImage { image, caption } => {
+            lines.extend(
+                wrap(
+                    &format!(
+                        "[image] {} · {}×{}",
+                        single(&image.filename),
+                        image.width,
+                        image.height
+                    ),
+                    width,
+                )
+                .into_iter()
+                .map(Line::from),
+            );
+            if config.media.inline {
+                preview_at = Some(lines.len());
+                lines.extend((0..super::images::PREVIEW_ROWS).map(|_| Line::from("")));
+            }
+            Some(caption.as_str())
+        }
         MessageBody::Text(t) => Some(t.as_str()),
         MessageBody::Media(attachment) => {
             lines.extend(

@@ -8,6 +8,12 @@ pub struct EncodedText {
     pub options: SendOptions,
 }
 pub fn encode_text(outbound: &OutboundText) -> Result<EncodedText, BackendError> {
+    if outbound.draft.attachment.is_some() {
+        return Err(BackendError::InvalidIdentity);
+    }
+    encode_base(outbound)
+}
+fn encode_base(outbound: &OutboundText) -> Result<EncodedText, BackendError> {
     let to: Jid = outbound
         .key
         .chat
@@ -46,6 +52,69 @@ pub fn encode_text(outbound: &OutboundText) -> Result<EncodedText, BackendError>
         options: SendOptions::default().with_message_id(outbound.key.id.0.clone()),
     })
 }
+pub struct UploadedImage {
+    pub attachment: crate::media::Attachment,
+    pub url: String,
+    pub media_key_timestamp: i64,
+}
+impl From<whatsapp_rust::upload::UploadResponse> for UploadedImage {
+    fn from(r: whatsapp_rust::upload::UploadResponse) -> Self {
+        Self {
+            url: r.url,
+            media_key_timestamp: r.media_key_timestamp,
+            attachment: crate::media::Attachment {
+                kind: crate::media::AttachmentKind::Image,
+                filename: None,
+                caption: None,
+                mime: Some("image/jpeg".into()),
+                size: r.file_length,
+                direct_path: r.direct_path,
+                media_key: r.media_key,
+                sha256: r.file_sha256,
+                encrypted_sha256: r.file_enc_sha256,
+            },
+        }
+    }
+}
+pub fn encode_image(
+    outbound: &OutboundText,
+    uploaded: UploadedImage,
+    thumbnail: Vec<u8>,
+) -> Result<EncodedText, BackendError> {
+    let local = outbound
+        .draft
+        .attachment
+        .as_ref()
+        .ok_or(BackendError::InvalidIdentity)?;
+    let mut encoded = encode_base(outbound)?;
+    let context_info = encoded
+        .message
+        .extended_text_message
+        .as_option_mut()
+        .map(|m| m.context_info.take())
+        .flatten();
+    let a = uploaded.attachment;
+    encoded.message = wa::Message {
+        image_message: MessageField::some(wa::message::ImageMessage {
+            url: Some(uploaded.url),
+            direct_path: Some(a.direct_path),
+            mimetype: Some("image/jpeg".into()),
+            caption: Some(outbound.draft.text.clone()),
+            file_length: Some(a.size),
+            width: Some(local.width),
+            height: Some(local.height),
+            media_key: Some(a.media_key.to_vec()),
+            file_sha256: Some(a.sha256.to_vec()),
+            file_enc_sha256: Some(a.encrypted_sha256.to_vec()),
+            media_key_timestamp: Some(uploaded.media_key_timestamp),
+            jpeg_thumbnail: Some(thumbnail),
+            context_info: context_info.into(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    Ok(encoded)
+}
 pub fn classify_send_error(error: &SendError) -> SendState {
     match error {
         SendError::NotLoggedIn | SendError::InvalidRequest(_) => SendState::Failed,
@@ -63,6 +132,49 @@ pub fn classify_transport_result<T>(result: &Result<T, SendError>) -> SendState 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn image_encoding_preserves_caption_quote_and_message_id() {
+        let mut outbound = outgoing("120363000000001@g.us");
+        outbound.draft.attachment = Some(crate::media::outgoing::LocalImage {
+            id: "0".repeat(64),
+            filename: "photo.png".into(),
+            size: 42,
+            width: 300,
+            height: 200,
+        });
+        let uploaded = UploadedImage {
+            url: "https://mmg.whatsapp.net/v/photo".into(),
+            media_key_timestamp: 123,
+            attachment: crate::media::Attachment {
+                kind: crate::media::AttachmentKind::Image,
+                filename: None,
+                caption: None,
+                mime: Some("image/jpeg".into()),
+                size: 42,
+                direct_path: "/v/photo".into(),
+                media_key: [1; 32],
+                sha256: [2; 32],
+                encrypted_sha256: [3; 32],
+            },
+        };
+        assert!(
+            encode_text(&outbound).is_err(),
+            "an attached image must never fall back to text"
+        );
+        let encoded = encode_image(&outbound, uploaded, vec![4, 5]).unwrap();
+        assert_eq!(encoded.options.message_id.as_deref(), Some("3EB0TEST0001"));
+        assert!(encoded.message.conversation.is_none());
+        let image = encoded.message.image_message.as_option().unwrap();
+        assert_eq!(image.caption.as_deref(), Some("  hello\nworld  "));
+        assert_eq!(image.mimetype.as_deref(), Some("image/jpeg"));
+        assert_eq!(image.direct_path.as_deref(), Some("/v/photo"));
+        assert_eq!(image.file_length, Some(42));
+        assert_eq!(image.width, Some(300));
+        assert_eq!(
+            image.context_info.as_option().unwrap().stanza_id.as_deref(),
+            Some("original")
+        );
+    }
     fn outgoing(chat: &str) -> OutboundText {
         let mut key = MessageKey {
             account: "self@s.whatsapp.net".into(),
@@ -78,6 +190,7 @@ mod tests {
         OutboundText {
             key: outgoing_key,
             draft: Draft {
+                attachment: None,
                 text: "  hello\nworld  ".into(),
                 reply: Some(Quote {
                     key,

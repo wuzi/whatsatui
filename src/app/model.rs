@@ -54,6 +54,8 @@ pub struct Quote {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Draft {
     pub text: String,
+    #[serde(default)]
+    pub attachment: Option<crate::media::outgoing::LocalImage>,
     pub reply: Option<Quote>,
     pub revision: u64,
 }
@@ -84,6 +86,10 @@ pub enum ConnectionState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MessageBody {
     Text(String),
+    LocalImage {
+        image: crate::media::outgoing::LocalImage,
+        caption: String,
+    },
     Media(Box<crate::media::Attachment>),
     Unsupported {
         kind: String,

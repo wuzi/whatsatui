@@ -14,6 +14,7 @@ pub fn key(chat: &str, sender: &str, id: &str) -> MessageKey {
 }
 pub fn draft(text: &str, revision: u64) -> Draft {
     Draft {
+        attachment: None,
         text: text.into(),
         revision,
         reply: None,

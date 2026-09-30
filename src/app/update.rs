@@ -2,9 +2,16 @@ use super::{editor::*, input::Input, model::*, view_model::*};
 use crate::{config::Config, whatsapp::BackendEvent};
 use tokio::time::Instant;
 mod actions;
+mod attachments;
 mod search;
 #[derive(Clone, Debug)]
 pub enum Effect {
+    ImportImage {
+        request: RequestId,
+        account: AccountId,
+        chat: ChatId,
+        path: String,
+    },
     MediaAction {
         request: RequestId,
         message: Box<MessageRecord>,
@@ -221,7 +228,10 @@ impl App {
                 Some(_) => false,
                 None => matches!(
                     self.context(),
-                    Context::Composer | Context::Search | Context::MessageSearch
+                    Context::Composer
+                        | Context::Search
+                        | Context::MessageSearch
+                        | Context::Attachment
                 ),
             },
             Event::Paste(_) | Event::Resize(..) | Event::FocusGained | Event::FocusLost => true,
@@ -242,6 +252,7 @@ impl App {
     }
     fn context(&self) -> Context {
         match &self.view.overlay {
+            Some(Overlay::Attachment { .. }) => Context::Attachment,
             Some(Overlay::MessageActions(_)) => Context::MessageActions,
             Some(Overlay::MessageLinks(_)) => Context::MessageLinks,
             Some(Overlay::MessageSearch(_)) => Context::MessageSearch,
@@ -356,7 +367,9 @@ impl App {
             .cloned()
             .map(|mut chat| {
                 if let Some(draft) = self.drafts.get(&chat.chat) {
-                    chat.has_draft = !draft.data.text.is_empty() || draft.data.reply.is_some();
+                    chat.has_draft = !draft.data.text.is_empty()
+                        || draft.data.reply.is_some()
+                        || draft.data.attachment.is_some();
                 }
                 chat
             })
@@ -493,6 +506,12 @@ impl App {
             return;
         }
         match action {
+            A::AttachImage => self.open_attachment(),
+            A::RemoveAttachment => {
+                if self.view.draft.attachment.take().is_some() {
+                    self.remember();
+                }
+            }
             A::MessageActions => self.open_message_actions(),
             A::CopyText => self.copy_message_or_link(effects),
             A::OpenLinks => self.open_message_links(),
@@ -594,6 +613,10 @@ impl App {
                 }
             }
             A::Open => {
+                if matches!(self.view.overlay, Some(Overlay::Attachment { .. })) {
+                    self.import_attachment(effects);
+                    return;
+                }
                 if matches!(
                     self.view.overlay,
                     Some(Overlay::MessageActions(_) | Overlay::MessageLinks(_))
@@ -657,13 +680,20 @@ impl App {
                     self.view.notice = Some("Not sent: wait for the connection".into());
                     return;
                 }
-                if let Some(Overlay::Resend { message }) = self.view.overlay.take()
-                    && let MessageBody::Text(text) = message.body
-                {
+                if let Some(Overlay::Resend { message }) = self.view.overlay.take() {
+                    let (text, attachment) = match message.body {
+                        MessageBody::Text(text) => (text, None),
+                        MessageBody::LocalImage { image, caption } => (caption, Some(image)),
+                        _ => {
+                            self.view.notice = Some("This message cannot be resent".into());
+                            return;
+                        }
+                    };
                     self.prepare(
                         message.key.chat,
                         Draft {
                             text,
+                            attachment,
                             reply: message.quote,
                             revision: 0,
                         },
@@ -673,7 +703,7 @@ impl App {
                 }
             }
             A::Send => {
-                if self.view.draft.text.trim().is_empty() {
+                if self.view.draft.text.trim().is_empty() && self.view.draft.attachment.is_none() {
                     return;
                 }
                 if let Some(chat) = self.view.chat.clone() {
@@ -810,7 +840,17 @@ impl App {
             _ => None,
         };
         if let Some(edit) = edit {
-            if let Some(Overlay::MessageSearch(search)) = &mut self.view.overlay {
+            if let Some(Overlay::Attachment {
+                editor,
+                importing,
+                error,
+            }) = &mut self.view.overlay
+            {
+                if importing.is_none() {
+                    super::search::edit_query(editor, edit);
+                    *error = None;
+                }
+            } else if let Some(Overlay::MessageSearch(search)) = &mut self.view.overlay {
                 if super::search::edit_query(&mut search.editor, edit) {
                     search.invalidate(None);
                 }
@@ -1067,6 +1107,9 @@ impl App {
                                 if local.dirty || local.data.revision > snapshot.draft.revision {
                                     dirty = true;
                                     retain_draft_text(&mut merged.text, &local.data.text);
+                                    if merged.attachment.is_none() {
+                                        merged.attachment = local.data.attachment.clone();
+                                    }
                                 }
                             }
                             if let Some(local) = canonical_draft
@@ -1176,6 +1219,7 @@ impl App {
                                 }
                             }
                             self.view.draft.reply = local.data.reply.clone();
+                            self.view.draft.attachment = local.data.attachment.clone();
                             self.view.draft.revision = local.data.revision;
                         }
                         if self
@@ -1386,6 +1430,12 @@ impl App {
         let mut effects = vec![];
         self.reconcile_message_actions();
         match input {
+            Input::ImageImported {
+                request,
+                account,
+                chat,
+                result,
+            } => self.image_imported(request, account, chat, result),
             Input::DesktopAction {
                 request,
                 account,

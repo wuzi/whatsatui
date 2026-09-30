@@ -31,6 +31,7 @@ sha2 = "0.10.9"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 ratatui-image = { version = "=11.1.0", default-features = false, features = ["crossterm"] }
 emojis = "=0.9.0"
+reqwest = { version = "=0.12.28", default-features = false, features = ["rustls-tls"] }
 
 [dev-dependencies]
 nix = { version = "0.30", features = ["term", "process", "poll", "fs"] }

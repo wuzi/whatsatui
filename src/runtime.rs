@@ -213,6 +213,42 @@ async fn execute_with_media(
     cancel: tokio::sync::watch::Receiver<bool>,
 ) -> Option<Input> {
     let event = match effect {
+        Effect::ImportImage {
+            request,
+            account,
+            chat,
+            path,
+        } => {
+            let root = store.data_dir().to_owned();
+            let mut cancel = cancel;
+            if *cancel.borrow() {
+                return None;
+            }
+            let permit = tokio::select! {
+                permit = crate::media::preview::DECODERS.acquire() => permit.expect("decoder semaphore stays open"),
+                _ = cancel.changed() => return None,
+            };
+            let result = tokio::task::spawn_blocking(move || {
+                let _permit = permit;
+                let path = if let Some(rest) = path.strip_prefix("~/") {
+                    std::path::PathBuf::from(
+                        std::env::var_os("HOME").ok_or("Home directory is unavailable")?,
+                    )
+                    .join(rest)
+                } else {
+                    std::path::PathBuf::from(path)
+                };
+                crate::media::outgoing::import(&path, &root)
+            })
+            .await
+            .unwrap_or_else(|_| Err("Image preparation failed".into()));
+            return Some(Input::ImageImported {
+                request,
+                account,
+                chat,
+                result,
+            });
+        }
         Effect::MediaAction {
             request,
             message,

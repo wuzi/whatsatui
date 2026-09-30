@@ -2,6 +2,12 @@ use super::update::StoreCompletion;
 use crate::whatsapp::BackendEvent;
 #[derive(Debug)]
 pub enum Input {
+    ImageImported {
+        request: super::model::RequestId,
+        account: super::model::AccountId,
+        chat: super::model::ChatId,
+        result: Result<crate::media::outgoing::LocalImage, String>,
+    },
     DesktopAction {
         request: super::model::RequestId,
         account: super::model::AccountId,

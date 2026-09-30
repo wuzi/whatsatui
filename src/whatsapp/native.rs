@@ -62,6 +62,7 @@ pub(super) async fn start(
     let (notices, mut problems) = tokio::sync::watch::channel(None);
     let bot = Bot::builder()
         .with_backend(device)
+        .with_http_client(super::http::Http::new().map_err(BackendError::Service)?)
         .with_event_handler(RawHandler(bridge))
         .with_inbound_durability_hook(DurableInbox(store.clone(), notices))
         .build()
@@ -107,22 +108,44 @@ pub(super) async fn start(
     let task = tokio::spawn(async move {
         let mut ingest = ingest;
         let mut result = Ok(());
+        let mut jobs = tokio::task::JoinSet::new();
+        let mut transmitting = std::collections::HashSet::new();
         loop {
             tokio::select! {
+                biased;
                 _=&mut stopping=>break,
                 changed=problems.changed()=>{if changed.is_ok(){let notice=problems.borrow_and_update().clone();let _=emit(&events,BackendEvent::LocalError(notice)).await;}},
                 r=&mut ingest=>{ result=r.unwrap_or(Err(BackendError::Stopped)); break; },
-                command=requests.recv()=>{
+                completed=jobs.join_next(), if !jobs.is_empty()=>{
+                    match completed {
+                        Some(Ok((key, outcome))) => {
+                            if let Some(key)=key {transmitting.remove(&key);}
+                            if let Err(error)=outcome {result=Err(error);break;}
+                        },
+                        Some(Err(_)) => {result=Err(BackendError::Stopped);break;},
+                        None=>{},
+                    }
+                },
+                command=requests.recv(), if jobs.len() < 4=>{
                     let Some(command)=command else{break};
                     let key=if let BackendCommand::Transmit(ref o)=command {Some(o.key.clone())}else{None};
-                    tokio::select! {
-                        _=&mut stopping=>{
-                            if let Some(key)=key{let _=emit(&events,BackendEvent::SendOutcome{key,state:SendState::Unconfirmed}).await;}break;
-                        }
-                        r=command_once(&client,&events,command)=>if let Err(e)=r{result=Err(e);break;}
-                    }
+                    if let Some(key)=&key {transmitting.insert(key.clone());}
+                    let client=client.clone(); let events=events.clone(); let store=store.clone();
+                    jobs.spawn(async move {(key,command_once(&client,&events,&store,command).await)});
                 }
             }
+        }
+        jobs.abort_all();
+        while jobs.join_next().await.is_some() {}
+        for key in transmitting {
+            let _ = emit(
+                &events,
+                BackendEvent::SendOutcome {
+                    key,
+                    state: SendState::Unconfirmed,
+                },
+            )
+            .await;
         }
         // The event consumer remains active while the protocol flushes/disconnects.
         bot.shutdown().await;
@@ -145,6 +168,7 @@ pub(super) async fn start(
 async fn command_once(
     client: &Client,
     tx: &mpsc::Sender<BackendEvent>,
+    store: &Store,
     command: BackendCommand,
 ) -> Result<(), BackendError> {
     match command {
@@ -180,6 +204,8 @@ async fn command_once(
         BackendCommand::Transmit(message) => {
             let state = if account(client).as_ref() != Some(&message.key.account) {
                 SendState::Failed
+            } else if message.draft.attachment.is_some() {
+                super::images::send(client, message.clone(), store.data_dir().to_owned()).await
             } else {
                 match encode::encode_text(&message) {
                     Err(_) => SendState::Failed,

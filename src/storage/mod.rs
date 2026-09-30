@@ -165,9 +165,12 @@ impl Store {
     ) -> Result<OutboundText, StoreError> {
         self.call(move |c| {
             let row = worker::get(c, &message.key)?.ok_or(StoreError::InvalidData)?;
-            let MessageBody::Text(text) = row.body else {
-                return Err(StoreError::InvalidData);
+            let (text, attachment) = match row.body {
+                MessageBody::Text(text) => (text, None),
+                MessageBody::LocalImage { image, caption } => (caption, Some(image)),
+                _ => return Err(StoreError::InvalidData),
             };
+            message.draft.attachment = attachment;
             message.key = row.key;
             message.draft.text = text;
             message.draft.reply = row.quote;

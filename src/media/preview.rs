@@ -7,6 +7,7 @@ use tokio::sync::watch;
 
 pub const MAX_BYTES: u64 = 16 * 1024 * 1024;
 pub const MAX_PIXELS: u64 = 16_000_000;
+pub(crate) static DECODERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
 
 pub fn decode(bytes: &[u8]) -> Result<DynamicImage, String> {
     if bytes.len() as u64 > MAX_BYTES {
@@ -31,6 +32,9 @@ pub fn decode(bytes: &[u8]) -> Result<DynamicImage, String> {
 }
 
 pub fn read_bounded(path: &std::path::Path) -> Result<Vec<u8>, String> {
+    if !std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.len() <= MAX_BYTES) {
+        return Err("Choose a regular image file up to 16 MiB".into());
+    }
     let file = std::fs::File::open(path).map_err(|_| "Image file is unavailable")?;
     if !file
         .metadata()
@@ -55,6 +59,37 @@ pub async fn load(
     cancel: watch::Receiver<bool>,
 ) -> Result<DynamicImage, String> {
     check_cancel(&cancel)?;
+    if let crate::app::model::MessageBody::LocalImage { image, .. } = &message.body {
+        let stored = store
+            .get_message(message.key.clone())
+            .await
+            .map_err(|e| e.to_string())?
+            .ok_or("Image message is unavailable")?;
+        if stored.body != message.body
+            || stored.key != message.key
+            || stored
+                .expires_at_ms
+                .is_some_and(|at| at <= chrono::Utc::now().timestamp_millis())
+        {
+            return Err("Image changed or expired".into());
+        }
+        let result = load_local(image.clone(), store.data_dir().to_owned()).await?;
+        check_cancel(&cancel)?;
+        if store
+            .get_message(message.key.clone())
+            .await
+            .map_err(|e| e.to_string())?
+            .is_none_or(|m| {
+                m.body != message.body
+                    || m.key != message.key
+                    || m.expires_at_ms
+                        .is_some_and(|at| at <= chrono::Utc::now().timestamp_millis())
+            })
+        {
+            return Err("Image changed or expired".into());
+        }
+        return Ok(result);
+    }
     let attachment = current(&message, &store).await?;
     if !matches!(
         attachment.kind,
@@ -86,7 +121,13 @@ pub async fn load(
     }
     check_cancel(&cancel)?;
     // Read under the cache lock; decode off the UI/runtime worker and retain only a thumbnail.
+    let permit = DECODERS
+        .acquire()
+        .await
+        .map_err(|_| "Image decoder stopped")?;
+    check_cancel(&cancel)?;
     let result = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
         let bytes = read_bounded(&path)?;
         use sha2::{Digest, Sha256};
         if bytes.len() as u64 != attachment.size
@@ -103,4 +144,20 @@ pub async fn load(
     check_cancel(&cancel)?;
     current(&message, &store).await?;
     result
+}
+
+pub async fn load_local(
+    image: super::outgoing::LocalImage,
+    data_dir: std::path::PathBuf,
+) -> Result<DynamicImage, String> {
+    let permit = DECODERS
+        .acquire()
+        .await
+        .map_err(|_| "Image decoder stopped")?;
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        decode(&super::outgoing::read(&image, &data_dir)?).map(|i| i.thumbnail(640, 640))
+    })
+    .await
+    .map_err(|_| "Image decoder stopped")?
 }

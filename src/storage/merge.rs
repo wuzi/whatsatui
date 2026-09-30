@@ -435,7 +435,10 @@ fn merge_alias_in_transaction(
         worker::upsert_chats(c, a, vec![chat])?;
     }
 
-    let mut merged = if target_draft.text.is_empty() && target_draft.reply.is_none() {
+    let mut merged = if target_draft.text.is_empty()
+        && target_draft.reply.is_none()
+        && target_draft.attachment.is_none()
+    {
         old_draft.clone()
     } else {
         target_draft.clone()
@@ -448,6 +451,9 @@ fn merge_alias_in_transaction(
         merged.text = format!("{}\n\n{}", target_draft.text, old_draft.text);
     }
 
+    if merged.attachment.is_none() {
+        merged.attachment = old_draft.attachment.clone();
+    }
     merged.revision = old_draft
         .revision
         .max(target_draft.revision)
@@ -456,7 +462,7 @@ fn merge_alias_in_transaction(
         quote(c, q)?;
     }
 
-    if !merged.text.is_empty() || merged.reply.is_some() {
+    if !merged.text.is_empty() || merged.reply.is_some() || merged.attachment.is_some() {
         worker::save_draft(c, a, &target.clone().into(), &merged)?;
     }
 

@@ -364,6 +364,7 @@ edited_at_ms:at,..}
 fn edit_body(body: &mut MessageBody, text: String) {
     match body {
         MessageBody::Media(attachment) => attachment.caption = Some(text),
+        MessageBody::LocalImage { caption, .. } => *caption = text,
         MessageBody::Unsupported { caption, .. } => *caption = Some(text),
         _ => *body = MessageBody::Text(text),
     }
@@ -383,7 +384,10 @@ pub(super) fn stage(
             merge::quote(c, q)?;
         }
 
-        if !o.key.from_me || o.draft.text.trim().is_empty() || get(c, &o.key)?.is_some() {
+        if !o.key.from_me
+            || (o.draft.text.trim().is_empty() && o.draft.attachment.is_none())
+            || get(c, &o.key)?.is_some()
+        {
             return Err(StoreError::InvalidData);
         }
 
@@ -396,7 +400,13 @@ pub(super) fn stage(
 
         let m = MessageRecord {
             key: o.key.clone(),
-            body: MessageBody::Text(o.draft.text),
+            body: match o.draft.attachment {
+                Some(image) => MessageBody::LocalImage {
+                    image,
+                    caption: o.draft.text,
+                },
+                None => MessageBody::Text(o.draft.text),
+            },
             quote: o.draft.reply,
             created_at_ms: o.created_at_ms,
             edited_at_ms: None,
@@ -569,6 +579,9 @@ fn upsert_chats_in_transaction(
 pub(super) fn preview(body: &MessageBody) -> String {
     let text = match body {
         MessageBody::Text(t) => t.clone(),
+        MessageBody::LocalImage { image, caption } => {
+            format!("[image] {} {caption}", image.filename)
+        }
         MessageBody::Media(attachment) => format!(
             "[{}] {}",
             attachment.kind.label(),
@@ -630,7 +643,7 @@ s.latest_at_ms=m.created_at_ms;
 
     let d = draft(c, a, &chat)?;
 
-    s.has_draft = !d.text.is_empty() || d.reply.is_some();
+    s.has_draft = !d.text.is_empty() || d.reply.is_some() || d.attachment.is_some();
 
     Ok(s)
 }

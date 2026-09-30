@@ -45,7 +45,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 let mut parts=line.splitn(3,' ');let action=parts.next().unwrap_or("");let chat=parts.next().unwrap_or("");let rest=parts.next().unwrap_or("");
                 let (text,reply)=if action=="reply"{let mut p=rest.splitn(3,' ');let id=p.next().unwrap_or("");let sender=p.next().unwrap_or("");let text=p.next().unwrap_or("");(text,Some(Quote{key:MessageKey{account:a.clone(),chat:chat.into(),sender:sender.into(),id:id.into(),from_me:sender==a.0},preview:String::new(),availability:QuoteAvailability::Missing}))}else if action=="send"{(rest,None)}else{println!("Unknown command");continue;};
                 if chat.is_empty()||text.trim().is_empty(){println!("Conversation and text required");continue;}
-                serial+=1;commands.send(BackendCommand::PrepareText{request:RequestId(serial),chat:chat.into(),draft:Draft{text:text.into(),reply,revision:serial}}).await?;
+                serial+=1;commands.send(BackendCommand::PrepareText{request:RequestId(serial),chat:chat.into(),draft:Draft{text:text.into(),attachment:None,reply,revision:serial}}).await?;
             }
             event=events.recv()=>match event{
                 Some(BackendEvent::AccountKnown(a))=>{store.recover_sends(a.clone()).await?;account=Some(a);println!("Account available");}

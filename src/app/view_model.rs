@@ -9,6 +9,11 @@ pub enum Focus {
 }
 #[derive(Clone, Debug)]
 pub enum Overlay {
+    Attachment {
+        editor: Editor,
+        importing: Option<RequestId>,
+        error: Option<String>,
+    },
     MessageActions(Box<MessageMenu>),
     MessageLinks(Box<MessageLinks>),
     MessageSearch(Box<super::search::MessageSearch>),

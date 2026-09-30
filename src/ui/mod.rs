@@ -1,4 +1,5 @@
 mod actions;
+mod attachments;
 mod chat_list;
 mod composer;
 pub mod images;
@@ -151,8 +152,9 @@ fn render_content(frame: &mut Frame, view: &ViewModel, config: &Config, images: 
     );
     chat_list::render(frame, regions.chats, view, config);
     timeline::render(frame, regions.messages, view, config, images);
-    composer::render(frame, regions.composer, view, config);
+    composer::render(frame, regions.composer, view, config, images);
     let context = match &view.overlay {
+        Some(Overlay::Attachment { .. }) => Context::Attachment,
         Some(Overlay::MessageActions(_)) => Context::MessageActions,
         Some(Overlay::MessageLinks(_)) => Context::MessageLinks,
         Some(Overlay::MessageSearch(_)) => Context::MessageSearch,

@@ -38,6 +38,15 @@ pub fn available(message: &MessageRecord, now_ms: i64) -> Vec<crate::config::bin
             actions.push(A::Resend);
         }
     }
+    if matches!(message.body, MessageBody::LocalImage { .. })
+        && message.key.from_me
+        && matches!(
+            message.send_state,
+            Some(SendState::Failed | SendState::Unconfirmed)
+        )
+    {
+        actions.push(A::Resend);
+    }
     actions
 }
 pub fn text(message: &MessageRecord, now_ms: i64) -> Option<&str> {
@@ -47,6 +56,7 @@ pub fn text(message: &MessageRecord, now_ms: i64) -> Option<&str> {
     match &message.body {
         MessageBody::Media(attachment) => attachment.caption.as_deref().filter(|s| !s.is_empty()),
         MessageBody::Text(text)
+        | MessageBody::LocalImage { caption: text, .. }
         | MessageBody::Unsupported {
             caption: Some(text),
             ..
