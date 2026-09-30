@@ -69,6 +69,6 @@
 - [x] Write tests for captionless image/sticker/document quotes, typed wire quote and group sender, stale/missing/expired originals, cross-account/chat refusal, cached-page jump, clipped quote hits, and existing text replies.
 - [x] Run and observe missing behavior; implement and update usage/validation docs and demo fixtures.
 - [x] Run focused media-reply tests, then full `cargo test -j 2 -- --test-threads=2`, `cargo fmt --check`, and `cargo clippy -j 2 --all-targets -- -D warnings`; expect all pass.
-- [ ] Commit, obtain one independent whole-branch review, resolve actionable findings with regression evidence.
-- [ ] Build `cargo build --release -j 2`; run demo PTY actions/edit/reaction/quote/resize/quit smoke with frame synchronization; retain logs.
+- [x] Commit, obtain one independent whole-branch review, resolve actionable findings with regression evidence.
+- [x] Build `cargo build --release -j 2`; run demo PTY actions/edit/reaction/quote/resize/quit smoke with frame synchronization; retain logs.
 - [ ] Fast-forward local main after source verification, remove owned worktree/branch and report controls, checks, and service-testing limitations.
