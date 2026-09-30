@@ -603,6 +603,18 @@ impl App {
                 self.focus(next, effects);
             }
             A::Back => {
+                if let Some(Overlay::Stickers(picker)) = &self.view.overlay
+                    && let Some(request) = picker.sending
+                    && let Some(pending) = self.pending.get(&request)
+                {
+                    // A storage transaction already in flight must finish before
+                    // we can report whether there is a durable send attempt.
+                    if pending.staging {
+                        self.view.notice = Some("Saving sticker; waiting for storage".into());
+                        return;
+                    }
+                    self.pending.remove(&request);
+                }
                 self.clipboard_request = None;
                 if self.back_from_links() {
                     return;
@@ -1060,11 +1072,16 @@ impl App {
                         });
                     } else if !p.staging {
                         self.pending.remove(&request);
+                        self.sticker_staged(
+                            request,
+                            &Err("Sticker preparation changed; try again".into()),
+                        );
                     }
                 }
             }
             BackendEvent::PreparationFailed { request, reason } => {
                 if self.pending.remove(&request).is_some() {
+                    self.sticker_staged(request, &Err(reason.clone()));
                     self.view.notice = Some(reason);
                 }
             }
@@ -1443,6 +1460,7 @@ impl App {
                 let Some(pending) = self.pending.remove(&request) else {
                     return;
                 };
+                self.sticker_staged(request, &result);
                 match result {
                     Ok(()) => {
                         if self.view.account.as_ref() == Some(&message.key.account) {

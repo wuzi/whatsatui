@@ -88,6 +88,21 @@ pub enum StickerChoice {
     Recent(Box<MessageRecord>),
     Local(Box<crate::media::outgoing::LocalImage>),
 }
+impl StickerChoice {
+    /// Different chats/messages may contain the same sticker.
+    pub fn content_id(&self) -> Option<String> {
+        match self {
+            Self::Local(image) => Some(image.id.clone()),
+            Self::Recent(message) => match &message.body {
+                MessageBody::Media(a) => {
+                    Some(a.sha256.iter().map(|b| format!("{b:02x}")).collect())
+                }
+                MessageBody::LocalImage { image, .. } => Some(image.id.clone()),
+                _ => None,
+            },
+        }
+    }
+}
 #[derive(Clone, Debug)]
 pub struct StickerPicker {
     pub items: Vec<StickerChoice>,

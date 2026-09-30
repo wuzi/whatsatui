@@ -138,6 +138,7 @@ impl App {
             return;
         }
         if sticker {
+            self.view.notice = None;
             let Some(Overlay::Stickers(picker)) = &mut self.view.overlay else {
                 return;
             };

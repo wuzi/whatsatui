@@ -48,7 +48,10 @@ impl App {
         picker.loading = None;
         match result {
             Ok(items) => {
-                let selected = picker.items.get(picker.selected).cloned();
+                let selected = picker
+                    .items
+                    .get(picker.selected)
+                    .and_then(StickerChoice::content_id);
                 picker
                     .items
                     .retain(|item| matches!(item, StickerChoice::Local(_)));
@@ -60,8 +63,14 @@ impl App {
                 );
                 picker.items.truncate(60);
                 picker.selected = selected
-                    .and_then(|s| picker.items.iter().position(|item| item == &s))
+                    .and_then(|s| {
+                        picker
+                            .items
+                            .iter()
+                            .position(|item| item.content_id().as_ref() == Some(&s))
+                    })
                     .unwrap_or_else(|| picker.selected.min(picker.items.len().saturating_sub(1)));
+                picker.error = None;
             }
             Err(reason) => {
                 picker
@@ -181,9 +190,27 @@ impl App {
             true,
             effects,
         );
-        if effects.len() > before {
-            self.view.overlay = None;
+        if let Some(Effect::Prepare { request, .. }) = effects.get(before) {
+            if let Some(Overlay::Stickers(picker)) = &mut self.view.overlay {
+                picker.sending = Some(*request);
+                picker.error = None;
+            }
             self.view.notice = None;
+        }
+    }
+
+    /// Keep a pasted selection until the outgoing attempt is durably stored.
+    pub(super) fn sticker_staged(&mut self, request: RequestId, result: &Result<(), String>) {
+        let Some(Overlay::Stickers(picker)) = &mut self.view.overlay else {
+            return;
+        };
+        if picker.sending != Some(request) {
+            return;
+        }
+        picker.sending = None;
+        match result {
+            Ok(()) => self.view.overlay = None,
+            Err(reason) => picker.error = Some(reason.clone()),
         }
     }
 }

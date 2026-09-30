@@ -330,3 +330,216 @@ fn changes_in_a_stickers_source_conversation_refresh_the_open_picker() {
     );
     assert!(matches!(app.view().overlay, Some(Overlay::Stickers(p)) if p.items.is_empty()));
 }
+
+fn paste_sticker(app: &mut App, local: outgoing::LocalImage) {
+    let Effect::PasteClipboard {
+        request,
+        account,
+        chat,
+        ..
+    } = press(app, "ctrl-v").remove(0)
+    else {
+        panic!()
+    };
+    app.update(
+        Input::ClipboardRead {
+            request,
+            account,
+            chat,
+            result: Ok(whatsapp_tui::desktop::clipboard::Paste::Image(Box::new(
+                local,
+            ))),
+        },
+        Instant::now(),
+    );
+}
+
+#[test]
+fn failed_sticker_preparation_or_staging_keeps_the_selection_and_composer() {
+    for stage in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let local = sticker(dir.path());
+        let mut app = ready_app();
+        press(&mut app, "enter");
+        press(&mut app, "x");
+        let draft = app.view().draft;
+        open(&mut app, vec![]);
+        paste_sticker(&mut app, local.clone());
+        let Effect::Prepare {
+            request,
+            draft: outgoing,
+            ..
+        } = press(&mut app, "enter").remove(0)
+        else {
+            panic!()
+        };
+        let message = outbound(key("chat", "test", "attempt"), outgoing);
+        if stage {
+            app.update(
+                Input::Backend(whatsapp_tui::whatsapp::BackendEvent::Prepared {
+                    request,
+                    message: Box::new(message.clone()),
+                }),
+                Instant::now(),
+            );
+            app.update(
+                Input::Store(StoreCompletion::Staged {
+                    request,
+                    message: Box::new(message),
+                    result: Err("Disk full".into()),
+                }),
+                Instant::now(),
+            );
+        } else {
+            app.update(
+                Input::Backend(whatsapp_tui::whatsapp::BackendEvent::PreparationFailed {
+                    request,
+                    reason: "Disconnected".into(),
+                }),
+                Instant::now(),
+            );
+        }
+        assert_eq!(app.view().draft, draft);
+        assert!(
+            matches!(app.view().overlay, Some(Overlay::Stickers(p)) if p.sending.is_none() && p.error.is_some()
+            && matches!(&p.items[p.selected], StickerChoice::Local(image) if **image == local)),
+            "Unqueued sticker must remain available to retry"
+        );
+        assert!(press(&mut app, "enter").iter().any(|e| matches!(e, Effect::Prepare {draft,..} if draft.attachment.as_deref() == Some(&local))));
+    }
+}
+
+#[test]
+fn refreshing_with_a_new_copy_keeps_the_selected_sticker_content() {
+    let mut app = ready_app();
+    press(&mut app, "enter");
+    let a = received("a-old");
+    let mut b = received("b");
+    if let MessageBody::Media(media) = &mut b.body {
+        media.sha256 = [9; 32];
+    }
+    open(&mut app, vec![b.clone(), a.clone()]);
+    press(&mut app, "down");
+    let refresh = app.update(
+        Input::Backend(whatsapp_tui::whatsapp::BackendEvent::StoreChanged(
+            StoreChange {
+                account: "test".into(),
+                chats: vec!["source".into()],
+            },
+        )),
+        Instant::now(),
+    );
+    let Effect::LoadStickers {
+        request,
+        account,
+        chat,
+    } = refresh
+        .into_iter()
+        .find(|e| matches!(e, Effect::LoadStickers { .. }))
+        .unwrap()
+    else {
+        panic!()
+    };
+    let mut a_new = a.clone();
+    a_new.key.id = "a-new".into();
+    a_new.created_at_ms += 1;
+    app.update(
+        Input::Store(StoreCompletion::Stickers {
+            request,
+            account,
+            chat,
+            result: Ok(vec![a_new.clone(), b]),
+        }),
+        Instant::now(),
+    );
+    let Effect::ImportSticker { message, .. } = press(&mut app, "enter").remove(0) else {
+        panic!()
+    };
+    assert_eq!(
+        message.key, a_new.key,
+        "Refresh must not silently switch which sticker Enter sends"
+    );
+}
+
+#[test]
+fn successful_sticker_reload_clears_the_previous_load_error() {
+    let mut app = ready_app();
+    press(&mut app, "enter");
+    let Effect::LoadStickers {
+        request,
+        account,
+        chat,
+    } = press(&mut app, "ctrl-s").remove(0)
+    else {
+        panic!()
+    };
+    app.update(
+        Input::Store(StoreCompletion::Stickers {
+            request,
+            account,
+            chat,
+            result: Err("Storage busy".into()),
+        }),
+        Instant::now(),
+    );
+    let effects = app.update(
+        Input::Backend(whatsapp_tui::whatsapp::BackendEvent::StoreChanged(
+            StoreChange {
+                account: "test".into(),
+                chats: vec!["source".into()],
+            },
+        )),
+        Instant::now(),
+    );
+    let Effect::LoadStickers {
+        request,
+        account,
+        chat,
+    } = effects
+        .into_iter()
+        .find(|e| matches!(e, Effect::LoadStickers { .. }))
+        .unwrap()
+    else {
+        panic!()
+    };
+    app.update(
+        Input::Store(StoreCompletion::Stickers {
+            request,
+            account,
+            chat,
+            result: Ok(vec![received("one")]),
+        }),
+        Instant::now(),
+    );
+    assert!(
+        matches!(app.view().overlay, Some(Overlay::Stickers(p)) if p.error.is_none() && p.items.len() == 1)
+    );
+}
+
+#[test]
+fn escape_before_staging_cancels_a_pasted_stickers_preparation() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = ready_app();
+    press(&mut app, "enter");
+    press(&mut app, "x");
+    open(&mut app, vec![]);
+    paste_sticker(&mut app, sticker(dir.path()));
+    let Effect::Prepare { request, draft, .. } = press(&mut app, "enter").remove(0) else {
+        panic!()
+    };
+    press(&mut app, "esc");
+    let effects = app.update(
+        Input::Backend(whatsapp_tui::whatsapp::BackendEvent::Prepared {
+            request,
+            message: Box::new(outbound(key("chat", "test", "cancelled"), draft)),
+        }),
+        Instant::now(),
+    );
+    assert!(
+        !effects
+            .iter()
+            .any(|e| matches!(e, Effect::Stage { .. } | Effect::Transmit(_)))
+    );
+    assert!(app.view().overlay.is_none());
+    assert_eq!(app.view().draft.text, "x");
+}
