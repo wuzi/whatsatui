@@ -70,6 +70,9 @@ pub(super) async fn start(
         .map_err(|e| BackendError::Service(e.into()))?
         .spawn();
     let client = bot.client();
+    let profiles = Arc::new(
+        super::avatars::Native::new(client.clone()).map_err(|e| BackendError::Service(e.into()))?,
+    );
     let (events, rx) = mpsc::channel(256);
     let (commands, mut requests) = mpsc::channel(32);
     let (stop, mut stopping) = oneshot::channel();
@@ -159,6 +162,7 @@ pub(super) async fn start(
         result
     });
     Ok(BackendHandle {
+        profiles,
         media: std::sync::Arc::new(crate::media::NativeDownloader),
         commands,
         events: rx,

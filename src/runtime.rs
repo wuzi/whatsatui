@@ -124,6 +124,7 @@ where
     })
 }
 struct TerminalScreen {
+    avatars: crate::ui::Avatars,
     images: crate::ui::Images,
     terminal: ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>,
     guard: crate::terminal::TerminalGuard,
@@ -131,21 +132,23 @@ struct TerminalScreen {
 }
 impl Screen for TerminalScreen {
     fn poll(&mut self) -> bool {
-        self.images.poll()
+        self.images.poll() | self.avatars.poll()
     }
     fn stop_media(&mut self) {
         self.images.stop();
+        self.avatars.stop();
     }
     fn draw(&mut self, view: &ViewModel, config: &Config) -> std::io::Result<()> {
         self.terminal.draw(|frame| {
             self.viewport = crate::ui::timeline_viewport(frame.area(), view, config);
-            crate::ui::render_with_images(frame, view, config, &mut self.images);
+            crate::ui::render_with_media(frame, view, config, &mut self.images, &mut self.avatars);
         })?;
         self.clean_images()?;
         Ok(())
     }
     fn finish(&mut self) -> std::io::Result<()> {
         self.images.stop();
+        self.avatars.stop();
         self.clean_images()?;
         self.guard.restore()
     }
@@ -156,7 +159,7 @@ impl Screen for TerminalScreen {
 impl TerminalScreen {
     fn clean_images(&mut self) -> std::io::Result<()> {
         use std::io::Write;
-        let cleanup = self.images.take_cleanup();
+        let cleanup = self.images.take_cleanup() + &self.avatars.take_cleanup();
         if !cleanup.is_empty() {
             std::io::stdout().write_all(cleanup.as_bytes())?;
             std::io::stdout().flush()?;
@@ -167,6 +170,7 @@ impl TerminalScreen {
 impl Drop for TerminalScreen {
     fn drop(&mut self) {
         self.images.stop();
+        self.avatars.stop();
         let _ = self.clean_images();
     }
 }
@@ -177,12 +181,19 @@ pub async fn run(mut app: App, store: Store, backend: BackendHandle) -> Result<(
     let truecolor = std::env::var("COLORTERM").is_ok_and(|s| s == "truecolor" || s == "24bit")
         || std::env::var("TERM").is_ok_and(|s| s.contains("direct"));
     app.set_truecolor(truecolor);
+    let images = crate::ui::Images::new(
+        store.clone(),
+        backend.media.clone(),
+        app.config.media.protocol,
+    );
+    let avatars = crate::ui::Avatars::new(
+        store.data_dir().to_owned(),
+        backend.profiles.clone(),
+        &images,
+    );
     let mut screen = TerminalScreen {
-        images: crate::ui::Images::new(
-            store.clone(),
-            backend.media.clone(),
-            app.config.media.protocol,
-        ),
+        avatars,
+        images,
         terminal,
         guard,
         viewport: None,
@@ -528,6 +539,7 @@ where
     I: Stream<Item = std::io::Result<crossterm::event::Event>> + Unpin,
 {
     let BackendHandle {
+        profiles: _,
         commands,
         mut events,
         control,

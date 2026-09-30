@@ -1,3 +1,4 @@
+mod avatars;
 mod bridge;
 pub mod demo;
 mod durability;
@@ -64,6 +65,7 @@ pub enum BackendEvent {
     Stopped,
 }
 pub struct BackendHandle {
+    pub profiles: std::sync::Arc<dyn crate::avatars::Provider>,
     pub commands: mpsc::Sender<BackendCommand>,
     pub events: mpsc::Receiver<BackendEvent>,
     pub control: BackendControl,

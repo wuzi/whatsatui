@@ -1,4 +1,6 @@
 mod actions;
+mod avatars;
+pub use avatars::Avatars;
 mod attachments;
 mod chat_list;
 mod composer;
@@ -111,9 +113,20 @@ pub fn render_with_images(
     config: &Config,
     images: &mut Images,
 ) {
+    render_with_media(frame, view, config, images, &mut Avatars::default());
+}
+pub fn render_with_media(
+    frame: &mut Frame,
+    view: &ViewModel,
+    config: &Config,
+    images: &mut Images,
+    avatars: &mut Avatars,
+) {
     images.begin_frame();
+    avatars.begin_frame();
     render_content(frame, view, config, images);
     images.end_frame();
+    avatars.end_frame();
 }
 fn render_content(frame: &mut Frame, view: &ViewModel, config: &Config, images: &mut Images) {
     let area = frame.area();

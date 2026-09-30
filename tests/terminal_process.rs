@@ -505,6 +505,7 @@ fn terminal_child() {
             Ok(())
         });
         let backend = BackendHandle {
+            profiles: std::sync::Arc::new(whatsapp_tui::avatars::Unavailable),
             media: std::sync::Arc::new(whatsapp_tui::whatsapp::demo::DemoDownloader),
             commands,
             events,

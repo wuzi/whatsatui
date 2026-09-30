@@ -181,6 +181,7 @@ pub fn start(store: Store) -> BackendHandle {
         Ok(())
     });
     BackendHandle {
+        profiles: std::sync::Arc::new(crate::avatars::Unavailable),
         media: std::sync::Arc::new(DemoDownloader),
         commands,
         events,

@@ -30,6 +30,7 @@ fn backend() -> BackendHandle {
         Ok(())
     });
     BackendHandle {
+        profiles: std::sync::Arc::new(whatsapp_tui::avatars::Unavailable),
         media: Arc::new(whatsapp_tui::whatsapp::demo::DemoDownloader),
         commands,
         events,

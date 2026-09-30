@@ -89,6 +89,9 @@ pub fn use_kitty(protocol: ImageProtocol, term_program: &str, term: &str, indire
 }
 
 impl Images {
+    pub(super) fn settings(&self) -> (bool, FontSize) {
+        (self.kitty, self.font)
+    }
     pub fn new(store: Store, downloader: Arc<dyn Downloader>, protocol: ImageProtocol) -> Self {
         let mut result = Self::default();
         result.service = Some((store, downloader));
@@ -334,7 +337,7 @@ impl Drop for Images {
     }
 }
 
-fn prepare(
+pub(super) fn prepare(
     image: image::DynamicImage,
     size: Size,
     font: FontSize,
