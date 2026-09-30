@@ -62,7 +62,7 @@ Bindings live in `[bindings.messages]`, `[bindings.message_actions]`, and `[bind
 
 Select a message and press `a`, or choose **React / change reaction** in its action menu. Search the usual emoji picker and press Enter. Choosing your current emoji removes it; choosing another replaces it. Counts appear beneath messages, with **You** beside your reaction. Click the reaction row or press `I` (Shift-i) for the participant list. In that popup, `a` changes your reaction and `x` removes it. Group participants use their known contact names.
 
-Press `e` on your successfully sent text to edit it within 15 minutes of the original send. The composer says **Editing**: Enter saves, Alt-Enter inserts a newline, and Escape cancels. Your normal draft, including its image and reply, remains intact. Changing chats cancels an unsaved edit. If the original changes on another device or the edit window closes, the proposed text remains visible, but the app refuses to overwrite the newer message. Media captions cannot be edited here yet.
+Press `e` on your successfully sent text to edit it within 15 minutes of the original send. The composer says **Editing**: Enter saves, Shift-Enter or Alt-Enter inserts a newline, and Escape cancels. Your normal draft, including its image and reply, remains intact. Changing chats cancels an unsaved edit. If the original changes on another device or the edit window closes, the proposed text remains visible, but the app refuses to overwrite the newer message. Media captions cannot be edited here yet.
 
 Sending status is separate from the original message's delivery/read state. A reaction or edit is marked sent only after a matching server acknowledgement. Failed or unconfirmed operations appear beneath the message. A timeout, disconnect, or interrupted app session may leave an unconfirmed action; check WhatsApp before deliberately trying again. The app never automatically resends these actions after restart.
 
@@ -153,7 +153,7 @@ For disk or permissions errors, free space or restore access to your private dir
 
 For a revoked linked session, first quit and check Linked devices on your phone. To re-pair while keeping local chat history, **with every instance stopped**, move `session.sqlite3` and any `session.sqlite3-wal` / `session.sqlite3-shm` sidecars into a private backup directory. Leave `chat.sqlite3` and its sidecars in place, then restart and scan a new QR. Never move an active database. Alternatively, use a fresh `--data-dir`; the old cache remains in the original directory.
 
-Ctrl-Q, Ctrl-C, and SIGTERM request a graceful shutdown. Terminal state is restored on normal exit, input errors, and a Rust panic. SIGKILL and machine failure cannot run cleanup; use your shell's `reset` command if the terminal was left in a bad state.
+Ctrl-Q requests a graceful shutdown; external SIGINT and SIGTERM signals do too. Ctrl-C inside Composer clears its text. Terminal state is restored on normal exit, input errors, and a Rust panic. SIGKILL and machine failure cannot run cleanup; use your shell's `reset` command if the terminal was left in a bad state.
 
 ## Live acceptance
 

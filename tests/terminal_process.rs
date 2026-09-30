@@ -148,11 +148,18 @@ fn demo_restores_tty_after_exit() {
 
 #[test]
 fn demo_negotiates_modified_enter_and_clears_text_without_quitting() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("bindings.toml");
+    std::fs::write(
+        &config,
+        "[bindings.messages]\nhelp=['alt-I','alt-+']\nfocus_composer=['i','alt-i']",
+    )
+    .unwrap();
     let mut command = binary();
-    command.arg("--demo");
+    command.args(["--demo", "--config"]).arg(config);
     let mut p = Process::launch(command);
     p.wait_for("corner");
-    p.wait_for("\x1b[>1u");
+    p.wait_for("\x1b[>5u");
     p.master
         .write_all(b"i\x1b[200~composer-first\x1b[201~\x1b[13;2u\x1b[200~composer-second\x1b[201~")
         .unwrap();
@@ -162,6 +169,20 @@ fn demo_negotiates_modified_enter_and_clears_text_without_quitting() {
     p.output.clear();
     p.wait_for("Write a message");
     assert!(p.child.try_wait().unwrap().is_none());
+    p.master.write_all(b"\x1b[27u").unwrap();
+    // Legacy Alt+I, CSI-u without alternate keys, and layout-supplied
+    // shifted letter/symbol codes must keep the same configured action.
+    for key in [
+        b"\x1bI".as_slice(),
+        b"\x1b[105;4u",
+        b"\x1b[105:73;4u",
+        b"\x1b[61:43;4u",
+    ] {
+        p.output.clear();
+        p.master.write_all(key).unwrap();
+        p.wait_for("Help · Messages");
+        p.master.write_all(b"\x1b[27u").unwrap();
+    }
     p.master.write_all(b"\x11").unwrap();
     assert!(p.finish().success());
     assert!(String::from_utf8_lossy(&p.output).contains("\x1b[<1u"));
@@ -464,7 +485,14 @@ fn controlled_panic_restores_tty() {
     let mut p = Process::launch(harness("panic"));
     assert!(!p.finish().success());
     p.restored();
-    assert!(String::from_utf8_lossy(&p.output).contains("\x1b[<1u"));
+    let output = String::from_utf8_lossy(&p.output);
+    assert_eq!(output.matches("\x1b[>5u").count(), 1);
+    assert_eq!(
+        output.matches("\x1b[<1u").count(),
+        1,
+        "panic cleanup must not pop the caller's keyboard mode during guard drop"
+    );
+    assert!(output.find("\x1b[<1u").unwrap() < output.find("\x1b[?1049l").unwrap());
     assert!(!String::from_utf8_lossy(&p.output).contains("PRIVATE_SENTINEL"));
 }
 #[test]

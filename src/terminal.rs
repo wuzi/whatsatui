@@ -46,7 +46,10 @@ impl TerminalGuard {
         execute!(
             io::stdout(),
             EnterAlternateScreen,
-            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
+            PushKeyboardEnhancementFlags(
+                KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+                    | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
+            ),
             EnableBracketedPaste,
             EnableFocusChange,
             Hide
@@ -59,11 +62,13 @@ impl TerminalGuard {
     pub fn restore(&mut self) -> io::Result<()> {
         if self.active {
             self.active = false;
-            ACTIVE.store(false, Ordering::SeqCst);
-            restore()
-        } else {
-            Ok(())
+            // The panic hook may already have restored the terminal. Claim
+            // cleanup once so unwinding cannot pop the caller's keyboard mode.
+            if ACTIVE.swap(false, Ordering::SeqCst) {
+                return restore();
+            }
         }
+        Ok(())
     }
 }
 fn restore() -> io::Result<()> {

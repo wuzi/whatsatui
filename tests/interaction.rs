@@ -211,3 +211,20 @@ fn clear_text_preserves_reply_persists_empty_draft_and_cancels_delayed_paste() {
     press(&mut a, "a");
     assert_eq!(a.view().draft.text, "a");
 }
+
+#[test]
+fn local_text_controls_remain_available_while_syncing_is_under_pressure() {
+    let mut a = ready_app();
+    press(&mut a, "enter");
+    press(&mut a, "a");
+    for (key, expected) in [("shift-enter", "a\n"), ("ctrl-c", "")] {
+        let event = Event::Key(whatsapp_tui::config::bindings::parse_key(key).unwrap());
+        let effects = a.input_under_pressure(event, Instant::now());
+        assert_eq!(a.view().draft.text, expected);
+        assert!(
+            !effects
+                .iter()
+                .any(|e| matches!(e, Effect::Prepare { .. } | Effect::Shutdown))
+        );
+    }
+}

@@ -313,7 +313,7 @@ impl App {
     pub fn input_under_pressure(&mut self, event: Event, now: Instant) -> Vec<Effect> {
         let allowed = match &event {
             Event::Key(key) => match self.config.bindings.lookup(self.context(), *key) {
-                Some(ActionId::Quit) => true,
+                Some(ActionId::Quit | ActionId::ClearText | ActionId::Newline) => true,
                 Some(_) => false,
                 None => matches!(
                     self.context(),

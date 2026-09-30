@@ -522,11 +522,17 @@ fn allowed(c: Context, a: ActionId) -> bool {
     }
 }
 fn normalized(key: KeyEvent) -> (KeyCode, KeyModifiers) {
+    let mut code = key.code;
     let mut modifiers = key.modifiers;
-    if matches!(key.code, KeyCode::Char(_)) {
+    if let KeyCode::Char(c) = code {
+        // CSI-u may provide an unshifted ASCII codepoint even with Shift.
+        // Layout-specific shifted symbols arrive via alternate-key reporting.
+        if modifiers.contains(KeyModifiers::SHIFT) {
+            code = KeyCode::Char(c.to_ascii_uppercase());
+        }
         modifiers.remove(KeyModifiers::SHIFT);
     }
-    (key.code, modifiers)
+    (code, modifiers)
 }
 pub fn parse_key(label: &str) -> Result<KeyEvent, ConfigError> {
     let mut key = label;

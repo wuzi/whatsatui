@@ -163,3 +163,34 @@ fn composer_shortcuts_are_remappable_and_legacy_overrides_stay_valid() {
     assert!(Config::parse("[bindings.messages]\nclear_text=['c']").is_err());
     assert!(Config::parse("[bindings.composer]\nclear_text=['i']").is_err());
 }
+
+#[test]
+fn shifted_letter_bindings_match_legacy_and_enhanced_events_without_becoming_lowercase_actions() {
+    let c = Config::parse("[bindings.messages]\nhelp=['alt-I']\nfocus_composer=['alt-i']").unwrap();
+    for event in [
+        KeyEvent::new(KeyCode::Char('I'), KeyModifiers::ALT),
+        KeyEvent::new(KeyCode::Char('I'), KeyModifiers::ALT | KeyModifiers::SHIFT),
+        KeyEvent::new(KeyCode::Char('i'), KeyModifiers::ALT | KeyModifiers::SHIFT),
+    ] {
+        assert_eq!(
+            c.bindings.lookup(Context::Messages, event),
+            Some(ActionId::Help)
+        );
+    }
+    assert_eq!(
+        c.bindings
+            .lookup(Context::Messages, parse_key("alt-i").unwrap()),
+        Some(ActionId::FocusComposer)
+    );
+    assert_eq!(
+        Config::default().bindings.lookup(
+            Context::Messages,
+            KeyEvent::new(KeyCode::Char('i'), KeyModifiers::SHIFT)
+        ),
+        Some(ActionId::Reactions)
+    );
+    assert!(
+        Config::parse("[bindings.messages]\nhelp=['alt-I']\nfocus_composer=['alt-shift-i']")
+            .is_err()
+    );
+}
