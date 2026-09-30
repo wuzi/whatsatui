@@ -689,6 +689,13 @@ impl App {
             return;
         }
         match action {
+            A::FocusComposer => self.focus(Focus::Composer, effects),
+            A::ClearText => {
+                if self.clipboard_request.take().is_some() {
+                    self.view.notice = None;
+                }
+                self.edit_current(EditAction::Clear);
+            }
             A::PlayAudio => self.play_audio(effects),
             A::AudioSpeed => self.change_audio_speed(effects),
             A::AudioStop => self.stop_audio(effects),

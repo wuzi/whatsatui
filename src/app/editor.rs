@@ -10,6 +10,7 @@ pub struct Editor {
 pub enum EditAction {
     Insert(String),
     Newline,
+    Clear,
     Backspace,
     Delete,
     Left,
@@ -91,6 +92,12 @@ impl Editor {
                 true
             }
             EditAction::Newline => self.apply(EditAction::Insert("\n".into())),
+            EditAction::Clear => {
+                let changed = !self.text.is_empty();
+                self.text.clear();
+                self.cursor = 0;
+                changed
+            }
             EditAction::Backspace => {
                 if self.cursor == 0 {
                     return false;

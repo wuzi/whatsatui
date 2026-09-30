@@ -147,6 +147,28 @@ fn demo_restores_tty_after_exit() {
 }
 
 #[test]
+fn demo_negotiates_modified_enter_and_clears_text_without_quitting() {
+    let mut command = binary();
+    command.arg("--demo");
+    let mut p = Process::launch(command);
+    p.wait_for("corner");
+    p.wait_for("\x1b[>1u");
+    p.master
+        .write_all(b"i\x1b[200~composer-first\x1b[201~\x1b[13;2u\x1b[200~composer-second\x1b[201~")
+        .unwrap();
+    p.wait_for("composer-second");
+    assert!(!String::from_utf8_lossy(&p.output).contains("Message received."));
+    p.master.write_all(b"\x1b[99;5u").unwrap();
+    p.output.clear();
+    p.wait_for("Write a message");
+    assert!(p.child.try_wait().unwrap().is_none());
+    p.master.write_all(b"\x11").unwrap();
+    assert!(p.finish().success());
+    assert!(String::from_utf8_lossy(&p.output).contains("\x1b[<1u"));
+    p.restored();
+}
+
+#[test]
 fn demo_mouse_opens_help_and_restores_capture() {
     let mut c = binary();
     c.arg("--demo");
@@ -442,6 +464,7 @@ fn controlled_panic_restores_tty() {
     let mut p = Process::launch(harness("panic"));
     assert!(!p.finish().success());
     p.restored();
+    assert!(String::from_utf8_lossy(&p.output).contains("\x1b[<1u"));
     assert!(!String::from_utf8_lossy(&p.output).contains("PRIVATE_SENTINEL"));
 }
 #[test]

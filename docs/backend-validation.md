@@ -116,3 +116,9 @@ One independent review found three Important issues. Canceling a queued file cop
 The optimized demo passed real mpv playback with null output, observed progress, keyboard pause/resume/speed/stop, mouse speed/stop, preserved drafts while switching chats, resizing 120×34 → 40×13 → 120×32, Help/close, child reaping on stop/quit, and terminal/mouse restoration. Inline graphics and avatars were disabled in this text/control smoke; the existing graphics tests remain in the suite.
 
 Playback needs a complete audio reference from a fresh receive/history replay; old `[audio]` placeholders cannot be reconstructed locally. User-operated acceptance remains: receive a fresh voice note and audio file, listen through the normal output device, pause/resume and change speed, switch chats, then quit during playback. Audio sent as a generic document retains download/open actions; recording, sending audio, and seeking are outside this release.
+
+## Composer shortcuts
+
+The composer iteration passes **285 automated tests** (the native mpv test remains opt-in). New checks reproduce and verify Shift-Enter inserting at a Unicode caret without sending; `i` focusing Composer from Chats/Messages while remaining text inside editors; Ctrl-C clearing and saving text without losing its reply; cancellation of delayed clipboard input; clearing a draft before its initial load finishes; and isolation/locking of sent-message edits. Configuration tests cover remapping, legacy `i` reactions and Ctrl-C quit overrides, and rejected explicit collisions.
+
+A Linux PTY sends modified Enter and Ctrl-C through the actual Crossterm parser, checks that the app stays open after clearing, and verifies keyboard-protocol restoration on normal exit and panic. Formatting and Clippy with warnings denied pass. All checks use synthetic/offline data and never access a linked account or real clipboard.

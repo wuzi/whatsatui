@@ -120,3 +120,46 @@ fn required_actions_remain_reachable() {
             .contains(&("ctrl-x".into(), ActionId::Quit))
     );
 }
+
+#[test]
+fn composer_shortcuts_are_remappable_and_legacy_overrides_stay_valid() {
+    let c = Config::parse("[bindings.messages]\nfocus_composer=['b']\n[bindings.composer]\nclear_text=['ctrl-u']\nnewline=['shift-enter']").unwrap();
+    assert_eq!(
+        c.bindings
+            .lookup(Context::Messages, parse_key("b").unwrap()),
+        Some(ActionId::FocusComposer)
+    );
+    assert_eq!(
+        c.bindings
+            .lookup(Context::Composer, parse_key("ctrl-u").unwrap()),
+        Some(ActionId::ClearText)
+    );
+    assert_eq!(
+        c.bindings
+            .lookup(Context::Composer, parse_key("ctrl-c").unwrap()),
+        None
+    );
+    assert_eq!(
+        c.bindings
+            .lookup(Context::Composer, parse_key("shift-enter").unwrap()),
+        Some(ActionId::Newline)
+    );
+    let legacy =
+        Config::parse("[bindings.messages]\nreactions=['i']\n[bindings.global]\nquit=['ctrl-c']")
+            .unwrap();
+    assert_eq!(
+        legacy
+            .bindings
+            .lookup(Context::Messages, parse_key("i").unwrap()),
+        Some(ActionId::Reactions)
+    );
+    assert_eq!(
+        legacy
+            .bindings
+            .lookup(Context::Composer, parse_key("ctrl-c").unwrap()),
+        Some(ActionId::Quit)
+    );
+    assert!(Config::parse("[bindings.messages]\nfocus_composer=['i']\nreactions=['i']").is_err());
+    assert!(Config::parse("[bindings.messages]\nclear_text=['c']").is_err());
+    assert!(Config::parse("[bindings.composer]\nclear_text=['i']").is_err());
+}

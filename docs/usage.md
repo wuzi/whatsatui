@@ -8,7 +8,11 @@ The app uses one account per active session. Histories and drafts are keyed by a
 
 ## Reading and composing
 
-Tab changes panes. Select a conversation in Chats, then Enter to type. Enter sends a nonempty draft; Alt-Enter adds a line. Paste, including multiline Unicode text, stays in the composer until you submit it. Drafts save after 250 ms without editing and flush on pane/chat changes and normal quit. A crash can lose edits within that debounce window. If a draft write fails during quit, the app cancels quit, keeps the draft visible, and asks you to fix storage before trying again.
+Tab changes panes. Select a conversation in Chats, then Enter to type, or press `i` from Chats or Messages to focus the composer directly. Enter sends a nonempty draft; Shift-Enter or Alt-Enter adds a line at the caret. Paste, including multiline Unicode text, stays in the composer until you submit it. Drafts save after 250 ms without editing and flush on pane/chat changes and normal quit. A crash can lose edits within that debounce window. If a draft write fails during quit, the app cancels quit, keeps the draft visible, and asks you to fix storage before trying again.
+
+Ctrl-C in Composer clears the current text and resets the caret, keeping any attached image and reply target. It also cancels a pending clipboard paste. When editing a sent message, it clears the proposed edit while preserving your normal draft; an edit already being saved remains locked until its result arrives. Ctrl-Q saves drafts and quits.
+
+Shift-Enter uses the terminal's [keyboard disambiguation protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/#disambiguate-escape-codes), enabled while the app runs and restored on exit. Ghostty supports this protocol. Alt-Enter remains available for terminals that cannot distinguish Shift-Enter. Remap `focus_composer` in `[bindings.chats]` / `[bindings.messages]`, and `clear_text` / `newline` in `[bindings.composer]`. Explicit custom keys take precedence over these new defaults. If an older configuration sets `reactions = ["i"]`, change it to `["I"]` to make `i` available for composing; Help always shows your effective bindings.
 
 In Messages, use arrows or j/k to select a message; r quotes it without discarding existing composer text. Alt-R removes the quote. Missing, deleted, expired, and unsupported quoted content has an explicit placeholder. Only a bounded preview is retained. If identity reconciliation combines two distinct saved drafts, both texts are kept in one composer, separated by a blank line; the canonical draft's reply target takes precedence. Concurrent local edits are also retained, with a notice to review the combined draft. This conservative merge can leave an older passage alongside its edited version; remove any duplication before sending.
 
@@ -56,7 +60,7 @@ Bindings live in `[bindings.messages]`, `[bindings.message_actions]`, and `[bind
 
 ## Reactions, edits, and replies
 
-Select a message and press `a`, or choose **React / change reaction** in its action menu. Search the usual emoji picker and press Enter. Choosing your current emoji removes it; choosing another replaces it. Counts appear beneath messages, with **You** beside your reaction. Click the reaction row or press `i` for the participant list. In that popup, `a` changes your reaction and `x` removes it. Group participants use their known contact names.
+Select a message and press `a`, or choose **React / change reaction** in its action menu. Search the usual emoji picker and press Enter. Choosing your current emoji removes it; choosing another replaces it. Counts appear beneath messages, with **You** beside your reaction. Click the reaction row or press `I` (Shift-i) for the participant list. In that popup, `a` changes your reaction and `x` removes it. Group participants use their known contact names.
 
 Press `e` on your successfully sent text to edit it within 15 minutes of the original send. The composer says **Editing**: Enter saves, Alt-Enter inserts a newline, and Escape cancels. Your normal draft, including its image and reply, remains intact. Changing chats cancels an unsaved edit. If the original changes on another device or the edit window closes, the proposed text remains visible, but the app refuses to overwrite the newer message. Media captions cannot be edited here yet.
 

@@ -361,6 +361,45 @@ fn failed_initial_load_can_retry_during_quit() {
     assert!(!fx.iter().any(|e| matches!(e, Effect::Shutdown)));
 }
 
+#[test]
+fn clearing_before_a_chat_load_finishes_clears_the_loaded_draft_too() {
+    let mut app = App::new(Config::default());
+    let effects = app.update(
+        Input::Backend(BackendEvent::AccountKnown(account("test"))),
+        Instant::now(),
+    );
+    let request = effects
+        .iter()
+        .find_map(|e| {
+            if let Effect::LoadChats { request, .. } = e {
+                Some(*request)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    let effects = app.update(
+        Input::Store(StoreCompletion::Chats {
+            request,
+            account: account("test"),
+            result: Ok(vec![snapshot("chat", "", 0).summary]),
+        }),
+        Instant::now(),
+    );
+    let load = effects
+        .iter()
+        .find(|e| matches!(e, Effect::LoadChat { .. }))
+        .unwrap();
+    press(&mut app, "enter");
+    press(&mut app, "ctrl-c");
+    press(&mut app, "n");
+    completion(&mut app, load, Ok(snapshot("chat", "old saved draft", 7)));
+    assert_eq!(app.view().draft.text, "n");
+    assert!(app.flush_drafts().iter().any(
+        |e| matches!(e, Effect::SaveDraft { draft, .. } if draft.text == "n" && draft.revision > 7)
+    ));
+}
+
 #[tokio::test]
 async fn shutdown_bypasses_full_command_jobs_and_flushes_the_draft() {
     use whatsapp_tui::{

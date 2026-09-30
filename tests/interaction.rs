@@ -115,3 +115,99 @@ fn key_release_and_held_enter_do_not_submit() {
             .is_empty()
     );
 }
+
+#[test]
+fn insert_key_focuses_the_composer_and_remains_text_inside_editors() {
+    let mut a = ready_app();
+    for from_messages in [false, true] {
+        if from_messages {
+            press(&mut a, "esc");
+        }
+        press(&mut a, "i");
+        assert_eq!(a.view().focus, Focus::Composer);
+    }
+    press(&mut a, "i");
+    assert_eq!(a.view().draft.text, "i");
+    press(&mut a, "ctrl-p");
+    press(&mut a, "i");
+    let Some(Overlay::Search { editor, .. }) = a.view().overlay else {
+        panic!()
+    };
+    assert_eq!(editor.text(), "i");
+    assert_eq!(a.view().draft.text, "i");
+}
+
+#[test]
+fn shifted_enter_inserts_at_the_caret_without_sending() {
+    let mut a = ready_app();
+    press(&mut a, "enter");
+    a.update(
+        Input::Terminal(Event::Paste("one👩‍💻two".into())),
+        Instant::now(),
+    );
+    for _ in 0..3 {
+        press(&mut a, "left");
+    }
+    let effects = press(&mut a, "shift-enter");
+    assert_eq!(a.view().draft.text, "one👩‍💻\ntwo");
+    assert!(
+        !effects
+            .iter()
+            .any(|e| matches!(e, Effect::Prepare { .. } | Effect::Transmit(_)))
+    );
+    press(&mut a, "alt-enter");
+    assert_eq!(a.view().draft.text, "one👩‍💻\n\ntwo");
+    assert!(
+        press(&mut a, "enter")
+            .iter()
+            .any(|e| matches!(e, Effect::Prepare { .. }))
+    );
+}
+
+#[test]
+fn clear_text_preserves_reply_persists_empty_draft_and_cancels_delayed_paste() {
+    let mut a = ready_app();
+    press(&mut a, "tab");
+    press(&mut a, "r");
+    a.update(
+        Input::Terminal(Event::Paste("first\n👩‍💻second".into())),
+        Instant::now(),
+    );
+    let quote = a.view().draft.reply;
+    let effects = press(&mut a, "ctrl-v");
+    let Effect::PasteClipboard {
+        request,
+        account,
+        chat,
+        ..
+    } = effects
+        .into_iter()
+        .find(|e| matches!(e, Effect::PasteClipboard { .. }))
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert!(
+        !press(&mut a, "ctrl-c")
+            .iter()
+            .any(|e| matches!(e, Effect::Shutdown))
+    );
+    assert_eq!(a.view().draft.text, "");
+    assert_eq!(a.view().draft.reply, quote);
+    a.update(
+        Input::ClipboardRead {
+            request,
+            account,
+            chat,
+            result: Ok(whatsapp_tui::desktop::clipboard::Paste::Text(
+                "too late".into(),
+            )),
+        },
+        Instant::now(),
+    );
+    assert_eq!(a.view().draft.text, "");
+    assert!(press(&mut a, "esc").iter().any(|e| matches!(e, Effect::SaveDraft { draft, .. } if draft.text.is_empty() && draft.reply == quote)));
+    press(&mut a, "i");
+    press(&mut a, "a");
+    assert_eq!(a.view().draft.text, "a");
+}

@@ -34,6 +34,8 @@ pub enum Context {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ActionId {
+    FocusComposer,
+    ClearText,
     PlayAudio,
     AudioSpeed,
     AudioStop,
@@ -80,6 +82,8 @@ pub(super) type Overrides = BTreeMap<Context, BTreeMap<ActionId, Vec<String>>>;
 impl ActionId {
     pub fn label(self) -> &'static str {
         match self {
+            Self::FocusComposer => "write a message",
+            Self::ClearText => "clear text",
             Self::PlayAudio => "play/pause audio",
             Self::AudioSpeed => "audio speed",
             Self::AudioStop => "stop audio",
@@ -131,7 +135,7 @@ impl Default for Bindings {
         b.add(C::Global, A::Quit, "ctrl-q");
         for c in [C::Messages, C::MessageActions] {
             b.add(c, A::JumpToQuote, "q");
-            for (a, k) in [(A::React, "a"), (A::Reactions, "i"), (A::EditMessage, "e")] {
+            for (a, k) in [(A::React, "a"), (A::Reactions, "I"), (A::EditMessage, "e")] {
                 b.add(c, a, k);
             }
         }
@@ -160,6 +164,7 @@ impl Default for Bindings {
         }
         for c in [C::Chats, C::Messages] {
             for (a, k) in [
+                (A::FocusComposer, "i"),
                 (A::Next, "j"),
                 (A::Next, "down"),
                 (A::Previous, "k"),
@@ -226,6 +231,8 @@ impl Default for Bindings {
         for (a, k) in [
             (A::Back, "esc"),
             (A::Send, "enter"),
+            (A::ClearText, "ctrl-c"),
+            (A::Newline, "shift-enter"),
             (A::Newline, "alt-enter"),
             (A::RemoveReply, "alt-r"),
         ] {
@@ -284,6 +291,10 @@ impl Bindings {
     }
     pub(super) fn configured(overrides: Overrides) -> Result<Self, ConfigError> {
         let mut result = Self::default();
+        let explicit: std::collections::BTreeSet<_> = overrides
+            .iter()
+            .flat_map(|(context, actions)| actions.keys().map(|action| (*context, *action)))
+            .collect();
         for (context, actions) in overrides {
             for (action, keys) in actions {
                 if !allowed(context, action) {
@@ -321,6 +332,28 @@ impl Bindings {
                 }
             }
         }
+        // New defaults must not invalidate an existing explicit key choice
+        // (notably reactions on i, or quit on Ctrl+C). Explicit conflicts still
+        // go through the normal duplicate validation below.
+        let claimed: Vec<_> = result
+            .entries
+            .iter()
+            .filter(|b| explicit.contains(&(b.context, b.action)))
+            .map(|b| (b.context, normalized(b.key)))
+            .collect();
+        result.entries.retain(|b| {
+            let new_default = matches!(
+                b.action,
+                ActionId::FocusComposer | ActionId::ClearText | ActionId::Reactions
+            ) || (b.action == ActionId::Newline
+                && b.key.modifiers == KeyModifiers::SHIFT);
+            !new_default
+                || explicit.contains(&(b.context, b.action))
+                || !claimed.iter().any(|(context, key)| {
+                    (*context == b.context || *context == Context::Global)
+                        && *key == normalized(b.key)
+                })
+        });
         for context in [
             Context::Reactions,
             Context::Stickers,
@@ -413,7 +446,8 @@ fn allowed(c: Context, a: ActionId) -> bool {
         C::Global => a == A::Quit,
         C::Chats => matches!(
             a,
-            A::FocusNext
+            A::FocusComposer
+                | A::FocusNext
                 | A::FocusPrevious
                 | A::Search
                 | A::MessageSearch
@@ -425,7 +459,8 @@ fn allowed(c: Context, a: ActionId) -> bool {
         ),
         C::Messages => !matches!(
             a,
-            A::Emoji
+            A::ClearText
+                | A::Emoji
                 | A::Stickers
                 | A::PasteClipboard
                 | A::AttachImage
@@ -442,7 +477,8 @@ fn allowed(c: Context, a: ActionId) -> bool {
         ),
         C::Composer => matches!(
             a,
-            A::Emoji
+            A::ClearText
+                | A::Emoji
                 | A::Stickers
                 | A::PasteClipboard
                 | A::AttachImage

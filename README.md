@@ -54,8 +54,10 @@ Images and stickers load previews within the conversation; animated WebP shows i
 | Tab / Shift-Tab | Move between Chats, Messages, and Composer |
 | j/k or arrows | Navigate lists |
 | Enter in Chats | Open the composer |
+| i in Chats / Messages | Focus the composer |
 | Enter in Composer | Send |
-| Alt-Enter | Insert a newline |
+| Shift-Enter / Alt-Enter | Insert a newline |
+| Ctrl-C in Composer | Clear the current text |
 | J/K in Messages | Scroll rows without changing the selected message |
 | Right-click a message | Open its actions |
 | Ctrl-V in Composer | Paste a clipboard image, copied image file, or text |

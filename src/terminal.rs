@@ -3,7 +3,8 @@ use crossterm::{
     cursor::{Hide, Show},
     event::{
         DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
-        EnableFocusChange, EnableMouseCapture,
+        EnableFocusChange, EnableMouseCapture, KeyboardEnhancementFlags,
+        PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
     },
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
@@ -45,6 +46,7 @@ impl TerminalGuard {
         execute!(
             io::stdout(),
             EnterAlternateScreen,
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
             EnableBracketedPaste,
             EnableFocusChange,
             Hide
@@ -71,6 +73,7 @@ fn restore() -> io::Result<()> {
         DisableBracketedPaste,
         DisableFocusChange,
         DisableMouseCapture,
+        PopKeyboardEnhancementFlags,
         Show,
         LeaveAlternateScreen
     );

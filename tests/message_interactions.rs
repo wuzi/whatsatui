@@ -59,6 +59,24 @@ fn own_app() -> App {
     press(&mut app, "esc");
     app
 }
+#[test]
+fn clearing_an_edit_leaves_the_normal_draft_and_cannot_change_an_inflight_edit() {
+    let mut app = own_app();
+    let draft = app.view().draft;
+    press(&mut app, "e");
+    press(&mut app, "ctrl-c");
+    assert_eq!(app.view().editing.unwrap().editor.text(), "");
+    assert_eq!(app.view().draft, draft);
+    paste(&mut app, "replacement");
+    assert!(
+        press(&mut app, "enter")
+            .iter()
+            .any(|e| matches!(e, Effect::Mutate { .. }))
+    );
+    press(&mut app, "ctrl-c");
+    assert_eq!(app.view().editing.unwrap().editor.text(), "replacement");
+    assert_eq!(app.view().draft, draft);
+}
 fn paste(app: &mut App, text: &str) {
     app.update(Input::Terminal(Event::Paste(text.into())), Instant::now());
 }
@@ -317,7 +335,7 @@ fn reaction_details_show_people_counts_and_mine_with_mouse_targets() {
         assert!(text.contains("👍 2"), "{w}x{h}: {text:?}");
         assert!(text.contains("You"));
     }
-    press(&mut app, "i");
+    press(&mut app, "I");
     let text = screen(&app, 120, 35);
     for label in ["Reactions", "You", "alice", "bob", "Remove mine"] {
         assert!(text.contains(label), "{label}");
