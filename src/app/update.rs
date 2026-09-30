@@ -1252,6 +1252,7 @@ impl App {
             }
             BackendEvent::LocalError(notice) => self.view.notice = notice,
             BackendEvent::Stopped => {
+                self.mutations_stopped();
                 if let Some(account) = self.view.account.clone() {
                     effects.push(Effect::RecoverAccount(account));
                 }

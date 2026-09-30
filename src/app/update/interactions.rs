@@ -140,6 +140,9 @@ impl App {
         let MessageBody::Text(text) = &message.body else {
             return;
         };
+        // A paste requested for the normal draft cannot target this editor.
+        self.clipboard_request = None;
+        self.view.notice = None;
         self.view.editing = Some(EditingMessage {
             editor: Editor::new(text.clone()),
             message,
@@ -234,6 +237,24 @@ impl App {
         }
         if self.view.chat.as_ref() == Some(&message.key.chat) {
             self.view.notice = Some(notice);
+        }
+    }
+    pub(super) fn mutations_stopped(&mut self) {
+        // Keep the visible uncertainty while storage recovers the journal.
+        // Some requests have not appeared in a chat snapshot yet.
+        self.view.interactions.mutations = self.view().interactions.mutations;
+        for attempt in &mut self.view.interactions.mutations {
+            if attempt.state == MutationState::Pending {
+                attempt.state = MutationState::Unconfirmed;
+            }
+        }
+        let requests: Vec<_> = self
+            .mutation_requests
+            .iter()
+            .map(|(request, (message, _))| (*request, message.key.account.clone()))
+            .collect();
+        for (request, account) in requests {
+            self.mutation_outcome(request, account, Ok(MutationState::Unconfirmed));
         }
     }
 }

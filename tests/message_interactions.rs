@@ -97,6 +97,91 @@ fn mutation(effects: Vec<Effect>) -> (RequestId, MessageRecord, MutationKind) {
         .expect("mutation effect")
 }
 #[test]
+fn backend_stop_unlocks_interrupted_edits_and_reactions_without_losing_drafts() {
+    for editing in [true, false] {
+        let mut app = own_app();
+        let draft = app.view().draft;
+        if editing {
+            press(&mut app, "e");
+            paste(&mut app, " proposed");
+        } else {
+            press(&mut app, "a");
+            paste(&mut app, "thumbsup");
+        }
+        let (request, _, _) = mutation(press(&mut app, "enter"));
+        assert_eq!(
+            app.view().interactions.mutations[0].state,
+            MutationState::Pending
+        );
+        let effects = app.update(Input::Backend(BackendEvent::Stopped), Instant::now());
+        assert!(
+            effects
+                .iter()
+                .any(|e| matches!(e, Effect::RecoverAccount(_)))
+        );
+        assert_eq!(
+            app.view().interactions.mutations[0].state,
+            MutationState::Unconfirmed
+        );
+        assert_eq!(app.view().draft, draft);
+        if editing {
+            let edit = app.view().editing.unwrap();
+            assert_eq!(edit.editor.text(), "original proposed");
+            assert!(edit.request.is_none());
+            assert!(edit.error.unwrap().contains("unconfirmed"));
+            press(&mut app, "esc");
+            assert!(app.view().editing.is_none());
+            assert_eq!(app.view().draft, draft);
+        }
+        // An obsolete outcome must not reopen or clear any current editor.
+        app.update(
+            Input::Backend(BackendEvent::MutationOutcome {
+                request,
+                account: account("test"),
+                result: Ok(MutationState::Sent),
+            }),
+            Instant::now(),
+        );
+        assert!(app.view().editing.is_none());
+    }
+}
+#[test]
+fn opening_an_edit_discards_a_paste_requested_for_the_normal_draft() {
+    let mut app = own_app();
+    press(&mut app, "tab");
+    let Effect::PasteClipboard {
+        request,
+        account,
+        chat,
+        ..
+    } = press(&mut app, "ctrl-v").remove(0)
+    else {
+        panic!("clipboard effect");
+    };
+    let draft = app.view().draft;
+    press(&mut app, "shift-tab");
+    press(&mut app, "e");
+    app.update(
+        Input::ClipboardRead {
+            request,
+            account,
+            chat,
+            result: Ok(whatsapp_tui::desktop::clipboard::Paste::Text(
+                "late clipboard".into(),
+            )),
+        },
+        Instant::now(),
+    );
+    assert_eq!(app.view().editing.unwrap().editor.text(), "original");
+    assert_eq!(app.view().draft, draft);
+    press(&mut app, "esc");
+    assert!(
+        press(&mut app, "ctrl-v")
+            .iter()
+            .any(|e| matches!(e, Effect::PasteClipboard { .. }))
+    );
+}
+#[test]
 fn editing_cancel_and_save_preserve_the_normal_draft() {
     let mut app = own_app();
     let draft = app.view().draft;

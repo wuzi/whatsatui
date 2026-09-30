@@ -224,7 +224,7 @@ pub(super) fn normalize(
             "document"
         } else if message.sticker_message.is_set() {
             "sticker"
-        } else if message.reaction_message.is_set() {
+        } else if message.reaction_message.is_set() || message.enc_reaction_message.is_set() {
             "reaction"
         } else {
             "unsupported message"
@@ -540,6 +540,69 @@ mod reaction_tests {
             .into(),
             id: "envelope".into(),
             from_me,
+        }
+    }
+    #[test]
+    fn undecrypted_reactions_never_become_live_or_history_messages() {
+        use whatsapp_rust::types::message::{MessageInfo, MessageSource as NativeSource};
+        // The native dispatcher forwards these envelopes when the parent secret
+        // is missing, or when ciphertext cannot be decoded.
+        for encrypted in [
+            wa::message::EncReactionMessage {
+                target_message_key: MessageField::some(wa::MessageKey {
+                    id: Some("missing-parent".into()),
+                    from_me: Some(false),
+                    participant: Some("111@s.whatsapp.net".into()),
+                    ..Default::default()
+                }),
+                enc_payload: Some(vec![7; 32]),
+                enc_iv: Some(vec![8; 12]),
+            },
+            wa::message::EncReactionMessage {
+                enc_payload: Some(vec![0]),
+                ..Default::default()
+            },
+        ] {
+            let payload = wa::Message {
+                enc_reaction_message: MessageField::some(encrypted),
+                ..Default::default()
+            };
+            let info = MessageInfo {
+                source: NativeSource {
+                    chat: "123@g.us".parse().unwrap(),
+                    sender: "222@s.whatsapp.net".parse().unwrap(),
+                    is_group: true,
+                    ..Default::default()
+                },
+                id: "encrypted-reaction".into(),
+                ..Default::default()
+            };
+            let incoming = InboundMessage::builder()
+                .message(std::sync::Arc::new(payload.clone()))
+                .info(std::sync::Arc::new(info))
+                .build();
+            assert!(
+                message_batch(
+                    "111@s.whatsapp.net".into(),
+                    MessageSource::Live,
+                    &[incoming]
+                )
+                .changes
+                .is_empty()
+            );
+            let web = wa::WebMessageInfo {
+                key: MessageField::some(wa::MessageKey {
+                    id: Some("encrypted-reaction".into()),
+                    participant: Some("222@s.whatsapp.net".into()),
+                    ..Default::default()
+                }),
+                message: MessageField::some(payload),
+                message_timestamp: Some(100),
+                ..Default::default()
+            };
+            assert!(
+                history_changes(&"111@s.whatsapp.net".into(), &"123@g.us".into(), &web).is_empty()
+            );
         }
     }
     #[test]
