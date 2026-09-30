@@ -74,6 +74,7 @@ pub(super) fn message_batch(
                 }),
             )
         })
+        .filter(not_reaction_placeholder)
         .collect();
     MessageBatch {
         account,
@@ -124,6 +125,19 @@ pub(super) fn normalize(
     expiry: Option<i64>,
 ) -> MessageChange {
     let message = payload.get_base_message();
+    if let Some(reaction) = message.reaction_message.as_option()
+        && let Some(target) = reaction.key.as_option()
+        && let Some(target_key) = reaction_target(&key, target)
+        && let Some(emoji) = &reaction.text
+    {
+        return MessageChange::Reaction(Reaction {
+            key: target_key,
+            reactor: key.sender.clone(),
+            emoji: emoji.clone(),
+            at_ms: reaction.sender_timestamp_ms.unwrap_or(at),
+            event_id: key.id.clone(),
+        });
+    }
     if let Some(protocol) = message.protocol_message.as_option()
         && let Some(target) = protocol.key.as_option()
     {
@@ -498,4 +512,175 @@ pub(super) mod tests {
         };
         assert!(matches!(m.body, MessageBody::Unsupported { .. }));
     }
+}
+
+#[cfg(test)]
+mod reaction_tests {
+    use super::*;
+    use whatsapp_rust::prelude::{MessageBuilderExt, MessageField};
+    fn envelope(group: bool, from_me: bool) -> MessageKey {
+        MessageKey {
+            account: "111@s.whatsapp.net".into(),
+            chat: if group {
+                "123@g.us"
+            } else {
+                "222@s.whatsapp.net"
+            }
+            .into(),
+            sender: if from_me {
+                "111@s.whatsapp.net"
+            } else {
+                "222@s.whatsapp.net"
+            }
+            .into(),
+            id: "envelope".into(),
+            from_me,
+        }
+    }
+    #[test]
+    fn reactions_resolve_sender_relative_targets_in_direct_and_group_chats() {
+        for (group, outer_mine, target_mine, participant, expected, mine) in [
+            (false, false, false, None, "111@s.whatsapp.net", true),
+            (false, false, true, None, "222@s.whatsapp.net", false),
+            (false, true, false, None, "222@s.whatsapp.net", false),
+            (
+                true,
+                false,
+                false,
+                Some("333@s.whatsapp.net"),
+                "333@s.whatsapp.net",
+                false,
+            ),
+            (true, false, true, None, "222@s.whatsapp.net", false),
+            (
+                true,
+                false,
+                false,
+                Some("111@s.whatsapp.net"),
+                "111@s.whatsapp.net",
+                true,
+            ),
+        ] {
+            let payload = whatsapp_rust::wacore::proto_helpers::build_reaction_message(
+                wa::MessageKey {
+                    id: Some("original".into()),
+                    from_me: Some(target_mine),
+                    participant: participant.map(str::to_owned),
+                    ..Default::default()
+                },
+                "👍",
+                1234,
+            );
+            let value =
+                serde_json::to_value(normalize(envelope(group, outer_mine), &payload, 5678, None))
+                    .unwrap();
+            assert_eq!(value["Reaction"]["key"]["sender"], expected);
+            assert_eq!(value["Reaction"]["key"]["from_me"], mine);
+            assert_eq!(value["Reaction"]["key"]["id"], "original");
+            assert_eq!(value["Reaction"]["at_ms"], 1234);
+        }
+    }
+    #[test]
+    fn history_summary_reactions_are_separate_from_original_message() {
+        let web = wa::WebMessageInfo {
+            key: MessageField::some(wa::MessageKey {
+                id: Some("original".into()),
+                from_me: Some(true),
+                ..Default::default()
+            }),
+            message: MessageField::some(wa::Message::text("hello")),
+            message_timestamp: Some(100),
+            reactions: vec![wa::Reaction {
+                key: MessageField::some(wa::MessageKey {
+                    id: Some("reaction".into()),
+                    participant: Some("222@s.whatsapp.net".into()),
+                    from_me: Some(false),
+                    ..Default::default()
+                }),
+                text: Some("❤️".into()),
+                sender_timestamp_ms: Some(101_000),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let changes = history_changes(&"111@s.whatsapp.net".into(), &"group@g.us".into(), &web);
+        assert_eq!(changes.len(), 2);
+        let v = serde_json::to_value(&changes[1]).unwrap();
+        assert_eq!(v["Reaction"]["reactor"], "222@s.whatsapp.net");
+        assert_eq!(v["Reaction"]["key"]["sender"], "111@s.whatsapp.net");
+    }
+}
+
+fn not_reaction_placeholder(change: &MessageChange) -> bool {
+    !matches!(change, MessageChange::Upsert(MessageRecord { body: MessageBody::Unsupported { kind, .. }, .. }) if kind == "reaction")
+}
+fn reaction_target(envelope: &MessageKey, target: &wa::MessageKey) -> Option<MessageKey> {
+    let id = target.id.as_ref().filter(|id| !id.is_empty())?;
+    let sender = if target.from_me.unwrap_or(false) {
+        envelope.sender.0.clone()
+    } else if envelope.chat.0.ends_with("@g.us") {
+        if target
+            .remote_jid
+            .as_ref()
+            .is_some_and(|jid| jid != &envelope.chat.0)
+        {
+            return None;
+        }
+        target.participant.clone().filter(|s| !s.is_empty())?
+    } else if envelope.from_me {
+        envelope.chat.0.clone()
+    } else {
+        envelope.account.0.clone()
+    };
+    let sender = sender
+        .parse::<whatsapp_rust::Jid>()
+        .map(|j| jid(&j))
+        .unwrap_or(sender);
+    Some(MessageKey {
+        account: envelope.account.clone(),
+        chat: envelope.chat.clone(),
+        from_me: sender == envelope.account.0,
+        sender: sender.into(),
+        id: id.clone().into(),
+    })
+}
+pub(super) fn history_changes(
+    account: &AccountId,
+    chat: &ChatId,
+    web: &wa::WebMessageInfo,
+) -> Vec<MessageChange> {
+    let Some(change) = history_message(account, chat, web).filter(not_reaction_placeholder) else {
+        return vec![];
+    };
+    let MessageChange::Upsert(message) = &change else {
+        return vec![change];
+    };
+    let key = message.key.clone();
+    let mut changes = vec![change];
+    for r in &web.reactions {
+        let Some(k) = r.key.as_option() else {
+            continue;
+        };
+        let (Some(emoji), Some(at_ms)) = (&r.text, r.sender_timestamp_ms) else {
+            continue;
+        };
+        let reactor = if k.from_me.unwrap_or(false) {
+            account.0.clone()
+        } else if chat.0.ends_with("@g.us") {
+            let Some(p) = k.participant.clone() else {
+                continue;
+            };
+            p
+        } else {
+            chat.0.clone()
+        };
+        changes.push(MessageChange::Reaction(Reaction {
+            key: key.clone(),
+            reactor: reactor.into(),
+            emoji: emoji.clone(),
+            at_ms,
+            event_id: k.id.clone().unwrap_or_default().into(),
+        }));
+    }
+    changes
 }

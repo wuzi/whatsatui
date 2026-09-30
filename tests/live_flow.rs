@@ -353,6 +353,7 @@ fn typing_during_initial_load_is_replayed_over_saved_draft() {
             chat: "chat".into(),
             cursor: None,
             result: Ok(Box::new(ChatSnapshot {
+                interactions: Default::default(),
                 summary,
                 messages: vec![],
                 draft: draft("saved", 7),

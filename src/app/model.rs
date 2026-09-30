@@ -122,6 +122,7 @@ pub struct MessageRecord {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MessageChange {
+    Reaction(Reaction),
     Upsert(MessageRecord),
     Edit {
         key: MessageKey,
@@ -176,6 +177,7 @@ pub struct ChatSummary {
 }
 #[derive(Clone, Debug)]
 pub struct ChatSnapshot {
+    pub interactions: MessageInteractions,
     pub summary: ChatSummary,
     pub messages: Vec<MessageRecord>,
     pub draft: Draft,
@@ -212,4 +214,39 @@ pub struct PageCursor {
 pub struct StoreChange {
     pub account: AccountId,
     pub chats: Vec<ChatId>,
+}
+
+/// Latest reaction from one person. Empty emoji is a durable removal tombstone.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Reaction {
+    pub key: MessageKey,
+    pub reactor: ParticipantId,
+    pub emoji: String,
+    pub at_ms: i64,
+    pub event_id: MessageId,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MutationKind {
+    Reaction { emoji: String },
+    Edit { text: String },
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MutationState {
+    Pending,
+    Sent,
+    Failed,
+    Unconfirmed,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MutationAttempt {
+    pub id: String,
+    pub target: MessageRecord,
+    pub kind: MutationKind,
+    pub created_at_ms: i64,
+    pub state: MutationState,
+}
+#[derive(Clone, Debug, Default)]
+pub struct MessageInteractions {
+    pub reactions: Vec<Reaction>,
+    pub mutations: Vec<MutationAttempt>,
 }

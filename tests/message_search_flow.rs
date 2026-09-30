@@ -133,6 +133,7 @@ fn alias_snapshot_invalidates_search_without_leaving_it_busy() {
             chat: "chat".into(),
             cursor: None,
             result: Ok(Box::new(ChatSnapshot {
+                interactions: Default::default(),
                 summary: ChatSummary {
                     account: account("test"),
                     chat: "canonical".into(),

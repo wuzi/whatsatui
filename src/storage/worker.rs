@@ -30,7 +30,7 @@ pub(super) fn open(path: &Path) -> Result<SqliteConnection, StoreError> {
         .get_result::<Version>(&mut c)?
         .user_version;
 
-    if version > 2 {
+    if version > 3 {
         return Err(StoreError::InvalidData);
     }
 
@@ -47,6 +47,11 @@ pub(super) fn open(path: &Path) -> Result<SqliteConnection, StoreError> {
             ))?;
         }
 
+        if version < 3 {
+            c.batch_execute(include_str!(
+                "../../migrations/00000000000003_interactions/up.sql"
+            ))?;
+        }
         Ok(())
     })?;
 
@@ -186,6 +191,7 @@ pub(super) fn apply(
         for change in batch.changes {
             let raw_key = match &change {
                 MessageChange::Upsert(m) => &m.key,
+                MessageChange::Reaction(r) => &r.key,
                 MessageChange::Edit { key, .. }
                 | MessageChange::Delete { key }
                 | MessageChange::Expire { key } => key,
@@ -198,6 +204,10 @@ pub(super) fn apply(
             chats.insert(key.chat.clone());
 
             match change {
+                MessageChange::Reaction(mut reaction) => {
+                    reaction.key = key;
+                    super::interactions::react(c, reaction)?;
+                }
                 MessageChange::Upsert(mut m) => {
                     m.key = key.clone();
                     if let Some(q) = &mut m.quote {
@@ -776,7 +786,9 @@ pub(super) fn snapshot(
         rows(c, &sql, &params)?
     };
 
+    let interactions = super::interactions::snapshot(c, &messages)?;
     Ok(ChatSnapshot {
+        interactions,
         summary: summary(c, a, &chat)?,
         messages,
         draft: draft(c, a, &chat)?,

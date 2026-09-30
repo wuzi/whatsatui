@@ -96,6 +96,7 @@ pub fn ready_app() -> whatsapp_tui::app::App {
             chat: "chat".into(),
             cursor: None,
             result: Ok(Box::new(ChatSnapshot {
+                interactions: Default::default(),
                 summary,
                 messages: vec![message(key("chat", "alice", "one"), "Hello 👋")],
                 draft: Draft::default(),

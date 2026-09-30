@@ -37,6 +37,7 @@ fn refresh(app: &mut App, messages: Vec<MessageRecord>) {
             chat: "chat".into(),
             cursor: None,
             result: Ok(Box::new(ChatSnapshot {
+                interactions: Default::default(),
                 summary: view.chats[0].clone(),
                 messages,
                 draft: view.draft,

@@ -221,6 +221,7 @@ async fn media_download_allows_typing_and_is_cancelled_before_exit() {
             chat: "chat".into(),
             cursor: None,
             result: Ok(Box::new(ChatSnapshot {
+                interactions: Default::default(),
                 summary: view.chats[0].clone(),
                 messages: view.messages,
                 draft: view.draft,

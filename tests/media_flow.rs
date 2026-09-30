@@ -48,6 +48,7 @@ fn app() -> App {
             chat: "chat".into(),
             cursor: None,
             result: Ok(Box::new(ChatSnapshot {
+                interactions: Default::default(),
                 summary: view.chats[0].clone(),
                 messages: view.messages,
                 draft: view.draft,

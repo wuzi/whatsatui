@@ -46,6 +46,7 @@ fn load(app: &mut App, messages: Vec<MessageRecord>) {
             chat: "chat".into(),
             cursor: None,
             result: Ok(Box::new(ChatSnapshot {
+                interactions: Default::default(),
                 summary: app.view().chats[0].clone(),
                 messages,
                 receipts: vec![],
@@ -338,6 +339,7 @@ fn selecting_past_the_cached_page_requests_next_history_page() {
             chat: "chat".into(),
             cursor: None,
             result: Ok(Box::new(ChatSnapshot {
+                interactions: Default::default(),
                 summary: app.view().chats[0].clone(),
                 messages: vec![message(key("chat", "alice", "older"), "Cached page")],
                 receipts: vec![],

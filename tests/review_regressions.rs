@@ -4,6 +4,7 @@ use tokio::time::Instant;
 use whatsapp_tui::{app::model::*, app::*, config::Config, storage::Store, whatsapp::BackendEvent};
 fn snapshot(chat: &str, text: &str, revision: u64) -> Box<ChatSnapshot> {
     Box::new(ChatSnapshot {
+        interactions: Default::default(),
         summary: ChatSummary {
             account: account("test"),
             chat: chat.into(),

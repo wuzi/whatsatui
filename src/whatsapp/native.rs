@@ -531,7 +531,7 @@ async fn handle_event(
                         let changes = chunk
                             .iter()
                             .filter_map(|m| m.message.as_option())
-                            .filter_map(|m| normalize::history_message(&a, &summary.chat, m))
+                            .flat_map(|m| normalize::history_changes(&a, &summary.chat, m))
                             .collect();
                         let change = store
                             .apply_batch(MessageBatch {

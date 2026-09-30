@@ -81,6 +81,9 @@ pub(super) fn canonical_key(
 
     key.sender = canonical(c, &key.account, &key.sender.0)?.into();
 
+    if key.sender.0 == key.account.0 {
+        key.from_me = true;
+    }
     Ok(key)
 }
 
@@ -243,6 +246,7 @@ pub(super) fn scrub_quotes(
     }
 
     execute(c, "DELETE FROM mutations WHERE key=?", &[&json(target)?])?;
+    super::interactions::scrub(c, target)?;
 
     Ok(chats.into_iter().collect())
 }
@@ -393,6 +397,8 @@ fn merge_alias_in_transaction(
         affected.insert(key.chat);
     }
 
+    affected.extend(super::interactions::rekey(c, a)?);
+
     // Rekey receipts and mutations after installing the mapping; duplicate keys merge monotonically.
     for mut r in receipts {
         let old_key = json(&r.key)?;
@@ -415,6 +421,7 @@ fn merge_alias_in_transaction(
             | MessageChange::Delete { key }
             | MessageChange::Expire { key } => key,
             MessageChange::Upsert(m) => &m.key,
+            MessageChange::Reaction(r) => &r.key,
         };
         let new_key = canonical_key(c, old_key)?;
         if new_key != *old_key {
