@@ -5,6 +5,10 @@ use sha2::{Digest, Sha256};
 use std::{
     io::{Cursor, Read, Write},
     path::{Path, PathBuf},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -43,11 +47,13 @@ impl Provider for Unavailable {
 #[derive(Clone)]
 pub struct Cache {
     root: PathBuf,
+    allow_stale: Arc<AtomicBool>,
 }
 impl Cache {
     pub fn new(data_dir: PathBuf) -> Self {
         Self {
             root: data_dir.join("avatars"),
+            allow_stale: Arc::new(AtomicBool::new(true)),
         }
     }
 
@@ -70,11 +76,13 @@ impl Cache {
             Ok(Ok(bytes)) => bytes,
             _ => {
                 return previous
+                    .filter(|(_, image)| image.is_none() || self.allow_stale.load(Ordering::SeqCst))
                     .map(|(_, image)| image)
                     .ok_or_else(|| "Profile photo unavailable".into());
             }
         };
         let root = self.root.clone();
+        let allow_stale = self.allow_stale.clone();
         blocking(move || {
             let image = bytes.as_deref().map(decode).transpose()?;
             let ttl = if image.is_some() {
@@ -82,7 +90,18 @@ impl Cache {
             } else {
                 MISSING_TTL
             };
-            save(&root, &path, now_ms.saturating_add(ttl), image.as_ref())?;
+            if let Err(error) = save(&root, &path, now_ms.saturating_add(ttl), image.as_ref()) {
+                if image.is_some() {
+                    return Err(error);
+                }
+                // A confirmed removal wins over a failed cache write. If the
+                // obsolete file cannot be removed either, disable stale-photo
+                // fallback for this cache's lifetime so an offline retry cannot
+                // resurrect it. Fresh cached photos are still usable.
+                if std::fs::remove_file(&path).is_err() {
+                    allow_stale.store(false, Ordering::SeqCst);
+                }
+            }
             Ok(image)
         })
         .await

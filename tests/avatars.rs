@@ -93,6 +93,60 @@ async fn private_photo_removes_stale_cached_pixels() {
     );
     assert_eq!(source.calls.load(Ordering::SeqCst), 2);
 }
+
+#[tokio::test]
+async fn failed_removal_persistence_cannot_restore_the_old_photo_on_an_offline_retry() {
+    struct MissingWithBlockedCache(std::path::PathBuf);
+    #[async_trait::async_trait]
+    impl Provider for MissingWithBlockedCache {
+        async fn fetch(&self, _: &Identity) -> Result<Option<Vec<u8>>, String> {
+            // load() has already read the old photo; prevent storing the
+            // confirmed removal without relying on chmod/root semantics.
+            std::fs::remove_file(&self.0).unwrap();
+            std::fs::create_dir(&self.0).unwrap();
+            Ok(None)
+        }
+    }
+    let root = tempfile::tempdir().unwrap();
+    let cache = Cache::new(root.path().to_owned());
+    let source = source();
+    cache.load(&source, &identity("a"), 1000).await.unwrap();
+    let path = root
+        .path()
+        .join("avatars")
+        .join(format!("{}.avatar", identity("a").token()));
+    let old_photo = std::fs::read(&path).unwrap();
+    let removed = cache
+        .load(
+            &MissingWithBlockedCache(path.clone()),
+            &identity("a"),
+            3_601_001,
+        )
+        .await;
+    assert!(
+        matches!(removed, Ok(None)),
+        "successful removal must survive persistence failure"
+    );
+    // Model the obsolete file remaining on disk after an unsuccessful write.
+    std::fs::remove_dir(&path).unwrap();
+    std::fs::write(&path, old_photo).unwrap();
+    *source.bytes.lock().unwrap() = Err("offline".into());
+    assert!(
+        !matches!(
+            cache.clone().load(&source, &identity("a"), 3_602_001).await,
+            Ok(Some(_))
+        ),
+        "an offline retry must not revive a confirmed removed photo"
+    );
+    *source.bytes.lock().unwrap() = Ok(Some(picture()));
+    assert!(
+        cache
+            .load(&source, &identity("a"), 3_603_001)
+            .await
+            .unwrap()
+            .is_some()
+    );
+}
 #[tokio::test]
 async fn damaged_and_oversized_photos_are_rejected_without_caching() {
     let root = tempfile::tempdir().unwrap();

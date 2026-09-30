@@ -229,3 +229,31 @@ async fn hiding_an_avatar_during_refresh_cancels_it_and_releases_its_image() {
     assert!(!h.avatars.poll());
     assert!(h.avatars.take_cleanup().is_empty());
 }
+
+#[tokio::test]
+async fn confirmed_missing_photo_is_cleared_even_when_cache_write_fails() {
+    for kitty in [false, true] {
+        let mut h = Harness::new(kitty).await;
+        *h.source.photo.lock().unwrap() = None;
+        h.expire(true);
+        let path = h
+            .root
+            .path()
+            .join("avatars")
+            .join(format!("{}.avatar", identity().token()));
+        // A directory at the destination forces persist() to fail regardless
+        // of the test user's filesystem privileges.
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        h.avatars.poll();
+        h.settle().await;
+        assert!(
+            !has_photo(&h.draw()),
+            "confirmed removal must override a cache-write error"
+        );
+        assert_eq!(
+            h.avatars.take_cleanup().matches("a=d,d=I").count(),
+            usize::from(kitty)
+        );
+    }
+}
