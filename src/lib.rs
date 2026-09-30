@@ -1,4 +1,5 @@
 pub mod app;
+pub mod audio;
 pub mod avatars;
 pub mod config;
 pub mod desktop;

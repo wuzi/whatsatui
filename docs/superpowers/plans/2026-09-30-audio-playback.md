@@ -42,9 +42,9 @@
 
 **Interfaces:** `Speed::{Normal,OneHalf,Double}`; `Request { id: RequestId, message: MessageRecord, paused: bool, speed: Speed }`; `Phase::{Loading,Playing,Paused,Finished,Failed}`; `Playback { request: Request, phase, position_ms:u64, duration_ms:Option<u64>, error:Option<String> }`; `Player::start(store, Arc<dyn Downloader>, executable:PathBuf)`, `Player::set(Option<Request>)`, watch event receiver and lifecycle shutdown. MPV child uses private socket/snapshot, bounded JSON, observed properties and explicit command replies.
 
-- [ ] Write player boundary tests using an isolated fake IPC executable: startup/missing player, pause/resume and speed, progress/EOF, malformed/closed/stalled IPC, replacement/stop, deletion/expiry and drop cleanup. Observe expected missing API/behavior failures.
-- [ ] Implement owned child/IPC transport and actor; configure `[audio].player` default `mpv`. Do not block the terminal loop on playback or commands; coalesce desired state and reject stale generations.
-- [ ] Run `cargo test -j 2 --test audio_player --test audio_media --test configuration -- --test-threads=2`; expect all pass, commit.
+- [x] Write player boundary tests using an isolated fake IPC executable: startup/missing player, pause/resume and speed, progress/EOF, malformed/closed/stalled IPC, replacement/stop, deletion/expiry and drop cleanup. Observe expected missing API/behavior failures.
+- [x] Implement owned child/IPC transport and actor; configure `[audio].player` default `mpv`. Do not block the terminal loop on playback or commands; coalesce desired state and reject stale generations.
+- [x] Run `cargo test -j 2 --test audio_player --test audio_media --test configuration -- --test-threads=2`; expect all pass, commit.
 
 ## Task 3: Message controls, rendering and release
 

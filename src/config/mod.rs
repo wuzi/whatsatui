@@ -13,6 +13,19 @@ pub struct Config {
     pub theme: Theme,
     pub bindings: Bindings,
     pub media: MediaConfig,
+    pub audio: AudioConfig,
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AudioConfig {
+    pub player: PathBuf,
+}
+impl Default for AudioConfig {
+    fn default() -> Self {
+        Self {
+            player: "mpv".into(),
+        }
+    }
 }
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -55,6 +68,7 @@ struct FileConfig {
     theme: Theme,
     bindings: bindings::Overrides,
     media: MediaConfig,
+    audio: AudioConfig,
 }
 impl Config {
     pub fn parse(text: &str) -> Result<Self, ConfigError> {
@@ -65,6 +79,7 @@ impl Config {
             theme: file.theme,
             bindings: Bindings::configured(file.bindings)?,
             media: file.media,
+            audio: file.audio,
         })
     }
     pub fn load(path: &Path) -> Result<Self, ConfigError> {
