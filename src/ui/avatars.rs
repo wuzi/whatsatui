@@ -9,6 +9,7 @@ use ratatui_image::{
     FontSize,
     sliced::{SlicedImage, SlicedProtocol},
 };
+use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     path::PathBuf,
@@ -19,15 +20,21 @@ use tokio::sync::oneshot;
 use unicode_segmentation::UnicodeSegmentation;
 
 const CAPACITY: usize = 32;
+const REFRESH_INTERVAL: Duration = Duration::from_secs(60);
 struct Ready {
     protocol: Option<SlicedProtocol>,
+    fingerprint: Option<[u8; 32]>,
     id: u32,
     refresh: Instant,
+}
+enum Refresh {
+    Unchanged,
+    Replace(Ready),
 }
 struct Job {
     token: String,
     task: tokio::task::JoinHandle<()>,
-    result: oneshot::Receiver<Ready>,
+    result: oneshot::Receiver<Result<Refresh, String>>,
 }
 pub struct Avatars {
     service: Option<(Cache, Arc<dyn Provider>)>,
@@ -137,30 +144,37 @@ impl Avatars {
             .active
             .as_mut()
             .and_then(|j| match j.result.try_recv() {
-                Ok(ready) => Some(Some(ready)),
-                Err(oneshot::error::TryRecvError::Closed) => Some(None),
+                Ok(result) => Some(result),
+                Err(oneshot::error::TryRecvError::Closed) => {
+                    Some(Err("Photo preparation stopped".into()))
+                }
                 Err(oneshot::error::TryRecvError::Empty) => None,
             });
         let mut changed = false;
-        if let Some(ready) = received {
+        if let Some(result) = received {
             let job = self.active.take().expect("finished avatar");
-            if let Some(ready) = ready
-                && !self.stopped
-                && self.wanted.iter().any(|i| i.token() == job.token)
-            {
-                self.cache.insert(job.token, ready);
+            if !self.stopped && self.wanted.iter().any(|i| i.token() == job.token) {
+                match result {
+                    Ok(Refresh::Replace(ready)) => {
+                        // Keep the old image until its replacement is ready.
+                        // Runtime draws the new frame before flushing cleanup.
+                        self.remove(&job.token);
+                        self.cache.insert(job.token, ready);
+                        changed = true;
+                    }
+                    Ok(Refresh::Unchanged) | Err(_) => {
+                        // A freshness check or transient failure must not
+                        // discard the visible protocol (and its Kitty ID).
+                        let ready = self.cache.entry(job.token).or_insert(Ready {
+                            protocol: None,
+                            fingerprint: None,
+                            id: 0,
+                            refresh: Instant::now(),
+                        });
+                        ready.refresh = Instant::now() + REFRESH_INTERVAL;
+                    }
+                }
             }
-            changed = true;
-        }
-        let expired: Vec<_> = self
-            .cache
-            .iter()
-            .filter(|(_, r)| r.refresh <= Instant::now())
-            .map(|(k, _)| k.clone())
-            .collect();
-        for token in expired {
-            self.remove(&token);
-            changed = true;
         }
         self.start_next();
         changed
@@ -175,40 +189,60 @@ impl Avatars {
         let Some(identity) = self
             .wanted
             .iter()
-            .find(|i| !self.cache.contains_key(&i.token()))
+            .find(|i| {
+                self.cache
+                    .get(&i.token())
+                    .is_none_or(|r| r.refresh <= Instant::now())
+            })
             .cloned()
         else {
             return;
         };
         let token = identity.token();
+        let previous = self.cache.get(&token).and_then(|r| r.fingerprint);
         let (cache, source) = (cache.clone(), source.clone());
         let (kitty, font) = (self.kitty, self.font);
         self.serial = self.serial.wrapping_add(1).max(1);
         let id = 0x7800_0000 | (self.serial & 0x00ff_ffff);
         let (send, result) = oneshot::channel();
         let task = tokio::spawn(async move {
-            let photo = cache
-                .load(
-                    source.as_ref(),
-                    &identity,
-                    chrono::Utc::now().timestamp_millis(),
-                )
-                .await;
-            let protocol = if let Ok(Some(image)) = photo {
+            let result = async {
+                let photo = cache
+                    .load(
+                        source.as_ref(),
+                        &identity,
+                        chrono::Utc::now().timestamp_millis(),
+                    )
+                    .await?;
                 tokio::task::spawn_blocking(move || {
-                    super::images::prepare(image, Size::new(4, 2), font, kitty.then_some(id))
+                    let fingerprint = photo
+                        .as_ref()
+                        .map(|image| Sha256::digest(image.to_rgba8().as_raw()).into());
+                    if fingerprint == previous {
+                        return Ok(Refresh::Unchanged);
+                    }
+                    let protocol = photo
+                        .map(|image| {
+                            super::images::prepare(
+                                image,
+                                Size::new(4, 2),
+                                font,
+                                kitty.then_some(id),
+                            )
+                        })
+                        .transpose()?;
+                    Ok(Refresh::Replace(Ready {
+                        protocol,
+                        fingerprint,
+                        id,
+                        refresh: Instant::now() + REFRESH_INTERVAL,
+                    }))
                 })
                 .await
-                .ok()
-                .and_then(Result::ok)
-            } else {
-                None
-            };
-            let _ = send.send(Ready {
-                protocol,
-                id,
-                refresh: Instant::now() + Duration::from_secs(60),
-            });
+                .map_err(|_| "Cannot prepare profile photo".to_owned())?
+            }
+            .await;
+            let _ = send.send(result);
         });
         self.active = Some(Job {
             token,
@@ -235,3 +269,6 @@ impl Drop for Avatars {
         self.stop();
     }
 }
+
+#[cfg(test)]
+mod tests;
