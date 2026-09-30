@@ -3,7 +3,7 @@ use super::*;
 use crate::app::model::*;
 use crate::media::{Attachment, AttachmentKind};
 use sha2::{Digest, Sha256};
-const STICKER: &[u8] = include_bytes!("../../tests/fixtures/sticker.webp");
+const STICKER: &[u8] = include_bytes!("../../tests/fixtures/send-sticker.webp");
 const IMAGE: &[u8] = include_bytes!("demo-image.png");
 fn image_attachment() -> Attachment {
     Attachment {

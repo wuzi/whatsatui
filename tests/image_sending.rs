@@ -12,6 +12,84 @@ fn image(dir: &std::path::Path) -> outgoing::LocalImage {
     outgoing::import(&source, dir).unwrap()
 }
 
+#[test]
+fn clipboard_completion_keeps_new_typing_and_respects_removal_and_account_switch() {
+    use whatsapp_tui::desktop::clipboard::Paste;
+    for discard in ["none", "remove", "account"] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut app = ready_app();
+        press(&mut app, "enter");
+        press(&mut app, "a");
+        let Effect::PasteClipboard {
+            request,
+            account,
+            chat,
+            ..
+        } = press(&mut app, "ctrl-v").remove(0)
+        else {
+            panic!()
+        };
+        assert!(press(&mut app, "ctrl-v").is_empty());
+        assert!(
+            !press(&mut app, "enter")
+                .iter()
+                .any(|e| matches!(e, Effect::Prepare { .. }))
+        );
+        press(&mut app, "b");
+        match discard {
+            "remove" => {
+                press(&mut app, "alt-a");
+            }
+            "account" => {
+                app.update(
+                    Input::Backend(whatsapp_tui::whatsapp::BackendEvent::AccountKnown(
+                        "other".into(),
+                    )),
+                    tokio::time::Instant::now(),
+                );
+            }
+            _ => {}
+        }
+        app.update(
+            Input::ClipboardRead {
+                request,
+                account,
+                chat,
+                result: Ok(Paste::Image(Box::new(image(dir.path())))),
+            },
+            tokio::time::Instant::now(),
+        );
+        assert_eq!(app.view().draft.attachment.is_some(), discard == "none");
+        if discard != "account" {
+            assert_eq!(app.view().draft.text, "ab");
+        }
+    }
+    let mut app = ready_app();
+    press(&mut app, "enter");
+    press(&mut app, "x");
+    press(&mut app, "home");
+    let Effect::PasteClipboard {
+        request,
+        account,
+        chat,
+        ..
+    } = press(&mut app, "ctrl-v").remove(0)
+    else {
+        panic!()
+    };
+    app.update(
+        Input::ClipboardRead {
+            request,
+            account,
+            chat,
+            result: Ok(Paste::Text("hello 😀 ".into())),
+        },
+        tokio::time::Instant::now(),
+    );
+    assert_eq!(app.view().draft.text, "hello 😀 x");
+    assert!(app.view().draft.attachment.is_none());
+}
+
 #[tokio::test]
 async fn attachment_only_draft_stages_and_survives_restart_without_replay() {
     let dir = tempfile::tempdir().unwrap();

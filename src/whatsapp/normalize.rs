@@ -352,6 +352,40 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn phone_image_with_current_cdn_path_keeps_its_preview_reference() {
+        let mut inbound = fixture();
+        let image = Arc::make_mut(&mut inbound.message)
+            .image_message
+            .as_option_mut()
+            .unwrap();
+        image.direct_path = Some("/o1/v/t24/f2/m232/synthetic-image?ccb=9-4&oh=fake".into());
+        image.media_key = Some(vec![1; 32]);
+        image.file_sha256 = Some(vec![2; 32]);
+        image.file_enc_sha256 = Some(vec![3; 32]);
+        image.file_length = Some(128);
+        image.mimetype = Some("image/jpeg".into());
+        let payload = wa::Message {
+            device_sent_message: MessageField::some(wa::message::DeviceSentMessage {
+                message: MessageField::some((*inbound.message).clone()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let key = MessageKey {
+            account: "self@s.whatsapp.net".into(),
+            chat: "chat@s.whatsapp.net".into(),
+            sender: "self@s.whatsapp.net".into(),
+            id: "phone-image".into(),
+            from_me: true,
+        };
+        let MessageChange::Upsert(message) = normalize(key, &payload, 0, None) else {
+            panic!()
+        };
+        assert!(
+            matches!(message.body, MessageBody::Media(ref a) if a.kind == crate::media::AttachmentKind::Image)
+        );
+    }
+    #[test]
     fn retains_complete_media_references_from_live_and_history() {
         let mut inbound = fixture();
         let image = Arc::make_mut(&mut inbound.message)
@@ -424,6 +458,8 @@ pub(super) mod tests {
             "//evil.invalid/file",
             "/v/file\n",
             "/v/../file",
+            "/o1/v/../file",
+            "/o1/v/file#fragment",
         ] {
             payload
                 .document_message

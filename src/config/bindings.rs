@@ -16,6 +16,7 @@ struct Binding {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Context {
+    Stickers,
     Emoji,
     Attachment,
     Chats,
@@ -32,8 +33,10 @@ pub enum Context {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ActionId {
+    Stickers,
     Emoji,
     AttachImage,
+    PasteClipboard,
     RemoveAttachment,
     MessageActions,
     CopyText,
@@ -66,7 +69,9 @@ pub(super) type Overrides = BTreeMap<Context, BTreeMap<ActionId, Vec<String>>>;
 impl ActionId {
     pub fn label(self) -> &'static str {
         match self {
+            Self::Stickers => "stickers",
             Self::Emoji => "emoji",
+            Self::PasteClipboard => "paste image/text",
             Self::AttachImage => "attach image",
             Self::RemoveAttachment => "remove image",
             Self::MessageActions => "actions",
@@ -126,7 +131,20 @@ impl Default for Bindings {
                 b.add(c, a, k);
             }
         }
+        b.add(C::Composer, A::Stickers, "ctrl-s");
+        b.add(C::Stickers, A::PasteClipboard, "ctrl-v");
+        for (action, key) in [
+            (A::Open, "enter"),
+            (A::Back, "esc"),
+            (A::Next, "down"),
+            (A::Next, "j"),
+            (A::Previous, "up"),
+            (A::Previous, "k"),
+        ] {
+            b.add(C::Stickers, action, key);
+        }
         b.add(C::Composer, A::AttachImage, "ctrl-o");
+        b.add(C::Composer, A::PasteClipboard, "ctrl-v");
         b.add(C::Composer, A::Emoji, "ctrl-e");
         for (action, key) in [
             (A::Open, "enter"),
@@ -249,6 +267,7 @@ impl Bindings {
             }
         }
         for context in [
+            Context::Stickers,
             Context::Emoji,
             Context::Attachment,
             Context::Chats,
@@ -280,7 +299,8 @@ impl Bindings {
             let mut required = vec![ActionId::Quit];
             if matches!(
                 context,
-                Context::MessageActions
+                Context::Stickers
+                    | Context::MessageActions
                     | Context::MessageLinks
                     | Context::Attachment
                     | Context::Emoji
@@ -323,6 +343,10 @@ impl Bindings {
 fn allowed(c: Context, a: ActionId) -> bool {
     use {ActionId as A, Context as C};
     match c {
+        C::Stickers => matches!(
+            a,
+            A::Open | A::Back | A::Next | A::Previous | A::PasteClipboard
+        ),
         C::Emoji => matches!(a, A::Open | A::Back | A::Next | A::Previous),
         C::Attachment => matches!(a, A::Open | A::Back | A::Next | A::Previous),
         C::Global => a == A::Quit,
@@ -341,6 +365,8 @@ fn allowed(c: Context, a: ActionId) -> bool {
         C::Messages => !matches!(
             a,
             A::Emoji
+                | A::Stickers
+                | A::PasteClipboard
                 | A::AttachImage
                 | A::RemoveAttachment
                 | A::Quit
@@ -355,6 +381,8 @@ fn allowed(c: Context, a: ActionId) -> bool {
         C::Composer => matches!(
             a,
             A::Emoji
+                | A::Stickers
+                | A::PasteClipboard
                 | A::AttachImage
                 | A::RemoveAttachment
                 | A::FocusNext

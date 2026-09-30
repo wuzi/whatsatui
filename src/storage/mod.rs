@@ -2,6 +2,7 @@ mod merge;
 pub mod paths;
 mod records;
 mod search;
+mod stickers;
 mod worker;
 use crate::app::model::*;
 use diesel::sqlite::SqliteConnection;
@@ -99,6 +100,14 @@ impl Store {
         cursor: Option<PageCursor>,
     ) -> Result<ChatSnapshot, StoreError> {
         self.call(move |c| worker::snapshot(c, &account, &chat, cursor))
+            .await
+    }
+    pub async fn recent_stickers(
+        &self,
+        account: AccountId,
+        now_ms: i64,
+    ) -> Result<Vec<MessageRecord>, StoreError> {
+        self.call(move |c| stickers::recent(c, &account, now_ms))
             .await
     }
     pub async fn list_chats(&self, account: AccountId) -> Result<Vec<ChatSummary>, StoreError> {

@@ -219,6 +219,51 @@ async fn execute_with_media(
     cancel: tokio::sync::watch::Receiver<bool>,
 ) -> Option<Input> {
     let event = match effect {
+        Effect::PasteClipboard {
+            request,
+            account,
+            chat,
+            sticker,
+        } => {
+            let result = clipboard_paste(store.data_dir().to_owned(), sticker, cancel).await;
+            return Some(Input::ClipboardRead {
+                request,
+                account,
+                chat,
+                result,
+            });
+        }
+        Effect::LoadStickers {
+            request,
+            account,
+            chat,
+        } => StoreCompletion::Stickers {
+            request,
+            account: account.clone(),
+            chat,
+            result: store
+                .recent_stickers(account, chrono::Utc::now().timestamp_millis())
+                .await
+                .map_err(|e| e.to_string()),
+        },
+        Effect::ImportSticker {
+            request,
+            account,
+            chat,
+            message,
+        } => {
+            let result = if message.key.account != account {
+                Err("Sticker belongs to a different account".into())
+            } else {
+                crate::media::stickers::import(*message, store, downloader, cancel).await
+            };
+            return Some(Input::StickerImported {
+                request,
+                account,
+                chat,
+                result,
+            });
+        }
         Effect::ImportImage {
             request,
             account,
@@ -589,4 +634,50 @@ fn uses_commands(effect: &Effect) -> bool {
         effect,
         Effect::Prepare { .. } | Effect::Transmit(_) | Effect::MarkRead { .. }
     )
+}
+
+async fn clipboard_paste(
+    root: PathBuf,
+    sticker: bool,
+    mut cancel: tokio::sync::watch::Receiver<bool>,
+) -> Result<crate::desktop::clipboard::Paste, String> {
+    use crate::desktop::clipboard::{self, Content, Paste};
+    let content = clipboard::read(cancel.clone()).await?;
+    if let Content::Text(text) = content {
+        return Ok(Paste::Text(text));
+    }
+    if *cancel.borrow() {
+        return Err("Clipboard read cancelled".into());
+    }
+    let permit = tokio::select! {
+        permit = crate::media::preview::DECODERS.acquire() => permit.map_err(|_| "Image preparation unavailable")?,
+        _ = cancel.changed() => return Err("Clipboard read cancelled".into()),
+    };
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        let image = match content {
+            Content::Image { bytes, filename } => {
+                if sticker {
+                    crate::media::outgoing::import_sticker(&bytes, &root, false)?
+                } else {
+                    crate::media::outgoing::import_bytes(&bytes, filename, &root)?
+                }
+            }
+            Content::File(path) => {
+                if sticker {
+                    crate::media::outgoing::import_sticker(
+                        &crate::media::preview::read_bounded(&path)?,
+                        &root,
+                        false,
+                    )?
+                } else {
+                    crate::media::outgoing::import(&path, &root)?
+                }
+            }
+            Content::Text(_) => unreachable!(),
+        };
+        Ok(Paste::Image(Box::new(image)))
+    })
+    .await
+    .unwrap_or_else(|_| Err("Image preparation failed".into()))
 }

@@ -167,6 +167,111 @@ fn demo_finds_chats_messages_and_unreads_then_restores_tty() {
     p.restored();
 }
 #[test]
+fn demo_pastes_copied_image_files_and_plain_text() {
+    for mime in ["text/uri-list", "text/plain;charset=utf-8"] {
+        let dir = tempfile::tempdir().unwrap();
+        let image = dir.path().join("copied photo.webp");
+        std::fs::write(&image, include_bytes!("fixtures/sticker.webp")).unwrap();
+        let data = dir.path().join("clipboard-data");
+        let contents = if mime == "text/uri-list" {
+            reqwest::Url::from_file_path(&image).unwrap().to_string()
+        } else {
+            "Clipboard text stays text".into()
+        };
+        std::fs::write(&data, contents).unwrap();
+        let helper = dir.path().join("wl-paste");
+        std::fs::write(&helper, "#!/bin/sh\nif [ \"$1\" = '--list-types' ]; then printf '%s\\n' \"$WHATSAPP_TUI_TEST_MIME\"; elif [ \"$1\" = '--no-newline' ] && [ \"$2\" = '--type' ] && [ \"$3\" = \"$WHATSAPP_TUI_TEST_MIME\" ]; then exec /bin/cat \"$WHATSAPP_TUI_TEST_CLIPBOARD\"; else exit 9; fi\n").unwrap();
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let mut command = binary();
+        command
+            .arg("--demo")
+            .env("PATH", dir.path())
+            .env("WAYLAND_DISPLAY", "test-wayland")
+            .env_remove("DISPLAY")
+            .env("WHATSAPP_TUI_TEST_MIME", mime)
+            .env("WHATSAPP_TUI_TEST_CLIPBOARD", data);
+        let mut p = Process::launch(command);
+        p.wait_for("corner");
+        p.master.write_all(b"\r\x16").unwrap();
+        p.wait_for(if mime == "text/uri-list" {
+            "copied photo.webp"
+        } else {
+            "Clipboard text stays text"
+        });
+        p.master.write_all(b"\x11").unwrap();
+        assert!(p.finish().success());
+        p.restored();
+    }
+}
+
+#[test]
+fn demo_sends_received_and_pasted_stickers_and_preserves_the_composer() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("clipboard.webp");
+    std::fs::write(&source, include_bytes!("fixtures/sticker.webp")).unwrap();
+    let helper = dir.path().join("wl-paste");
+    std::fs::write(&helper, "#!/bin/sh\nif [ \"$1\" = '--list-types' ]; then printf 'image/webp\\n'; elif [ \"$1\" = '--no-newline' ] && [ \"$2\" = '--type' ] && [ \"$3\" = 'image/webp' ]; then exec /bin/cat \"$WHATSAPP_TUI_TEST_CLIPBOARD\"; else exit 9; fi\n").unwrap();
+    std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut command = binary();
+    command
+        .arg("--demo")
+        .env("PATH", dir.path())
+        .env("WAYLAND_DISPLAY", "test-wayland")
+        .env_remove("DISPLAY")
+        .env("WHATSAPP_TUI_TEST_CLIPBOARD", &source);
+    let mut p = Process::launch(command);
+    p.wait_for("corner");
+    p.master
+        .write_all(b"\r\x1b[200~Keep this draft\x1b[201~\x13")
+        .unwrap();
+    p.wait_for("recent & pasted");
+    p.wait_for("intact.");
+    p.master.write_all(b"\r").unwrap();
+    p.wait_for("response.");
+    p.output.clear();
+    p.master.write_all(b"\x13").unwrap();
+    p.wait_for("intact.");
+    p.master.write_all(b"\x16").unwrap();
+    p.wait_for("Pasted sticker");
+    p.master.write_all(b"\r").unwrap();
+    p.wait_for("Keep"); // Ratatui may emit separate cursor moves between words.
+    p.wait_for("response.");
+    assert!(!String::from_utf8_lossy(&p.output).contains("Attach image"));
+    p.master.write_all(b"\x11").unwrap();
+    assert!(p.finish().success());
+    p.restored();
+}
+
+#[test]
+fn demo_pastes_clipboard_image_without_a_path_and_keeps_the_caption() {
+    let dir = tempfile::tempdir().unwrap();
+    let fixture = dir.path().join("clipboard.webp");
+    std::fs::write(&fixture, include_bytes!("fixtures/sticker.webp")).unwrap();
+    let helper = dir.path().join("wl-paste");
+    std::fs::write(&helper, "#!/bin/sh\nif [ \"$1\" = --list-types ]; then printf 'image/webp\\n'; elif [ \"$1\" = --no-newline ] && [ \"$2\" = --type ] && [ \"$3\" = image/webp ]; then exec /bin/cat \"$WHATSAPP_TUI_TEST_CLIPBOARD\"; else exit 9; fi\n").unwrap();
+    std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut command = binary();
+    command
+        .arg("--demo")
+        .env("PATH", dir.path())
+        .env("WAYLAND_DISPLAY", "test-wayland")
+        .env_remove("DISPLAY")
+        .env("WHATSAPP_TUI_TEST_CLIPBOARD", &fixture);
+    let mut p = Process::launch(command);
+    p.wait_for("corner");
+    p.master
+        .write_all(b"\r\x1b[200~Caption stays here\x1b[201~\x16")
+        .unwrap();
+    p.wait_for("clipboard.webp");
+    assert!(String::from_utf8_lossy(&p.output).contains("Caption stays here"));
+    assert!(!String::from_utf8_lossy(&p.output).contains("Attach image"));
+    p.master.write_all(b"\r").unwrap();
+    p.wait_for("response.");
+    p.master.write_all(b"\x11").unwrap();
+    assert!(p.finish().success());
+    p.restored();
+}
+#[test]
 fn demo_attaches_images_picks_emoji_renders_kitty_and_restores_tty() {
     let dir = tempfile::tempdir().unwrap();
     let source = dir.path().join("terminal sticker.webp");

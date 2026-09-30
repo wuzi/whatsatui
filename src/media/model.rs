@@ -46,7 +46,7 @@ impl Attachment {
         let path = self.direct_path.split('?').next().unwrap_or_default();
         if self.size == 0
             || self.direct_path.len() > 4096
-            || !path.starts_with("/v/")
+            || !(path.starts_with("/v/") || path.starts_with("/o1/v/"))
             || path.split('/').any(|p| matches!(p, "." | ".."))
             || self
                 .direct_path

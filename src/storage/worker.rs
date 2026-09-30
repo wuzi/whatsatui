@@ -581,7 +581,7 @@ pub(super) fn preview(body: &MessageBody) -> String {
     let text = match body {
         MessageBody::Text(t) => t.clone(),
         MessageBody::LocalImage { image, caption } => {
-            format!("[image] {} {caption}", image.filename)
+            format!("[{}] {} {caption}", image.label(), image.filename)
         }
         MessageBody::Media(attachment) => format!(
             "[{}] {}",

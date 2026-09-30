@@ -8,6 +8,7 @@ pub mod layout;
 mod overlays;
 mod rich_text;
 mod search;
+mod stickers;
 mod timeline;
 use crate::{
     app::{Focus, Overlay, ViewModel},
@@ -155,6 +156,7 @@ fn render_content(frame: &mut Frame, view: &ViewModel, config: &Config, images: 
     timeline::render(frame, regions.messages, view, config, images);
     composer::render(frame, regions.composer, view, config, images);
     let context = match &view.overlay {
+        Some(Overlay::Stickers(_)) => Context::Stickers,
         Some(Overlay::Emoji { .. }) => Context::Emoji,
         Some(Overlay::Attachment { .. }) => Context::Attachment,
         Some(Overlay::MessageActions(_)) => Context::MessageActions,
@@ -176,7 +178,9 @@ fn render_content(frame: &mut Frame, view: &ViewModel, config: &Config, images: 
         crate::config::bindings::ActionId::Quit => 0,
         crate::config::bindings::ActionId::Help => 1,
         crate::config::bindings::ActionId::MessageActions => 2,
-        crate::config::bindings::ActionId::AttachImage => 2,
+        crate::config::bindings::ActionId::PasteClipboard => 2,
+        crate::config::bindings::ActionId::Stickers => 3,
+        crate::config::bindings::ActionId::AttachImage => 4,
         crate::config::bindings::ActionId::Emoji => 3,
         crate::config::bindings::ActionId::CopyText
         | crate::config::bindings::ActionId::OpenLinks => 3,
@@ -226,5 +230,5 @@ fn render_content(frame: &mut Frame, view: &ViewModel, config: &Config, images: 
             rect,
         );
     }
-    overlays::render(frame, area, view, config);
+    overlays::render(frame, area, view, config, images);
 }

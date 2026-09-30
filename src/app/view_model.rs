@@ -9,6 +9,7 @@ pub enum Focus {
 }
 #[derive(Clone, Debug)]
 pub enum Overlay {
+    Stickers(Box<StickerPicker>),
     Emoji {
         editor: Editor,
         selected: usize,
@@ -80,4 +81,19 @@ pub struct ViewModel {
     pub has_newer: bool,
     pub loading: bool,
     pub truecolor: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StickerChoice {
+    Recent(Box<MessageRecord>),
+    Local(Box<crate::media::outgoing::LocalImage>),
+}
+#[derive(Clone, Debug)]
+pub struct StickerPicker {
+    pub items: Vec<StickerChoice>,
+    pub selected: usize,
+    pub loading: Option<RequestId>,
+    pub reload: bool,
+    pub sending: Option<RequestId>,
+    pub error: Option<String>,
 }

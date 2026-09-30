@@ -56,3 +56,12 @@ Its single independent final review found three Important issues and one Minor: 
 The optimized demo also passed with the complete example configuration: attach an image with spaces in its path, insert an emoji, send and observe a demo group receipt, open a received sticker, resize 80×24 → 40×12 → 120×32, and quit with Kitty image cleanup and terminal mode restoration.
 
 Pending live acceptance: send PNG/JPEG/WebP input to a test contact/group, confirm captions and quotes on a phone, receive static/animated stickers, inspect actual Ghostty clipping/resize/overlays, interrupt an upload, and restart with an image draft. Animated previews intentionally show a still frame; standard emoji use the terminal font.
+
+
+## Clipboard images and sticker sending
+
+The clipboard/sticker iteration passes 197 synthetic tests. Ctrl-V is covered in Linux pseudo-terminals with isolated fake `wl-paste` helpers for image bytes, a copied file URI containing spaces, and plain text. No test reads the real clipboard. Reducer checks cover caption edits during import, one pending paste, removal, account changes, cancelled sticker sends, keeping the existing composer during sticker staging, and refreshing a picker after its source conversation changes. Native transport checks verify actual WebP bytes and a StickerMessage with the correct MIME type, animation flag, dimensions, and stable message ID.
+
+Generated static stickers use transparent 512 × 512 padding and bounded WebP encoding; valid received animations retain their bytes. Snapshot verification, account-scoped/deduplicated recent stickers, draft persistence, and restart uncertainty are tested. A new normalizer regression reproduces phone-origin images becoming placeholders when a complete media reference uses `/o1/v/`; these paths are now accepted alongside `/v/` while traversal and fragment rejection remain in place. Old placeholders have no recoverable media key/path in the app record and require a history replay or resend.
+
+Remaining user-operated acceptance: receive a newly sent phone image, paste a real desktop image with a caption, send/reuse a static and animated sticker to a test conversation, and inspect actual Ghostty pixels. Automated checks use synthetic data and never send to a WhatsApp account. The picker uses cached conversation stickers; syncing phone favorites and packs remains outside this iteration.

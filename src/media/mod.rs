@@ -6,6 +6,7 @@ pub use worker::run as run_worker;
 mod model;
 pub mod outgoing;
 pub mod preview;
+pub mod stickers;
 use crate::{
     app::model::{MessageBody, MessageRecord},
     desktop::Desktop,

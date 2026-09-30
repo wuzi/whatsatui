@@ -35,14 +35,14 @@ whatsapp-tui
 - Styled message text and captions: emphasis, code, quotes, and lists.
 - A message action menu, original-text copying, and an explicit web-link picker.
 - Inline images and stickers, with Ghostty/Kitty graphics and a half-block fallback.
-- Image attachments with captions, persistent drafts, and a searchable Unicode emoji picker.
+- Clipboard image paste with captions, persistent drafts, a recent-sticker picker, and searchable Unicode emoji.
 - Verified downloads for received images, stickers, and documents, with a separate viewer action.
 - Local history, unread counts, delivery states, and known group receipt counts.
 - Durable outgoing attempts before transmission, with explicit confirmation for resending uncertain attempts.
 - Phone-number/LID reconciliation, edits, deletion/expiry placeholders, and bounded message pages.
 - Configurable colors and scoped bindings; layouts for ordinary and narrow terminals.
 
-Images and stickers load previews within the conversation; animated WebP shows its first frame. Documents retain download/open actions. Sending documents, sticker packs, animation playback, calls, reactions, group management, statuses, and newsletters remain outside this iteration. History is limited to what WhatsApp syncs and what this client has cached.
+Images and stickers load previews within the conversation; animated WebP shows its first frame. Documents retain download/open actions. Sending documents, sticker-pack management, animation playback, calls, reactions, group management, statuses, and newsletters remain outside this iteration. History is limited to what WhatsApp syncs and what this client has cached.
 
 ## Main controls
 
@@ -53,6 +53,8 @@ Images and stickers load previews within the conversation; animated WebP shows i
 | Enter in Chats | Open the composer |
 | Enter in Composer | Send |
 | Alt-Enter | Insert a newline |
+| Ctrl-V in Composer | Paste a clipboard image, copied image file, or text |
+| Ctrl-S in Composer | Choose a recent sticker, or paste an image to create one |
 | Ctrl-O in Composer | Attach an image by path |
 | Alt-A in Composer | Remove the attached image |
 | Ctrl-E in Composer | Search and insert an emoji |

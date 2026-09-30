@@ -4,8 +4,26 @@ use tokio::time::Instant;
 mod actions;
 mod attachments;
 mod search;
+mod stickers;
 #[derive(Clone, Debug)]
 pub enum Effect {
+    LoadStickers {
+        request: RequestId,
+        account: AccountId,
+        chat: ChatId,
+    },
+    ImportSticker {
+        request: RequestId,
+        account: AccountId,
+        chat: ChatId,
+        message: Box<MessageRecord>,
+    },
+    PasteClipboard {
+        request: RequestId,
+        account: AccountId,
+        chat: ChatId,
+        sticker: bool,
+    },
     ImportImage {
         request: RequestId,
         account: AccountId,
@@ -74,6 +92,12 @@ pub enum Effect {
 }
 #[derive(Debug)]
 pub enum StoreCompletion {
+    Stickers {
+        request: RequestId,
+        account: AccountId,
+        chat: ChatId,
+        result: Result<Vec<MessageRecord>, String>,
+    },
     MessageSearch {
         request: RequestId,
         account: AccountId,
@@ -157,6 +181,7 @@ pub struct App {
     pub(crate) quitting: bool,
     shutdown_emitted: bool,
     desktop_request: Option<(RequestId, AccountId)>,
+    clipboard_request: Option<(RequestId, AccountId, ChatId, bool)>,
 }
 impl App {
     pub fn new(config: Config) -> Self {
@@ -209,6 +234,7 @@ impl App {
             quitting: false,
             shutdown_emitted: false,
             desktop_request: None,
+            clipboard_request: None,
         }
     }
     pub fn view(&self) -> ViewModel {
@@ -255,6 +281,7 @@ impl App {
     }
     fn context(&self) -> Context {
         match &self.view.overlay {
+            Some(Overlay::Stickers(_)) => Context::Stickers,
             Some(Overlay::Emoji { .. }) => Context::Emoji,
             Some(Overlay::Attachment { .. }) => Context::Attachment,
             Some(Overlay::MessageActions(_)) => Context::MessageActions,
@@ -350,6 +377,7 @@ impl App {
             return;
         }
         effects.extend(self.flush_drafts());
+        self.clipboard_request = None;
         self.view.chat = Some(chat.clone());
         self.view.messages.clear();
         self.view.receipts.clear();
@@ -398,6 +426,15 @@ impl App {
             .and_then(|k| self.view.messages.iter().find(|m| &m.key == k))
     }
     fn move_selection(&mut self, delta: isize, effects: &mut Vec<Effect>) {
+        if let Some(Overlay::Stickers(picker)) = &mut self.view.overlay {
+            if picker.sending.is_none() {
+                picker.selected = picker
+                    .selected
+                    .saturating_add_signed(delta)
+                    .min(picker.items.len().saturating_sub(1));
+            }
+            return;
+        }
         if let Some(Overlay::Emoji { editor, selected }) = &mut self.view.overlay {
             *selected = selected
                 .saturating_add_signed(delta)
@@ -529,6 +566,7 @@ impl App {
             return;
         }
         match action {
+            A::Stickers => self.open_stickers(effects),
             A::Emoji => {
                 if !self.view.loading && self.view.chat.is_some() {
                     self.view.overlay = Some(Overlay::Emoji {
@@ -537,8 +575,10 @@ impl App {
                     });
                 }
             }
+            A::PasteClipboard => self.paste_clipboard(effects),
             A::AttachImage => self.open_attachment(),
             A::RemoveAttachment => {
+                self.clipboard_request = None;
                 if self.view.draft.attachment.take().is_some() {
                     self.remember();
                 }
@@ -563,6 +603,7 @@ impl App {
                 self.focus(next, effects);
             }
             A::Back => {
+                self.clipboard_request = None;
                 if self.back_from_links() {
                     return;
                 }
@@ -644,6 +685,10 @@ impl App {
                 }
             }
             A::Open => {
+                if matches!(self.view.overlay, Some(Overlay::Stickers(_))) {
+                    self.send_sticker(effects);
+                    return;
+                }
                 if let Some(Overlay::Emoji { editor, selected }) = &self.view.overlay {
                     let emoji = super::emoji::search(editor.text())
                         .get(*selected)
@@ -745,6 +790,10 @@ impl App {
                 }
             }
             A::Send => {
+                if self.clipboard_request.is_some() {
+                    self.view.notice = Some("Wait for the clipboard image before sending".into());
+                    return;
+                }
                 if self.view.draft.text.trim().is_empty() && self.view.draft.attachment.is_none() {
                     return;
                 }
@@ -844,7 +893,9 @@ impl App {
                     if key.kind == KeyEventKind::Repeat
                         && matches!(
                             action,
-                            ActionId::Send
+                            ActionId::PasteClipboard
+                                | ActionId::Stickers
+                                | ActionId::Send
                                 | ActionId::Open
                                 | ActionId::Confirm
                                 | ActionId::Quit
@@ -920,6 +971,7 @@ impl App {
         if self.view.account.as_ref() != Some(&change.account) || change.chats.is_empty() {
             return;
         }
+        self.refresh_stickers(effects);
         if let Some(Overlay::MessageSearch(search)) = &mut self.view.overlay
             && search.account == change.account
             && change.chats.contains(&search.chat)
@@ -945,6 +997,7 @@ impl App {
             BackendEvent::AccountKnown(account) => {
                 if self.view.account.as_ref() != Some(&account) {
                     effects.extend(self.flush_drafts());
+                    self.clipboard_request = None;
                     self.view.account = Some(account.clone());
                     self.view.chat = None;
                     self.view.chats.clear();
@@ -1030,6 +1083,12 @@ impl App {
     }
     fn completion(&mut self, event: StoreCompletion, effects: &mut Vec<Effect>) {
         match event {
+            StoreCompletion::Stickers {
+                request,
+                account,
+                chat,
+                result,
+            } => self.stickers_loaded(request, account, chat, result, effects),
             StoreCompletion::MessageSearch {
                 request,
                 account,
@@ -1144,8 +1203,12 @@ impl App {
                                 search.chat = canonical.clone();
                                 search.invalidate(Some("Contact updated; search again"));
                             }
+                            self.clipboard_request = None;
                             // An import belongs to the identity selected when it began.
-                            if matches!(self.view.overlay, Some(Overlay::Attachment { .. })) {
+                            if matches!(
+                                self.view.overlay,
+                                Some(Overlay::Attachment { .. } | Overlay::Stickers(_))
+                            ) {
                                 self.view.overlay = None;
                                 self.view.notice = Some(
                                     "Contact updated; reopen the image picker to attach".into(),
@@ -1521,6 +1584,18 @@ impl App {
         let mut effects = vec![];
         self.reconcile_message_actions();
         match input {
+            Input::StickerImported {
+                request,
+                account,
+                chat,
+                result,
+            } => self.sticker_imported(request, account, chat, result, &mut effects),
+            Input::ClipboardRead {
+                request,
+                account,
+                chat,
+                result,
+            } => self.clipboard_read(request, account, chat, result),
             Input::ImageImported {
                 request,
                 account,

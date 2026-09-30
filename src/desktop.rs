@@ -1,3 +1,4 @@
+pub mod clipboard;
 use crate::{
     app::model::MessageRecord,
     message_actions::{self, DesktopAction},

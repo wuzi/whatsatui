@@ -16,6 +16,23 @@ pub struct LocalImage {
     pub size: u64,
     pub width: u32,
     pub height: u32,
+    #[serde(default)]
+    pub sticker: Option<StickerInfo>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StickerInfo {
+    pub animated: bool,
+}
+
+impl LocalImage {
+    pub fn label(&self) -> &'static str {
+        if self.sticker.is_some() {
+            "sticker"
+        } else {
+            "image"
+        }
+    }
 }
 
 pub fn path(image: &LocalImage, data_dir: &Path) -> Result<PathBuf, String> {
@@ -27,7 +44,15 @@ pub fn path(image: &LocalImage, data_dir: &Path) -> Result<PathBuf, String> {
     {
         return Err("Invalid attached image reference".into());
     }
-    Ok(data_dir.join("outgoing").join(format!("{}.jpg", image.id)))
+    Ok(data_dir.join("outgoing").join(format!(
+        "{}.{}",
+        image.id,
+        if image.sticker.is_some() {
+            "webp"
+        } else {
+            "jpg"
+        }
+    )))
 }
 
 pub fn read(image: &LocalImage, data_dir: &Path) -> Result<Vec<u8>, String> {
@@ -39,11 +64,29 @@ pub fn read(image: &LocalImage, data_dir: &Path) -> Result<Vec<u8>, String> {
     if bytes.len() as u64 != image.size || format!("{:x}", Sha256::digest(&bytes)) != image.id {
         return Err("Attached image changed; attach it again".into());
     }
+    if let Some(info) = &image.sticker {
+        let actual = sticker_info(&bytes)?;
+        if info != &actual || image.width != 512 || image.height != 512 {
+            return Err("Attached sticker metadata changed; attach it again".into());
+        }
+    }
     Ok(bytes)
 }
 
 pub fn import(source: &Path, data_dir: &Path) -> Result<LocalImage, String> {
-    let image = decode(&read_bounded(source)?)?;
+    let filename = source
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "image.jpg".into());
+    import_bytes(&read_bounded(source)?, filename, data_dir)
+}
+
+pub fn import_bytes(
+    source: &[u8],
+    filename: String,
+    data_dir: &Path,
+) -> Result<LocalImage, String> {
+    let image = decode(source)?;
     // JPEG has no alpha channel. Composite transparent stickers/images onto white.
     let rgba = image.to_rgba8();
     let mut rgb = image::RgbImage::new(rgba.width(), rgba.height());
@@ -62,14 +105,16 @@ pub fn import(source: &Path, data_dir: &Path) -> Result<LocalImage, String> {
     }
     let local = LocalImage {
         id: format!("{:x}", Sha256::digest(&bytes)),
-        filename: source
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "image.jpg".into()),
+        filename,
         size: bytes.len() as u64,
         width: rgb.width(),
         height: rgb.height(),
+        sticker: None,
     };
+    persist(local, &bytes, data_dir)
+}
+
+fn persist(local: LocalImage, bytes: &[u8], data_dir: &Path) -> Result<LocalImage, String> {
     let root = data_dir.join("outgoing");
     private_dir(&root).map_err(|_| "Cannot create attached image folder")?;
     let dest = path(&local, data_dir)?;
@@ -81,7 +126,11 @@ pub fn import(source: &Path, data_dir: &Path) -> Result<LocalImage, String> {
     let mut count = 0usize;
     for entry in std::fs::read_dir(&root).map_err(|_| "Cannot read attached image folder")? {
         let entry = entry.map_err(|_| "Cannot read attached image folder")?;
-        if entry.path().extension().is_some_and(|e| e == "jpg") {
+        if entry
+            .path()
+            .extension()
+            .is_some_and(|e| e == "jpg" || e == "webp")
+        {
             count += 1;
             used += entry
                 .metadata()
@@ -96,7 +145,7 @@ pub fn import(source: &Path, data_dir: &Path) -> Result<LocalImage, String> {
         .prefix(".image-")
         .tempfile_in(root)
         .map_err(|_| "Cannot save attached image")?;
-    temp.write_all(&bytes)
+    temp.write_all(bytes)
         .map_err(|_| "Cannot save attached image")?;
     temp.as_file()
         .sync_all()
@@ -109,4 +158,96 @@ pub fn import(source: &Path, data_dir: &Path) -> Result<LocalImage, String> {
         Err(_) => return Err("Cannot save attached image".into()),
     }
     Ok(local)
+}
+
+/// Preserve valid WebP stickers, including animation. Other images become static stickers.
+pub fn import_sticker(
+    source: &[u8],
+    data_dir: &Path,
+    preserve: bool,
+) -> Result<LocalImage, String> {
+    if preserve {
+        let info = sticker_info(source)?;
+        return save_sticker(source, info, data_dir);
+    }
+    let image = decode(source)?
+        .resize(512, 512, image::imageops::FilterType::Lanczos3)
+        .to_rgba8();
+    let mut canvas = image::RgbaImage::new(512, 512);
+    image::imageops::overlay(
+        &mut canvas,
+        &image,
+        i64::from((512 - image.width()) / 2),
+        i64::from((512 - image.height()) / 2),
+    );
+    let encoder = webp::Encoder::from_rgba(canvas.as_raw(), 512, 512);
+    for quality in [85.0, 65.0, 45.0, 25.0, 10.0] {
+        let bytes = encoder
+            .encode_simple(false, quality)
+            .map_err(|_| "Cannot encode sticker")?;
+        if bytes.len() <= 100 * 1024 {
+            return save_sticker(&bytes, StickerInfo { animated: false }, data_dir);
+        }
+    }
+    Err("This image cannot fit WhatsApp's 100 KiB sticker limit".into())
+}
+
+fn save_sticker(bytes: &[u8], sticker: StickerInfo, data_dir: &Path) -> Result<LocalImage, String> {
+    persist(
+        LocalImage {
+            id: format!("{:x}", Sha256::digest(bytes)),
+            filename: "sticker.webp".into(),
+            size: bytes.len() as u64,
+            width: 512,
+            height: 512,
+            sticker: Some(sticker),
+        },
+        bytes,
+        data_dir,
+    )
+}
+
+fn sticker_info(bytes: &[u8]) -> Result<StickerInfo, String> {
+    use image::ImageDecoder;
+    if bytes.len() > 500 * 1024 {
+        return Err("Sticker exceeds 500 KiB".into());
+    }
+    let decoder = image::codecs::webp::WebPDecoder::new(std::io::Cursor::new(bytes))
+        .map_err(|_| "Sticker is not a valid WebP image")?;
+    if decoder.dimensions() != (512, 512) {
+        return Err("Sticker must be 512 × 512 pixels".into());
+    }
+    let animated = decoder.has_animation();
+    if !animated && bytes.len() > 100 * 1024 {
+        return Err("Static sticker exceeds 100 KiB".into());
+    }
+    decode(bytes)?;
+    if animated {
+        let mut offset = 12;
+        let mut duration = 0u32;
+        let mut frames = 0;
+        while offset + 8 <= bytes.len() {
+            let size =
+                u32::from_le_bytes(bytes[offset + 4..offset + 8].try_into().unwrap()) as usize;
+            let chunk = bytes
+                .get(offset + 8..offset + 8 + size)
+                .ok_or("Damaged sticker animation")?;
+            if &bytes[offset..offset + 4] == b"ANMF" {
+                if chunk.len() < 16 {
+                    return Err("Damaged sticker animation".into());
+                }
+                let delay = u32::from_le_bytes([chunk[12], chunk[13], chunk[14], 0]);
+                if delay < 8 {
+                    return Err("Sticker animation frames must last at least 8 ms".into());
+                }
+                duration = duration.saturating_add(delay);
+                frames += 1;
+            }
+            offset += 8 + size + (size % 2);
+        }
+        if frames == 0 || duration > 10_000 {
+            return Err("Sticker animation must be at most 10 seconds".into());
+        }
+    }
+    Ok(StickerInfo { animated })
 }

@@ -83,7 +83,11 @@ pub(super) fn pairing(frame: &mut Frame, area: Rect, view: &ViewModel, config: &
         Rect::new(inner.x, inner.y + 2, size as u16, size.div_ceil(2) as u16),
     );
 }
-fn key(config: &Config, context: Context, action: crate::config::bindings::ActionId) -> String {
+pub(super) fn key(
+    config: &Config,
+    context: Context,
+    action: crate::config::bindings::ActionId,
+) -> String {
     config
         .bindings
         .help(context)
@@ -92,8 +96,17 @@ fn key(config: &Config, context: Context, action: crate::config::bindings::Actio
         .map(|(k, _)| k)
         .unwrap_or_else(|| "unbound".into())
 }
-pub(super) fn render(frame: &mut Frame, area: Rect, view: &ViewModel, config: &Config) {
+pub(super) fn render(
+    frame: &mut Frame,
+    area: Rect,
+    view: &ViewModel,
+    config: &Config,
+    images: &mut Images,
+) {
     match &view.overlay {
+        Some(Overlay::Stickers(picker)) => {
+            super::stickers::render(frame, area, view, config, picker, images)
+        }
         Some(Overlay::Emoji { editor, selected }) => {
             super::emoji::render(frame, area, view, config, editor, *selected)
         }

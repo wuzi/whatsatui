@@ -9,7 +9,7 @@ use whatsapp_rust::{Client, prelude::SendError};
 #[async_trait::async_trait]
 trait Transport: Sync {
     fn account(&self) -> Option<AccountId>;
-    async fn upload(&self, bytes: Vec<u8>) -> Result<UploadedImage, ()>;
+    async fn upload(&self, bytes: Vec<u8>, sticker: bool) -> Result<UploadedImage, ()>;
     async fn send(&self, encoded: EncodedText) -> Result<(), SendError>;
 }
 struct Native<'a>(&'a Client);
@@ -18,11 +18,15 @@ impl Transport for Native<'_> {
     fn account(&self) -> Option<AccountId> {
         super::native::account(self.0)
     }
-    async fn upload(&self, bytes: Vec<u8>) -> Result<UploadedImage, ()> {
+    async fn upload(&self, bytes: Vec<u8>, sticker: bool) -> Result<UploadedImage, ()> {
         self.0
             .upload(
                 bytes,
-                whatsapp_rust::wacore::download::MediaType::Image,
+                if sticker {
+                    whatsapp_rust::wacore::download::MediaType::Sticker
+                } else {
+                    whatsapp_rust::wacore::download::MediaType::Image
+                },
                 whatsapp_rust::upload::UploadOptions::default(),
             )
             .await
@@ -71,7 +75,7 @@ async fn transmit(
         let Ok(Ok((bytes, thumbnail))) = prepared else {
             return SendState::Failed;
         };
-        let Ok(uploaded) = transport.upload(bytes).await else {
+        let Ok(uploaded) = transport.upload(bytes, expected.sticker.is_some()).await else {
             return SendState::Failed;
         };
         if transport.account().as_ref() != Some(&message.key.account)
@@ -86,7 +90,11 @@ async fn transmit(
         {
             return SendState::Failed;
         }
-        let Ok(encoded) = encode::encode_image(&message, uploaded, thumbnail) else {
+        let Ok(encoded) = (if expected.sticker.is_some() {
+            encode::encode_sticker(&message, uploaded)
+        } else {
+            encode::encode_image(&message, uploaded, thumbnail)
+        }) else {
             return SendState::Failed;
         };
         sending = true;
@@ -126,11 +134,15 @@ mod tests {
                 .into(),
             )
         }
-        async fn upload(&self, bytes: Vec<u8>) -> Result<UploadedImage, ()> {
+        async fn upload(&self, bytes: Vec<u8>, sticker: bool) -> Result<UploadedImage, ()> {
             use sha2::{Digest, Sha256};
             assert_eq!(
                 image::guess_format(&bytes).unwrap(),
-                image::ImageFormat::Jpeg
+                if sticker {
+                    image::ImageFormat::WebP
+                } else {
+                    image::ImageFormat::Jpeg
+                }
             );
             if self.fail {
                 return Err(());
@@ -163,6 +175,58 @@ mod tests {
             }
         }
     }
+    #[tokio::test]
+    async fn sticker_upload_sends_webp_with_a_sticker_stanza_and_stable_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let local = outgoing::import_sticker(
+            include_bytes!("../../tests/fixtures/send-sticker.webp"),
+            dir.path(),
+            true,
+        )
+        .unwrap();
+        let message = OutboundText {
+            key: MessageKey {
+                account: "self@s.whatsapp.net".into(),
+                chat: "120363000000001@g.us".into(),
+                sender: "self@s.whatsapp.net".into(),
+                id: "sticker-id".into(),
+                from_me: true,
+            },
+            draft: Draft {
+                attachment: Some(Box::new(local)),
+                ..Default::default()
+            },
+            created_at_ms: 0,
+        };
+        let fake = Fake {
+            sent: Mutex::new(vec![]),
+            fail: false,
+            stall_send: false,
+            switched: AtomicBool::new(false),
+            switch_on_upload: false,
+        };
+        assert_eq!(
+            transmit(
+                &fake,
+                message,
+                dir.path().to_owned(),
+                Duration::from_secs(2)
+            )
+            .await,
+            SendState::Sending
+        );
+        let sent = fake.sent.lock().unwrap();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].options.message_id.as_deref(), Some("sticker-id"));
+        assert!(sent[0].message.image_message.as_option().is_none());
+        assert!(sent[0].message.conversation.is_none());
+        let sticker = sent[0].message.sticker_message.as_option().unwrap();
+        assert_eq!(sticker.is_animated, Some(true));
+        assert_eq!(sticker.mimetype.as_deref(), Some("image/webp"));
+        assert_eq!((sticker.width, sticker.height), (Some(512), Some(512)));
+        assert!(sticker.media_key.as_ref().is_some_and(|k| k.len() == 32));
+    }
+
     #[tokio::test]
     async fn verified_snapshot_uploads_once_and_failures_never_send_caption_as_text() {
         let dir = tempfile::tempdir().unwrap();

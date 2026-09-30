@@ -180,7 +180,8 @@ fn message_rows(
             lines.extend(
                 wrap(
                     &format!(
-                        "[image] {} · {}×{}",
+                        "[{}] {} · {}×{}",
+                        image.label(),
                         single(&image.filename),
                         image.width,
                         image.height

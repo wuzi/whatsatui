@@ -86,6 +86,9 @@ pub fn encode_image(
         .attachment
         .as_ref()
         .ok_or(BackendError::InvalidIdentity)?;
+    if local.sticker.is_some() {
+        return Err(BackendError::InvalidIdentity);
+    }
     let mut encoded = encode_base(outbound)?;
     let context_info = encoded
         .message
@@ -114,6 +117,49 @@ pub fn encode_image(
     };
     Ok(encoded)
 }
+pub fn encode_sticker(
+    outbound: &OutboundText,
+    uploaded: UploadedImage,
+) -> Result<EncodedText, BackendError> {
+    let local = outbound
+        .draft
+        .attachment
+        .as_ref()
+        .ok_or(BackendError::InvalidIdentity)?;
+    let info = local
+        .sticker
+        .as_ref()
+        .ok_or(BackendError::InvalidIdentity)?;
+    if !outbound.draft.text.is_empty() || local.width != 512 || local.height != 512 {
+        return Err(BackendError::InvalidIdentity);
+    }
+    let mut encoded = encode_base(outbound)?;
+    let context_info = encoded
+        .message
+        .extended_text_message
+        .as_option_mut()
+        .and_then(|m| m.context_info.take());
+    let a = uploaded.attachment;
+    encoded.message = wa::Message {
+        sticker_message: MessageField::some(wa::message::StickerMessage {
+            url: Some(uploaded.url),
+            direct_path: Some(a.direct_path),
+            mimetype: Some("image/webp".into()),
+            file_length: Some(a.size),
+            width: Some(local.width),
+            height: Some(local.height),
+            media_key: Some(a.media_key.to_vec()),
+            file_sha256: Some(a.sha256.to_vec()),
+            file_enc_sha256: Some(a.encrypted_sha256.to_vec()),
+            media_key_timestamp: Some(uploaded.media_key_timestamp),
+            is_animated: Some(info.animated),
+            context_info: context_info.into(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    Ok(encoded)
+}
 pub fn classify_send_error(error: &SendError) -> SendState {
     match error {
         SendError::NotLoggedIn | SendError::InvalidRequest(_) => SendState::Failed,
@@ -135,6 +181,7 @@ mod tests {
     fn image_encoding_preserves_caption_quote_and_message_id() {
         let mut outbound = outgoing("120363000000001@g.us");
         outbound.draft.attachment = Some(Box::new(crate::media::outgoing::LocalImage {
+            sticker: None,
             id: "0".repeat(64),
             filename: "photo.png".into(),
             size: 42,
