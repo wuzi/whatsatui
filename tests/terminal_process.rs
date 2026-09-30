@@ -179,6 +179,7 @@ fn demo_attaches_images_picks_emoji_renders_kitty_and_restores_tty() {
         .env_remove("SSH_CONNECTION");
     let mut p = Process::launch(command);
     p.wait_for("Alice");
+    p.wait_for("corner"); // Chat snapshot must finish before attachment import is enabled.
     p.master.write_all(b"\r\x0f").unwrap();
     p.wait_for("Attach image");
     p.master

@@ -294,7 +294,7 @@ async fn committed_demo_attempt_reaches_backend() {
     let staged = app.update(
         Input::Backend(BackendEvent::Prepared {
             request,
-            message: message.clone(),
+            message: Box::new(message.clone()),
         }),
         Instant::now(),
     );
@@ -306,7 +306,7 @@ async fn committed_demo_attempt_reaches_backend() {
     let effects = app.update(
         Input::Store(StoreCompletion::Staged {
             request,
-            message,
+            message: Box::new(message),
             result: Ok(()),
         }),
         Instant::now(),

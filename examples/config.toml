@@ -106,6 +106,8 @@ protocol = "auto" # auto, kitty, halfblocks; tmux/SSH use halfblocks
 [bindings.attachment]
 open = ["enter"]
 back = ["esc"]
+next = ["down"]
+previous = ["up"]
 
 [bindings.emoji]
 open = ["enter"]

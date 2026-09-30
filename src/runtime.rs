@@ -370,7 +370,7 @@ async fn execute_with_media(
             preserve_draft,
         } => StoreCompletion::Staged {
             request,
-            message: message.clone(),
+            message: Box::new(message.clone()),
             result: if preserve_draft {
                 store.stage_resend(message).await
             } else {

@@ -19,7 +19,7 @@ impl Http {
                 .timeout(Duration::from_secs(60))
                 .pool_max_idle_per_host(2)
                 .build()?,
-            streaming: UreqHttpClient::new().with_max_body_bytes(64 * 1024 * 1024),
+            streaming: UreqHttpClient::new(),
         })
     }
 }
@@ -66,6 +66,36 @@ impl HttpClient for Http {
 mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    #[test]
+    fn history_streaming_retains_support_above_64_mib() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/history", listener.local_addr().unwrap());
+        let length = 64 * 1024 * 1024 + 1;
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_write_timeout(Some(Duration::from_secs(10)))
+                .unwrap();
+            let mut request = [0; 1024];
+            assert!(stream.read(&mut request).unwrap() > 0);
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {length}\r\nConnection: close\r\n\r\n"
+            )
+            .unwrap();
+            // Fixed-size buffers: this tests streaming without allocating a history blob.
+            let _ = std::io::copy(&mut std::io::repeat(42).take(length), &mut stream);
+        });
+        let mut response = Http::new()
+            .unwrap()
+            .execute_streaming(HttpRequest::get(url))
+            .unwrap();
+        let copied = std::io::copy(&mut response.body, &mut std::io::sink()).unwrap();
+        drop(response);
+        server.join().unwrap();
+        assert_eq!(copied, length);
+    }
     #[tokio::test]
     async fn http_preserves_rejection_status_and_cancels_waiting_upload() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

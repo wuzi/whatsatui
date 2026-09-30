@@ -97,19 +97,7 @@ pub(super) fn render(frame: &mut Frame, area: Rect, view: &ViewModel, config: &C
         Some(Overlay::Emoji { editor, selected }) => {
             super::emoji::render(frame, area, view, config, editor, *selected)
         }
-        Some(Overlay::Attachment {
-            editor,
-            importing,
-            error,
-        }) => super::attachments::dialog(
-            frame,
-            area,
-            view,
-            config,
-            editor,
-            importing.is_some(),
-            error.as_deref(),
-        ),
+        Some(Overlay::Attachment { .. }) => super::attachments::dialog(frame, area, view, config),
         Some(Overlay::MessageActions(_)) => actions::menu(frame, area, view, config),
         Some(Overlay::MessageLinks(_)) => actions::links(frame, area, view, config),
         Some(Overlay::MessageSearch(_)) => search::messages(frame, area, view, config),

@@ -197,6 +197,7 @@ mod tests {
                     availability: QuoteAvailability::Available,
                 }),
                 revision: 1,
+                ..Default::default()
             },
             created_at_ms: 123,
         }

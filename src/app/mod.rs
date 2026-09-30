@@ -1,3 +1,4 @@
+mod drafts;
 pub mod editor;
 pub mod emoji;
 pub mod input;

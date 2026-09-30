@@ -61,4 +61,4 @@ Interfaces: searchable offline emoji results, modal editor + selected index, ins
 
 - [x] Write and run failing tests for shortcode/name search, grapheme-safe insertion/cancel, literal typing, and no send on selection.
 - [x] Implement picker, discoverable hints/help, complete docs, and exercise demo flows in a PTY.
-- [ ] Run fmt, Clippy all-targets with warnings denied, full tests, and release build serially. Review the complete diff, fix material findings with regression tests, integrate locally, preserve evidence.
+- [x] Run fmt, Clippy all-targets with warnings denied, full tests, and release build serially. Review the complete diff, fix material findings with regression tests, integrate locally, preserve evidence.

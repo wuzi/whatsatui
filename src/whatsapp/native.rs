@@ -189,7 +189,14 @@ async fn command_once(
                     draft,
                     created_at_ms: chrono::Utc::now().timestamp_millis(),
                 };
-                emit(tx, BackendEvent::Prepared { request, message }).await?;
+                emit(
+                    tx,
+                    BackendEvent::Prepared {
+                        request,
+                        message: Box::new(message),
+                    },
+                )
+                .await?;
             } else {
                 emit(
                     tx,

@@ -103,14 +103,13 @@ pub(super) fn save_draft(
 
     let mut d = d.clone();
 
-    if let Some(q) = &mut d.reply {
+    for q in d.quotes_mut() {
         merge::quote(c, q)?;
     }
 
     if d.revision > i64::MAX as u64
-        || d.reply
-            .as_ref()
-            .is_some_and(|q| q.key.account != *a || q.key.chat != chat)
+        || d.quotes_mut()
+            .any(|q| q.key.account != *a || q.key.chat != chat)
     {
         return Err(StoreError::InvalidData);
     }
@@ -422,6 +421,8 @@ pub(super) fn stage(
                 &o.key.account,
                 &o.key.chat,
                 &Draft {
+                    origin: current.origin.clone(),
+                    recovered: current.recovered.clone(),
                     revision: current
                         .revision
                         .checked_add(1)
@@ -643,7 +644,7 @@ s.latest_at_ms=m.created_at_ms;
 
     let d = draft(c, a, &chat)?;
 
-    s.has_draft = !d.text.is_empty() || d.reply.is_some() || d.attachment.is_some();
+    s.has_draft = d.has_content();
 
     Ok(s)
 }

@@ -56,7 +56,10 @@ async fn send_waits_for_commit() {
     assert!(rx.try_recv().is_err());
     let message = outbound(key("chat", "test", "one"), draft);
     let staged = app.update(
-        Input::Backend(BackendEvent::Prepared { request, message }),
+        Input::Backend(BackendEvent::Prepared {
+            request,
+            message: Box::new(message),
+        }),
         Instant::now(),
     );
     assert!(rx.try_recv().is_err());
@@ -90,7 +93,7 @@ async fn commit_failure_keeps_draft() {
     let staged = app.update(
         Input::Backend(BackendEvent::Prepared {
             request,
-            message: outbound(key("chat", "test", "one"), draft),
+            message: Box::new(outbound(key("chat", "test", "one"), draft)),
         }),
         Instant::now(),
     );
@@ -117,7 +120,10 @@ async fn new_typing_survives_send_completion() {
         let (request, draft, _) = submit(&mut app);
         let message = outbound(key("chat", "test", "one"), draft);
         let staged = app.update(
-            Input::Backend(BackendEvent::Prepared { request, message }),
+            Input::Backend(BackendEvent::Prepared {
+                request,
+                message: Box::new(message),
+            }),
             Instant::now(),
         );
         app.update(Input::Terminal(Event::Paste("new".into())), Instant::now());
@@ -250,7 +256,7 @@ fn account_change_ignores_stale_completion() {
     app.update(
         Input::Backend(BackendEvent::Prepared {
             request,
-            message: message.clone(),
+            message: Box::new(message.clone()),
         }),
         Instant::now(),
     );
@@ -261,7 +267,7 @@ fn account_change_ignores_stale_completion() {
     let next = app.update(
         Input::Store(StoreCompletion::Staged {
             request,
-            message,
+            message: Box::new(message),
             result: Ok(()),
         }),
         Instant::now(),
@@ -276,7 +282,7 @@ fn unexpected_preparation_never_stages() {
     let next = app.update(
         Input::Backend(BackendEvent::Prepared {
             request: RequestId(1000),
-            message: outbound(key("chat", "test", "foreign"), draft("bad", 1)),
+            message: Box::new(outbound(key("chat", "test", "foreign"), draft("bad", 1))),
         }),
         Instant::now(),
     );
@@ -368,7 +374,7 @@ fn quitting_during_stage_never_transmits() {
     app.update(
         Input::Backend(BackendEvent::Prepared {
             request,
-            message: message.clone(),
+            message: Box::new(message.clone()),
         }),
         Instant::now(),
     );
@@ -376,7 +382,7 @@ fn quitting_during_stage_never_transmits() {
     let next = app.update(
         Input::Store(StoreCompletion::Staged {
             request,
-            message,
+            message: Box::new(message),
             result: Ok(()),
         }),
         Instant::now(),

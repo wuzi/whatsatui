@@ -15,6 +15,7 @@ pub enum Overlay {
     },
     Attachment {
         editor: Editor,
+        selected: usize,
         importing: Option<RequestId>,
         error: Option<String>,
     },

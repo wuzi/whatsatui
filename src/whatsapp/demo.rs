@@ -164,7 +164,7 @@ pub fn start(store: Store) -> BackendHandle {
         let mut counter = 0u64;
         loop {
             tokio::select! {_=&mut stopping=>break,command=requests.recv()=>{let Some(command)=command else{break};match command{
-                BackendCommand::PrepareText{request,chat,draft}=>{counter+=1;let message=OutboundText{key:key(&chat.0,ACCOUNT,&format!("demo-{counter:06}")),draft,created_at_ms:TIME+180_000+counter as i64*1000};if tx.send(BackendEvent::Prepared{request,message}).await.is_err(){break;}},
+                BackendCommand::PrepareText{request,chat,draft}=>{counter+=1;let message=OutboundText{key:key(&chat.0,ACCOUNT,&format!("demo-{counter:06}")),draft,created_at_ms:TIME+180_000+counter as i64*1000};if tx.send(BackendEvent::Prepared {request,message: Box::new(message)}).await.is_err(){break;}},
                 BackendCommand::Transmit(sent)=>{
                     if tx.send(BackendEvent::SendOutcome{key:sent.key.clone(),state:SendState::Sent}).await.is_err(){break;}
                     let sender=if sent.key.chat.0.ends_with("@g.us"){"maya@demo"}else{&sent.key.chat.0};

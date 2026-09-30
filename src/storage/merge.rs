@@ -225,13 +225,13 @@ pub(super) fn scrub_quotes(
     for row in drafts {
         let mut draft: Draft = serde_json::from_str(&row.data)?;
 
-        if draft.reply.as_ref().is_some_and(|q| q.key == *target) {
-            let q = draft.reply.as_mut().unwrap();
-
+        let mut changed = false;
+        for q in draft.quotes_mut().filter(|q| q.key == *target) {
             q.preview.clear();
-
             q.availability = availability.clone();
-
+            changed = true;
+        }
+        if changed {
             execute(
                 c,
                 "UPDATE drafts SET data=? WHERE account=? AND chat=?",
@@ -435,34 +435,18 @@ fn merge_alias_in_transaction(
         worker::upsert_chats(c, a, vec![chat])?;
     }
 
-    let mut merged = if target_draft.text.is_empty()
-        && target_draft.reply.is_none()
-        && target_draft.attachment.is_none()
-    {
-        old_draft.clone()
-    } else {
-        target_draft.clone()
-    };
-
-    if !old_draft.text.is_empty()
-        && !target_draft.text.is_empty()
-        && old_draft.text != target_draft.text
-    {
-        merged.text = format!("{}\n\n{}", target_draft.text, old_draft.text);
-    }
-
-    if merged.attachment.is_none() {
-        merged.attachment = old_draft.attachment.clone();
-    }
+    let mut merged = target_draft.clone();
+    merged.origin.get_or_insert_with(|| ChatId(target.clone()));
+    merged.merge_from(&old_draft, &ChatId(old.clone()), false);
     merged.revision = old_draft
         .revision
         .max(target_draft.revision)
         .saturating_add(1);
-    if let Some(q) = &mut merged.reply {
+    for q in merged.quotes_mut() {
         quote(c, q)?;
     }
 
-    if !merged.text.is_empty() || merged.reply.is_some() || merged.attachment.is_some() {
+    if merged.has_content() {
         worker::save_draft(c, a, &target.clone().into(), &merged)?;
     }
 
@@ -481,7 +465,7 @@ fn merge_alias_in_transaction(
     {
         let mut d: Draft = serde_json::from_str(&row.data)?;
         let before = d.clone();
-        if let Some(q) = &mut d.reply {
+        for q in d.quotes_mut() {
             quote(c, q)?;
         }
         if d != before {

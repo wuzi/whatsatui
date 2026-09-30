@@ -45,13 +45,13 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 let mut parts=line.splitn(3,' ');let action=parts.next().unwrap_or("");let chat=parts.next().unwrap_or("");let rest=parts.next().unwrap_or("");
                 let (text,reply)=if action=="reply"{let mut p=rest.splitn(3,' ');let id=p.next().unwrap_or("");let sender=p.next().unwrap_or("");let text=p.next().unwrap_or("");(text,Some(Quote{key:MessageKey{account:a.clone(),chat:chat.into(),sender:sender.into(),id:id.into(),from_me:sender==a.0},preview:String::new(),availability:QuoteAvailability::Missing}))}else if action=="send"{(rest,None)}else{println!("Unknown command");continue;};
                 if chat.is_empty()||text.trim().is_empty(){println!("Conversation and text required");continue;}
-                serial+=1;commands.send(BackendCommand::PrepareText{request:RequestId(serial),chat:chat.into(),draft:Draft{text:text.into(),attachment:None,reply,revision:serial}}).await?;
+                serial+=1;commands.send(BackendCommand::PrepareText{request:RequestId(serial),chat:chat.into(),draft:Draft{text:text.into(),attachment:None,reply,revision:serial,..Default::default()}}).await?;
             }
             event=events.recv()=>match event{
                 Some(BackendEvent::AccountKnown(a))=>{store.recover_sends(a.clone()).await?;account=Some(a);println!("Account available");}
                 Some(BackendEvent::ConnectionChanged{state,reason})=>println!("{state:?}: {}",reason.unwrap_or_default()),
                 Some(BackendEvent::PairingQr{content,..})=>{let qr=qrcode::QrCode::new(content)?;println!("Link from WhatsApp > Linked devices:\n{}",qr.render::<qrcode::render::unicode::Dense1x2>().quiet_zone(true).build());}
-                Some(BackendEvent::Prepared{message,..})=>{store.stage_outgoing(message.clone()).await?;commands.send(BackendCommand::Transmit(message)).await?;}
+                Some(BackendEvent::Prepared{message,..})=>{let message=*message;store.stage_outgoing(message.clone()).await?;commands.send(BackendCommand::Transmit(message)).await?;}
                 Some(BackendEvent::PreparationFailed{reason,..})=>println!("{reason}"),
                 Some(BackendEvent::SendOutcome{key,state})=>{store.set_send_state(key,state).await?;println!("Send: {state:?}");}
                 Some(BackendEvent::StoreChanged(change))=>println!("Updated {} conversation(s)",change.chats.len()),

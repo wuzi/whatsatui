@@ -139,6 +139,8 @@ impl Default for Bindings {
         b.add(C::Composer, A::RemoveAttachment, "alt-a");
         b.add(C::Attachment, A::Open, "enter");
         b.add(C::Attachment, A::Back, "esc");
+        b.add(C::Attachment, A::Next, "down");
+        b.add(C::Attachment, A::Previous, "up");
         b.add(C::Chats, A::Open, "enter");
         b.add(C::Chats, A::Unread, "u");
         b.add(C::Messages, A::MessageActions, "enter");
@@ -322,7 +324,7 @@ fn allowed(c: Context, a: ActionId) -> bool {
     use {ActionId as A, Context as C};
     match c {
         C::Emoji => matches!(a, A::Open | A::Back | A::Next | A::Previous),
-        C::Attachment => matches!(a, A::Open | A::Back),
+        C::Attachment => matches!(a, A::Open | A::Back | A::Next | A::Previous),
         C::Global => a == A::Quit,
         C::Chats => matches!(
             a,

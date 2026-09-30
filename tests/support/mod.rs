@@ -18,6 +18,7 @@ pub fn draft(text: &str, revision: u64) -> Draft {
         text: text.into(),
         revision,
         reply: None,
+        ..Default::default()
     }
 }
 pub fn outbound(key: MessageKey, draft: Draft) -> OutboundText {

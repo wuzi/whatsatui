@@ -10,12 +10,20 @@ pub(super) fn render(
     if area.is_empty() {
         return;
     }
-    let border = block(
-        " Message ".into(),
-        view.focus == Focus::Composer,
-        view,
-        config,
-    );
+    let title = if view.draft.recovered.is_empty() {
+        " Message ".into()
+    } else {
+        let key = search::key(
+            config,
+            Context::Composer,
+            crate::config::bindings::ActionId::AttachImage,
+        );
+        format!(
+            " Message · {} saved drafts ({key}) ",
+            view.draft.recovered.len()
+        )
+    };
+    let border = block(title, view.focus == Focus::Composer, view, config);
     let mut inner = border.inner(area);
     frame.render_widget(border, area);
     if let Some(image) = &view.draft.attachment {

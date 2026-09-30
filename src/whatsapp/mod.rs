@@ -50,7 +50,7 @@ pub enum BackendEvent {
     StoreChanged(StoreChange),
     Prepared {
         request: RequestId,
-        message: OutboundText,
+        message: Box<OutboundText>,
     },
     PreparationFailed {
         request: RequestId,

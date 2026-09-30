@@ -7,6 +7,7 @@ impl App {
         }
         self.view.overlay = Some(Overlay::Attachment {
             editor: Editor::default(),
+            selected: 0,
             importing: None,
             error: None,
         });
@@ -14,6 +15,7 @@ impl App {
     pub(super) fn import_attachment(&mut self, effects: &mut Vec<Effect>) {
         let Some(Overlay::Attachment {
             editor,
+            selected,
             importing: None,
             ..
         }) = &self.view.overlay
@@ -22,6 +24,14 @@ impl App {
         };
         let path = editor.text().trim().to_owned();
         if path.is_empty() {
+            if let Some(chat) = &self.view.chat
+                && self.view.draft.restore(*selected, chat)
+            {
+                self.editor = Editor::new(self.view.draft.text.clone());
+                self.view.overlay = None;
+                self.view.notice = Some("Saved draft restored; review before sending".into());
+                self.remember();
+            }
             return;
         }
         let (Some(account), Some(chat)) = (self.view.account.clone(), self.view.chat.clone())

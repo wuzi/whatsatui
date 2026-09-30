@@ -102,7 +102,7 @@ pub enum StoreCompletion {
     },
     Staged {
         request: RequestId,
-        message: OutboundText,
+        message: Box<OutboundText>,
         result: Result<(), String>,
     },
     Changed {
@@ -123,6 +123,8 @@ use unicode_segmentation::UnicodeSegmentation;
 #[derive(Clone)]
 struct LocalDraft {
     data: Draft,
+    /// Last observed durable revision, separate from unsaved keystroke revisions.
+    stored_revision: u64,
     dirty: bool,
     edited_at: Instant,
     saving: Option<u64>,
@@ -303,10 +305,12 @@ impl App {
             self.view.draft.text = self.editor.text().into();
             self.view.draft.revision = self.view.draft.revision.saturating_add(1);
             let saving = self.drafts.get(&chat).and_then(|d| d.saving);
+            let stored_revision = self.drafts.get(&chat).map_or(0, |d| d.stored_revision);
             self.drafts.insert(
                 chat,
                 LocalDraft {
                     data: self.view.draft.clone(),
+                    stored_revision,
                     dirty: true,
                     edited_at: self.view.now,
                     saving,
@@ -369,9 +373,7 @@ impl App {
             .cloned()
             .map(|mut chat| {
                 if let Some(draft) = self.drafts.get(&chat.chat) {
-                    chat.has_draft = !draft.data.text.is_empty()
-                        || draft.data.reply.is_some()
-                        || draft.data.attachment.is_some();
+                    chat.has_draft = draft.data.has_content();
                 }
                 chat
             })
@@ -400,6 +402,19 @@ impl App {
             *selected = selected
                 .saturating_add_signed(delta)
                 .min(super::emoji::search(editor.text()).len().saturating_sub(1));
+            return;
+        }
+        if let Some(Overlay::Attachment {
+            selected,
+            importing,
+            ..
+        }) = &mut self.view.overlay
+        {
+            if importing.is_none() {
+                *selected = selected
+                    .saturating_add_signed(delta)
+                    .min(self.view.draft.recovered.len().saturating_sub(1));
+            }
             return;
         }
         if self.move_action_selection(delta) {
@@ -722,6 +737,7 @@ impl App {
                             attachment,
                             reply: message.quote,
                             revision: 0,
+                            ..Default::default()
                         },
                         true,
                         effects,
@@ -874,6 +890,7 @@ impl App {
                 editor,
                 importing,
                 error,
+                ..
             }) = &mut self.view.overlay
             {
                 if importing.is_none() {
@@ -972,6 +989,7 @@ impl App {
             }
             BackendEvent::StoreChanged(change) => self.changed(change, effects),
             BackendEvent::Prepared { request, message } => {
+                let message = *message;
                 if let Some(p) = self.pending.get_mut(&request) {
                     if !p.staging
                         && !self.quitting
@@ -1089,6 +1107,7 @@ impl App {
                                 chat.clone(),
                                 LocalDraft {
                                     data,
+                                    stored_revision: snapshot.draft.revision,
                                     dirty: changed,
                                     edited_at: self.view.now,
                                     saving: None,
@@ -1125,33 +1144,32 @@ impl App {
                                 search.chat = canonical.clone();
                                 search.invalidate(Some("Contact updated; search again"));
                             }
+                            // An import belongs to the identity selected when it began.
+                            if matches!(self.view.overlay, Some(Overlay::Attachment { .. })) {
+                                self.view.overlay = None;
+                                self.view.notice = Some(
+                                    "Contact updated; reopen the image picker to attach".into(),
+                                );
+                            }
                             let alias_draft = self.drafts.remove(&chat);
                             let canonical_draft = self.drafts.remove(&canonical);
                             let mut merged = snapshot.draft.clone();
+                            merged.origin.get_or_insert_with(|| canonical.clone());
                             let mut dirty = false;
-                            for local in [canonical_draft.as_ref(), alias_draft.as_ref()]
-                                .into_iter()
-                                .flatten()
-                            {
-                                merged.revision = merged.revision.max(local.data.revision);
-                                if local.dirty || local.data.revision > snapshot.draft.revision {
-                                    dirty = true;
-                                    retain_draft_text(&mut merged.text, &local.data.text);
-                                    if merged.attachment.is_none() {
-                                        merged.attachment = local.data.attachment.clone();
+                            for (source, local) in [
+                                (&canonical, canonical_draft.as_ref()),
+                                (&chat, alias_draft.as_ref()),
+                            ] {
+                                if let Some(local) = local {
+                                    merged.revision = merged.revision.max(local.data.revision);
+                                    if local.dirty || local.data.revision > snapshot.draft.revision
+                                    {
+                                        dirty = true;
+                                        merged.merge_from(&local.data, source, true);
                                     }
                                 }
                             }
-                            if let Some(local) = canonical_draft
-                                .as_ref()
-                                .filter(|d| d.dirty || d.data.revision > snapshot.draft.revision)
-                            {
-                                merged.reply = local.data.reply.clone();
-                            } else if merged.reply.is_none() {
-                                merged.reply =
-                                    alias_draft.as_ref().and_then(|d| d.data.reply.clone());
-                            }
-                            if let Some(q) = &mut merged.reply {
+                            for q in merged.quotes_mut() {
                                 if q.key.chat == chat {
                                     q.key.chat = canonical.clone();
                                 }
@@ -1168,12 +1186,15 @@ impl App {
                                 canonical.clone(),
                                 LocalDraft {
                                     data: merged,
+                                    stored_revision: snapshot.draft.revision,
                                     dirty,
                                     edited_at: self.view.now,
                                     saving: None,
                                 },
                             );
-                            if dirty {
+                            if !self.view.draft.recovered.is_empty() {
+                                self.view.notice = Some("Contact identities merged; saved drafts are in the image picker".into());
+                            } else if dirty {
                                 self.view.notice=Some("Contact identities merged; review the combined draft before sending".into());
                             }
                             self.view.chat = Some(canonical.clone());
@@ -1222,14 +1243,44 @@ impl App {
                             })
                         };
                         if let Some(local) = self.drafts.get_mut(&chat) {
-                            if let Some(q) = &mut local.data.reply {
-                                if let Some(stored) = snapshot.draft.reply.as_ref().filter(|r| {
-                                    r.key == q.key
-                                        && matches!(
-                                            r.availability,
-                                            QuoteAvailability::Deleted | QuoteAvailability::Expired
-                                        )
-                                }) {
+                            if local.dirty && snapshot.draft.revision > local.stored_revision {
+                                let before = local.data.clone();
+                                local.data.recover_from(&snapshot.draft, &chat);
+                                local.stored_revision = snapshot.draft.revision;
+                                if local.data != before {
+                                    local.data.revision = local
+                                        .data
+                                        .revision
+                                        .max(snapshot.draft.revision)
+                                        .saturating_add(1);
+                                    self.view.draft = local.data.clone();
+                                    self.editor = Editor::new(local.data.text.clone());
+                                    if !local.data.recovered.is_empty() {
+                                        self.view.notice = Some("Contact identities merged; saved drafts are in the image picker".into());
+                                    }
+                                }
+                            }
+                            for q in local.data.quotes_mut() {
+                                if let Some(stored) = snapshot
+                                    .draft
+                                    .reply
+                                    .iter()
+                                    .chain(
+                                        snapshot
+                                            .draft
+                                            .recovered
+                                            .iter()
+                                            .filter_map(|d| d.reply.as_ref()),
+                                    )
+                                    .find(|r| {
+                                        r.key == q.key
+                                            && matches!(
+                                                r.availability,
+                                                QuoteAvailability::Deleted
+                                                    | QuoteAvailability::Expired
+                                            )
+                                    })
+                                {
                                     *q = stored.clone();
                                 }
                                 if let Some(original) =
@@ -1250,6 +1301,8 @@ impl App {
                             }
                             self.view.draft.reply = local.data.reply.clone();
                             self.view.draft.attachment = local.data.attachment.clone();
+                            self.view.draft.origin = local.data.origin.clone();
+                            self.view.draft.recovered = local.data.recovered.clone();
                             self.view.draft.revision = local.data.revision;
                         }
                         if self
@@ -1263,6 +1316,7 @@ impl App {
                                 chat,
                                 LocalDraft {
                                     data: self.view.draft.clone(),
+                                    stored_revision: self.view.draft.revision,
                                     dirty: false,
                                     edited_at: self.view.now,
                                     saving: None,
@@ -1297,8 +1351,11 @@ impl App {
                     if d.saving == Some(revision) {
                         d.saving = None;
                     }
-                    if result.is_ok() && d.data.revision == revision {
-                        d.dirty = false;
+                    if result.is_ok() {
+                        d.stored_revision = d.stored_revision.max(revision);
+                        if d.data.revision == revision {
+                            d.dirty = false;
+                        }
                     }
                 }
                 if let Err(e) = result {
@@ -1319,6 +1376,7 @@ impl App {
                 message,
                 result,
             } => {
+                let message = *message;
                 let Some(pending) = self.pending.remove(&request) else {
                     return;
                 };
@@ -1331,10 +1389,13 @@ impl App {
                                 && local.data == message.draft
                             {
                                 local.data = Draft {
+                                    origin: local.data.origin.clone(),
+                                    recovered: local.data.recovered.clone(),
                                     revision: message.draft.revision + 1,
                                     ..Default::default()
                                 };
                                 local.dirty = false;
+                                local.stored_revision = local.data.revision;
                                 local.saving = None;
                                 if self.view.chat.as_ref() == Some(&message.key.chat) {
                                     self.view.draft = local.data.clone();
@@ -1518,21 +1579,4 @@ impl App {
         self.finish_shutdown(&mut effects);
         effects
     }
-}
-
-/// Preserve distinct complete draft texts. A store merge may already contain
-/// one local draft as a complete blank-line-delimited component.
-fn retain_draft_text(target: &mut String, text: &str) {
-    if text.is_empty()
-        || target == text
-        || target.starts_with(&format!("{text}\n\n"))
-        || target.ends_with(&format!("\n\n{text}"))
-        || target.contains(&format!("\n\n{text}\n\n"))
-    {
-        return;
-    }
-    if !target.is_empty() {
-        target.push_str("\n\n");
-    }
-    target.push_str(text);
 }

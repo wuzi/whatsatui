@@ -58,6 +58,18 @@ pub struct Draft {
     pub attachment: Option<Box<crate::media::outgoing::LocalImage>>,
     pub reply: Option<Quote>,
     pub revision: u64,
+    /// Original composer identity; retained through alias merges to reconcile edits.
+    #[serde(default)]
+    pub origin: Option<ChatId>,
+    #[serde(default)]
+    pub recovered: Vec<RecoveredDraft>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecoveredDraft {
+    pub origin: ChatId,
+    pub text: String,
+    pub attachment: Option<Box<crate::media::outgoing::LocalImage>>,
+    pub reply: Option<Quote>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OutboundText {
