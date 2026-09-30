@@ -54,4 +54,6 @@
 
 - [x] Write reducer/rendering tests for play/pause/replacement, captured menu targets, speed, stop, stale events/account change, expiry/deletion, playback across chat changes, unchanged drafts/composer keys, configured bindings, actual clipped mouse hits at 40x12 and 120x34. Observe RED then implement controls and runtime routing.
 - [x] Add an offline synthetic voice note and update usage/validation/example configuration. Run focused audio tests, then full `cargo test -j 2 -- --test-threads=2`, fmt and Clippy; expect all pass.
-- [ ] Commit; request one whole-branch review and fix actionable findings with regressions. Build release, run demo PTY + player smoke (null output), preserve logs, merge main, verify tested source, remove owned worktree/branch.
+- [x] Commit; request one whole-branch review and fix actionable findings with regressions. Build release, run demo PTY + player smoke (null output), preserve logs, merge main, verify tested source, remove owned worktree/branch.
+
+Completed locally: 278 automated tests, separate native mpv null-output test, fmt, Clippy, and optimized demo PTY checks pass. All three independent-review findings were reproduced and fixed. Main contains the tested source; the owned worktree/branch were removed after preserving and byte-verifying evidence under `.superpowers/sdd/2026-09-30-audio-playback/`. Nothing was pushed.
