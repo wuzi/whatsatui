@@ -25,12 +25,14 @@ pub enum ImageProtocol {
 #[serde(default, deny_unknown_fields)]
 pub struct MediaConfig {
     pub inline: bool,
+    pub avatars: bool,
     pub protocol: ImageProtocol,
 }
 impl Default for MediaConfig {
     fn default() -> Self {
         Self {
             inline: true,
+            avatars: true,
             protocol: ImageProtocol::Auto,
         }
     }

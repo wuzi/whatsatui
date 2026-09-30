@@ -96,7 +96,7 @@ fn unicode_wraps_keep_styles_and_controls_are_sanitized() {
     let styled: String = b
         .content
         .iter()
-        .filter(|c| c.modifier.contains(Modifier::BOLD))
+        .filter(|c| c.modifier.contains(Modifier::BOLD) && c.fg == ratatui::style::Color::Reset)
         .map(|c| c.symbol())
         .collect();
     assert_eq!(styled.replace(' ', ""), "界👩‍💻a\u{301}".repeat(18));

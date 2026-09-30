@@ -3,6 +3,7 @@ use crate::{config::Config, whatsapp::BackendEvent};
 use tokio::time::Instant;
 mod actions;
 mod attachments;
+mod navigation;
 mod search;
 mod stickers;
 #[derive(Clone, Debug)]
@@ -164,6 +165,8 @@ pub struct App {
     pub config: Config,
     view: ViewModel,
     editor: Editor,
+    visible_messages: Vec<MessageKey>,
+    timeline_tail_rows: usize,
     drafts: HashMap<ChatId, LocalDraft>,
     pending: HashMap<RequestId, PendingSend>,
     reading: std::collections::HashSet<ChatId>,
@@ -194,6 +197,7 @@ impl App {
                 chat: None,
                 messages: vec![],
                 selected_message: None,
+                timeline_anchor: None,
                 message_scroll: 0,
                 message_scroll_max: 0,
                 message_page_rows: 1,
@@ -217,6 +221,8 @@ impl App {
                 truecolor: true,
             },
             editor: Editor::default(),
+            visible_messages: vec![],
+            timeline_tail_rows: 0,
             drafts: HashMap::new(),
             pending: HashMap::new(),
             reading: Default::default(),
@@ -382,6 +388,9 @@ impl App {
         self.view.messages.clear();
         self.view.receipts.clear();
         self.view.selected_message = None;
+        self.view.timeline_anchor = None;
+        self.visible_messages.clear();
+        self.timeline_tail_rows = 0;
         self.view.message_scroll = 0;
         self.view.message_scroll_max = 0;
         self.view.at_bottom = true;
@@ -489,20 +498,8 @@ impl App {
                 }
             }
             Focus::Messages => {
-                if delta < 0 && self.view.message_scroll < self.view.message_scroll_max {
-                    self.view.message_scroll = self
-                        .view
-                        .message_scroll
-                        .saturating_add(delta.unsigned_abs())
-                        .min(self.view.message_scroll_max);
-                    self.reading_position();
-                    return;
-                }
-                if delta > 0 && self.view.message_scroll > 0 {
-                    self.view.message_scroll =
-                        self.view.message_scroll.saturating_sub(delta as usize);
-                    self.reading_position();
-                    return;
+                if self.view.at_bottom && delta < 0 {
+                    self.view.timeline_anchor = self.view.messages.last().map(|m| m.key.clone());
                 }
                 let i = self
                     .view
@@ -514,7 +511,15 @@ impl App {
                     .saturating_add_signed(delta)
                     .min(self.view.messages.len().saturating_sub(1));
                 self.view.selected_message = self.view.messages.get(next).map(|m| m.key.clone());
-                if next != i {
+                if next != i
+                    && self
+                        .view
+                        .selected_message
+                        .as_ref()
+                        .is_none_or(|k| !self.visible_messages.contains(k))
+                {
+                    self.view.timeline_anchor = self.view.selected_message.clone();
+                    self.timeline_tail_rows = 0;
                     self.view.message_scroll = 0;
                     self.view.message_scroll_max = 0;
                 }
@@ -540,6 +545,11 @@ impl App {
     fn reading_position(&mut self) {
         self.view.at_bottom = self.view.message_scroll == 0
             && !self.view.has_newer
+            && self
+                .view
+                .timeline_anchor
+                .as_ref()
+                .is_none_or(|k| self.view.messages.last().is_some_and(|m| &m.key == k))
             && self
                 .view
                 .messages
@@ -653,41 +663,13 @@ impl App {
             }
             A::Next => self.move_selection(1, effects),
             A::Previous => self.move_selection(-1, effects),
-            A::PageUp => self.move_selection(
-                if self.view.message_scroll < self.view.message_scroll_max {
-                    -(self.view.message_page_rows as isize)
-                } else {
-                    -20
-                },
-                effects,
-            ),
-            A::PageDown => {
-                let last = self.view.messages.last();
-                let on_last =
-                    last.is_some_and(|m| Some(&m.key) == self.view.selected_message.as_ref());
-                if on_last && self.view.has_newer && self.view.message_scroll == 0 {
-                    if let Some(m) = last {
-                        self.load_chat(
-                            Some(PageCursor {
-                                direction: PageDirection::After,
-                                created_at_ms: m.created_at_ms,
-                                key: m.key.clone(),
-                            }),
-                            effects,
-                        );
-                    }
-                } else {
-                    self.move_selection(
-                        if self.view.message_scroll > 0 {
-                            self.view.message_page_rows as isize
-                        } else {
-                            20
-                        },
-                        effects,
-                    );
-                }
-            }
+            A::ScrollUp => self.scroll_timeline(-1, effects),
+            A::ScrollDown => self.scroll_timeline(1, effects),
+            A::PageUp => self.scroll_timeline(-(self.view.message_page_rows as isize), effects),
+            A::PageDown => self.scroll_timeline(self.view.message_page_rows as isize, effects),
             A::Bottom => {
+                self.view.timeline_anchor = None;
+                self.timeline_tail_rows = 0;
                 self.view.message_scroll = 0;
                 self.view.at_bottom = true;
                 self.view.new_messages = 0;
@@ -1023,6 +1005,9 @@ impl App {
                     self.view.overlay = None;
                     self.view.receipts.clear();
                     self.view.selected_message = None;
+                    self.view.timeline_anchor = None;
+                    self.visible_messages.clear();
+                    self.timeline_tail_rows = 0;
                     self.list_request = None;
                     self.chat_request = None;
                     effects.push(Effect::RecoverAccount(account));
@@ -1305,14 +1290,24 @@ impl App {
                                     .map(|m| m.key.clone())
                                 })
                         };
-                        if self.view.selected_message != old {
+                        if self.view.selected_message != old
+                            || self
+                                .view
+                                .timeline_anchor
+                                .as_ref()
+                                .is_some_and(|k| !self.view.messages.iter().any(|m| &m.key == k))
+                        {
+                            self.view.timeline_anchor = if self.view.at_bottom {
+                                None
+                            } else {
+                                self.view.selected_message.clone()
+                            };
+                            self.visible_messages.clear();
+                            self.timeline_tail_rows = 0;
                             self.view.message_scroll = 0;
                             self.view.message_scroll_max = 0;
                         }
-                        self.view.at_bottom = self.view.message_scroll == 0
-                            && !self.view.has_newer
-                            && self.view.selected_message.as_ref()
-                                == self.view.messages.last().map(|m| &m.key);
+                        self.reading_position();
                         self.page_cursor = if self.view.at_bottom {
                             None
                         } else {
@@ -1633,7 +1628,11 @@ impl App {
                 }
             }
             Input::TimelineViewport(metrics) => {
-                if metrics.selected == self.view.selected_message {
+                if metrics.selected == self.view.selected_message
+                    && metrics.anchor == self.view.timeline_anchor
+                {
+                    self.visible_messages = metrics.fully_visible;
+                    self.timeline_tail_rows = metrics.tail_rows;
                     self.view.message_scroll_max = metrics.max_scroll;
                     self.view.message_page_rows = metrics.page_rows;
                     self.view.message_scroll = self.view.message_scroll.min(metrics.max_scroll);

@@ -48,6 +48,9 @@ pub struct MessageLinks {
 #[derive(Clone, Debug)]
 pub struct TimelineViewport {
     pub selected: Option<MessageKey>,
+    pub anchor: Option<MessageKey>,
+    pub tail_rows: usize,
+    pub fully_visible: Vec<MessageKey>,
     pub max_scroll: usize,
     pub page_rows: usize,
 }
@@ -59,7 +62,9 @@ pub struct ViewModel {
     pub chat: Option<ChatId>,
     pub messages: Vec<MessageRecord>,
     pub selected_message: Option<MessageKey>,
-    /// Wrapped rows above the selected message's end; its header stays pinned.
+    /// Bottom message anchor, independent of the action selection. None follows latest.
+    pub timeline_anchor: Option<MessageKey>,
+    /// Wrapped rows above the anchor's end.
     pub message_scroll: usize,
     pub message_scroll_max: usize,
     pub message_page_rows: usize,

@@ -505,7 +505,7 @@ fn long_message_navigation_reveals_start_middle_and_end() {
     press(&mut app, "tab");
     let mut seen = render_app(&mut app, 80, 24);
     for _ in 0..70 {
-        press(&mut app, "up");
+        press(&mut app, "K");
         seen.push_str(&render_app(&mut app, 80, 24));
     }
     assert!(seen.contains("ROW-00"), "opening text was inaccessible");

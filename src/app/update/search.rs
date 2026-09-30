@@ -58,6 +58,9 @@ impl App {
             self.view.message_scroll = 0;
             self.view.message_scroll_max = 0;
             self.view.selected_message = Some(hit.key.clone());
+            self.view.timeline_anchor = Some(hit.key.clone());
+            self.visible_messages.clear();
+            self.timeline_tail_rows = 0;
             self.load_chat(
                 Some(PageCursor {
                     direction: PageDirection::AtOrBefore,

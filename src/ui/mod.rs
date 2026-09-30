@@ -7,6 +7,7 @@ mod composer;
 mod emoji;
 pub mod images;
 pub mod layout;
+mod message_body;
 mod overlays;
 mod rich_text;
 mod search;
@@ -124,11 +125,17 @@ pub fn render_with_media(
 ) {
     images.begin_frame();
     avatars.begin_frame();
-    render_content(frame, view, config, images);
+    render_content(frame, view, config, images, avatars);
     images.end_frame();
     avatars.end_frame();
 }
-fn render_content(frame: &mut Frame, view: &ViewModel, config: &Config, images: &mut Images) {
+fn render_content(
+    frame: &mut Frame,
+    view: &ViewModel,
+    config: &Config,
+    images: &mut Images,
+    avatars: &mut Avatars,
+) {
     let area = frame.area();
     frame.render_widget(
         Block::default().style(
@@ -166,7 +173,7 @@ fn render_content(frame: &mut Frame, view: &ViewModel, config: &Config, images: 
         regions.header,
     );
     chat_list::render(frame, regions.chats, view, config);
-    timeline::render(frame, regions.messages, view, config, images);
+    timeline::render(frame, regions.messages, view, config, images, avatars);
     composer::render(frame, regions.composer, view, config, images);
     let second =
         view.notice

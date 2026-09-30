@@ -62,6 +62,8 @@ pub enum ActionId {
     Resend,
     PageUp,
     PageDown,
+    ScrollUp,
+    ScrollDown,
     Bottom,
     Confirm,
 }
@@ -98,6 +100,8 @@ impl ActionId {
             Self::Resend => "resend",
             Self::PageUp => "older",
             Self::PageDown => "newer",
+            Self::ScrollUp => "scroll up",
+            Self::ScrollDown => "scroll down",
             Self::Bottom => "latest",
             Self::Confirm => "confirm",
         }
@@ -174,6 +178,8 @@ impl Default for Bindings {
             (A::Resend, "R"),
             (A::PageUp, "pageup"),
             (A::PageDown, "pagedown"),
+            (A::ScrollUp, "K"),
+            (A::ScrollDown, "J"),
             (A::Bottom, "end"),
         ] {
             b.add(C::Messages, a, k);
