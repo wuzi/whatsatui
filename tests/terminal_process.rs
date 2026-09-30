@@ -167,6 +167,46 @@ fn demo_finds_chats_messages_and_unreads_then_restores_tty() {
     p.restored();
 }
 #[test]
+fn demo_attaches_images_picks_emoji_renders_kitty_and_restores_tty() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("terminal sticker.webp");
+    std::fs::write(&source, include_bytes!("fixtures/sticker.webp")).unwrap();
+    let mut command = binary();
+    command
+        .arg("--demo")
+        .env("TERM_PROGRAM", "ghostty")
+        .env_remove("TMUX")
+        .env_remove("SSH_CONNECTION");
+    let mut p = Process::launch(command);
+    p.wait_for("Alice");
+    p.master.write_all(b"\r\x0f").unwrap();
+    p.wait_for("Attach image");
+    p.master
+        .write_all(format!("\x1b[200~{}\x1b[201~\r", source.display()).as_bytes())
+        .unwrap();
+    p.wait_for("terminal sticker.webp");
+    p.wait_for("\x1b_G");
+    p.master
+        .write_all(b"\x1b[200~PTY image caption \x1b[201~\x05")
+        .unwrap();
+    p.wait_for("shortcodes");
+    p.master.write_all(b"\x1b[200~:rocket:\x1b[201~\r").unwrap();
+    p.wait_for("🚀");
+    p.master.write_all(b"\r").unwrap();
+    p.wait_for("response.");
+    // The automatic reply scrolls the image header out of view; select it.
+    p.master.write_all(b"\x1b[Zk").unwrap();
+    p.wait_for("read: 1");
+    p.master.write_all(b"\x10").unwrap();
+    p.wait_for("Switch chat");
+    p.master.write_all(b"\x1b[200~leo\x1b[201~\r").unwrap();
+    p.wait_for("hello.webp");
+    p.master.write_all(b"\x11").unwrap();
+    assert!(p.finish().success());
+    assert!(String::from_utf8_lossy(&p.output).contains("a=d,d=I"));
+    p.restored();
+}
+#[test]
 fn demo_downloads_then_explicitly_opens_media_and_restores_tty() {
     let dir = tempfile::tempdir().unwrap();
     let viewer = dir.path().join("xdg-open");

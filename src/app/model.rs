@@ -55,7 +55,7 @@ pub struct Quote {
 pub struct Draft {
     pub text: String,
     #[serde(default)]
-    pub attachment: Option<crate::media::outgoing::LocalImage>,
+    pub attachment: Option<Box<crate::media::outgoing::LocalImage>>,
     pub reply: Option<Quote>,
     pub revision: u64,
 }
@@ -87,7 +87,7 @@ pub enum ConnectionState {
 pub enum MessageBody {
     Text(String),
     LocalImage {
-        image: crate::media::outgoing::LocalImage,
+        image: Box<crate::media::outgoing::LocalImage>,
         caption: String,
     },
     Media(Box<crate::media::Attachment>),

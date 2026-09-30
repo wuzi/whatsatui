@@ -164,6 +164,12 @@ impl TerminalScreen {
         Ok(())
     }
 }
+impl Drop for TerminalScreen {
+    fn drop(&mut self) {
+        self.images.stop();
+        let _ = self.clean_images();
+    }
+}
 pub async fn run(mut app: App, store: Store, backend: BackendHandle) -> Result<(), AppError> {
     let guard = crate::terminal::TerminalGuard::enter()?;
     let terminal =

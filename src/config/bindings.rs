@@ -16,6 +16,7 @@ struct Binding {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Context {
+    Emoji,
     Attachment,
     Chats,
     Messages,
@@ -31,6 +32,7 @@ pub enum Context {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ActionId {
+    Emoji,
     AttachImage,
     RemoveAttachment,
     MessageActions,
@@ -64,6 +66,7 @@ pub(super) type Overrides = BTreeMap<Context, BTreeMap<ActionId, Vec<String>>>;
 impl ActionId {
     pub fn label(self) -> &'static str {
         match self {
+            Self::Emoji => "emoji",
             Self::AttachImage => "attach image",
             Self::RemoveAttachment => "remove image",
             Self::MessageActions => "actions",
@@ -124,6 +127,15 @@ impl Default for Bindings {
             }
         }
         b.add(C::Composer, A::AttachImage, "ctrl-o");
+        b.add(C::Composer, A::Emoji, "ctrl-e");
+        for (action, key) in [
+            (A::Open, "enter"),
+            (A::Back, "esc"),
+            (A::Next, "down"),
+            (A::Previous, "up"),
+        ] {
+            b.add(C::Emoji, action, key);
+        }
         b.add(C::Composer, A::RemoveAttachment, "alt-a");
         b.add(C::Attachment, A::Open, "enter");
         b.add(C::Attachment, A::Back, "esc");
@@ -215,6 +227,7 @@ impl Bindings {
                             | Context::Search
                             | Context::MessageSearch
                             | Context::Attachment
+                            | Context::Emoji
                     ) && matches!(key.code, KeyCode::Char(_))
                         && !key
                             .modifiers
@@ -234,6 +247,7 @@ impl Bindings {
             }
         }
         for context in [
+            Context::Emoji,
             Context::Attachment,
             Context::Chats,
             Context::Messages,
@@ -262,7 +276,13 @@ impl Bindings {
                 }
             }
             let mut required = vec![ActionId::Quit];
-            if matches!(context, Context::MessageActions | Context::MessageLinks) {
+            if matches!(
+                context,
+                Context::MessageActions
+                    | Context::MessageLinks
+                    | Context::Attachment
+                    | Context::Emoji
+            ) {
                 required.extend([ActionId::Open, ActionId::Back]);
             }
             if matches!(
@@ -301,6 +321,7 @@ impl Bindings {
 fn allowed(c: Context, a: ActionId) -> bool {
     use {ActionId as A, Context as C};
     match c {
+        C::Emoji => matches!(a, A::Open | A::Back | A::Next | A::Previous),
         C::Attachment => matches!(a, A::Open | A::Back),
         C::Global => a == A::Quit,
         C::Chats => matches!(
@@ -317,7 +338,8 @@ fn allowed(c: Context, a: ActionId) -> bool {
         ),
         C::Messages => !matches!(
             a,
-            A::AttachImage
+            A::Emoji
+                | A::AttachImage
                 | A::RemoveAttachment
                 | A::Quit
                 | A::Open
@@ -330,7 +352,8 @@ fn allowed(c: Context, a: ActionId) -> bool {
         ),
         C::Composer => matches!(
             a,
-            A::AttachImage
+            A::Emoji
+                | A::AttachImage
                 | A::RemoveAttachment
                 | A::FocusNext
                 | A::FocusPrevious

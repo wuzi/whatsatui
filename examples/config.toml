@@ -46,6 +46,9 @@ bottom = ["end"]
 
 # Printable characters always remain text in the composer/search.
 [bindings.composer]
+attach_image = ["ctrl-o"]
+remove_attachment = ["alt-a"]
+emoji = ["ctrl-e"]
 message_search = ["ctrl-f"]
 focus_next = ["tab"]
 focus_previous = ["shift-tab"]
@@ -94,3 +97,18 @@ open = ["enter"]
 next = ["down", "j"]
 previous = ["up", "k"]
 copy_text = ["y"]
+
+# Inline previews download visible images/stickers in the background.
+[media]
+inline = true
+protocol = "auto" # auto, kitty, halfblocks; tmux/SSH use halfblocks
+
+[bindings.attachment]
+open = ["enter"]
+back = ["esc"]
+
+[bindings.emoji]
+open = ["enter"]
+back = ["esc"]
+next = ["down"]
+previous = ["up"]

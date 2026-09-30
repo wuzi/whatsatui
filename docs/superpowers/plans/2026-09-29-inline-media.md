@@ -59,6 +59,6 @@ Files: `src/app/emoji.rs`, reducer/bindings, composer popup UI, demo/usage docs,
 
 Interfaces: searchable offline emoji results, modal editor + selected index, insert selected Unicode sequence at current composer caret and mark draft dirty.
 
-- [ ] Write and run failing tests for shortcode/name search, grapheme-safe insertion/cancel, literal typing, and no send on selection.
-- [ ] Implement picker, discoverable hints/help, complete docs, and exercise demo flows in a PTY.
+- [x] Write and run failing tests for shortcode/name search, grapheme-safe insertion/cancel, literal typing, and no send on selection.
+- [x] Implement picker, discoverable hints/help, complete docs, and exercise demo flows in a PTY.
 - [ ] Run fmt, Clippy all-targets with warnings denied, full tests, and release build serially. Review the complete diff, fix material findings with regression tests, integrate locally, preserve evidence.

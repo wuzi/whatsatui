@@ -91,8 +91,7 @@ pub fn encode_image(
         .message
         .extended_text_message
         .as_option_mut()
-        .map(|m| m.context_info.take())
-        .flatten();
+        .and_then(|m| m.context_info.take());
     let a = uploaded.attachment;
     encoded.message = wa::Message {
         image_message: MessageField::some(wa::message::ImageMessage {
@@ -135,13 +134,13 @@ mod tests {
     #[test]
     fn image_encoding_preserves_caption_quote_and_message_id() {
         let mut outbound = outgoing("120363000000001@g.us");
-        outbound.draft.attachment = Some(crate::media::outgoing::LocalImage {
+        outbound.draft.attachment = Some(Box::new(crate::media::outgoing::LocalImage {
             id: "0".repeat(64),
             filename: "photo.png".into(),
             size: 42,
             width: 300,
             height: 200,
-        });
+        }));
         let uploaded = UploadedImage {
             url: "https://mmg.whatsapp.net/v/photo".into(),
             media_key_timestamp: 123,

@@ -141,7 +141,7 @@ impl Images {
                 from_me: true,
             },
             body: MessageBody::LocalImage {
-                image: image.clone(),
+                image: Box::new(image.clone()),
                 caption: String::new(),
             },
             quote: None,
@@ -289,7 +289,7 @@ impl Images {
         tokio::spawn(async move {
             let result = if request.draft {
                 if let MessageBody::LocalImage { image, .. } = request.message.body {
-                    media::preview::load_local(image, store.data_dir().to_owned()).await
+                    media::preview::load_local(*image, store.data_dir().to_owned()).await
                 } else {
                     Err("No attached image".into())
                 }

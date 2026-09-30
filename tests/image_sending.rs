@@ -18,7 +18,7 @@ async fn attachment_only_draft_stages_and_survives_restart_without_replay() {
     let path = dir.path().join("chat.sqlite3");
     let store = Store::open(path.clone()).await.unwrap();
     let mut d = draft("", 3);
-    d.attachment = Some(image(dir.path()));
+    d.attachment = Some(Box::new(image(dir.path())));
     store
         .save_draft("test".into(), "chat".into(), d.clone())
         .await
@@ -124,7 +124,10 @@ fn attach_cancel_stale_import_and_attachment_only_send() {
         },
         tokio::time::Instant::now(),
     );
-    assert_eq!(app.view().draft.attachment.as_ref(), Some(&local));
+    assert_eq!(
+        app.view().draft.attachment.as_ref(),
+        Some(&Box::new(local.clone()))
+    );
     assert!(press(&mut app, "enter").iter().any(|e| matches!(e, Effect::Prepare {draft,..} if draft.attachment.is_some() && draft.text.is_empty())));
     press(&mut app, "alt-a");
     assert!(app.view().draft.attachment.is_none());
@@ -135,7 +138,7 @@ async fn staging_an_image_preserves_newer_caption_and_attachment_draft() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path().join("chat.sqlite3")).await.unwrap();
     let mut captured = draft("first caption", 4);
-    captured.attachment = Some(image(dir.path()));
+    captured.attachment = Some(Box::new(image(dir.path())));
     let mut newer = captured.clone();
     newer.revision = 5;
     newer.text = "next caption".into();
@@ -164,7 +167,7 @@ async fn alias_merge_keeps_an_image_only_draft() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path().join("chat.sqlite3")).await.unwrap();
     let mut d = draft("", 2);
-    d.attachment = Some(image(dir.path()));
+    d.attachment = Some(Box::new(image(dir.path())));
     store
         .save_draft("test".into(), "alias".into(), d.clone())
         .await

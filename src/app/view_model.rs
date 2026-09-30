@@ -9,6 +9,10 @@ pub enum Focus {
 }
 #[derive(Clone, Debug)]
 pub enum Overlay {
+    Emoji {
+        editor: Editor,
+        selected: usize,
+    },
     Attachment {
         editor: Editor,
         importing: Option<RequestId>,

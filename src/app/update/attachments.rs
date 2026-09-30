@@ -68,7 +68,7 @@ impl App {
         *importing = None;
         match result {
             Ok(image) => {
-                self.view.draft.attachment = Some(image);
+                self.view.draft.attachment = Some(Box::new(image));
                 self.view.overlay = None;
                 self.view.notice = None;
                 self.remember();

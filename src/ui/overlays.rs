@@ -94,6 +94,9 @@ fn key(config: &Config, context: Context, action: crate::config::bindings::Actio
 }
 pub(super) fn render(frame: &mut Frame, area: Rect, view: &ViewModel, config: &Config) {
     match &view.overlay {
+        Some(Overlay::Emoji { editor, selected }) => {
+            super::emoji::render(frame, area, view, config, editor, *selected)
+        }
         Some(Overlay::Attachment {
             editor,
             importing,

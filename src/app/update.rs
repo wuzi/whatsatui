@@ -232,6 +232,7 @@ impl App {
                         | Context::Search
                         | Context::MessageSearch
                         | Context::Attachment
+                        | Context::Emoji
                 ),
             },
             Event::Paste(_) | Event::Resize(..) | Event::FocusGained | Event::FocusLost => true,
@@ -252,6 +253,7 @@ impl App {
     }
     fn context(&self) -> Context {
         match &self.view.overlay {
+            Some(Overlay::Emoji { .. }) => Context::Emoji,
             Some(Overlay::Attachment { .. }) => Context::Attachment,
             Some(Overlay::MessageActions(_)) => Context::MessageActions,
             Some(Overlay::MessageLinks(_)) => Context::MessageLinks,
@@ -394,6 +396,12 @@ impl App {
             .and_then(|k| self.view.messages.iter().find(|m| &m.key == k))
     }
     fn move_selection(&mut self, delta: isize, effects: &mut Vec<Effect>) {
+        if let Some(Overlay::Emoji { editor, selected }) = &mut self.view.overlay {
+            *selected = selected
+                .saturating_add_signed(delta)
+                .min(super::emoji::search(editor.text()).len().saturating_sub(1));
+            return;
+        }
         if self.move_action_selection(delta) {
             return;
         }
@@ -506,6 +514,14 @@ impl App {
             return;
         }
         match action {
+            A::Emoji => {
+                if !self.view.loading && self.view.chat.is_some() {
+                    self.view.overlay = Some(Overlay::Emoji {
+                        editor: Editor::default(),
+                        selected: 0,
+                    });
+                }
+            }
             A::AttachImage => self.open_attachment(),
             A::RemoveAttachment => {
                 if self.view.draft.attachment.take().is_some() {
@@ -613,6 +629,16 @@ impl App {
                 }
             }
             A::Open => {
+                if let Some(Overlay::Emoji { editor, selected }) = &self.view.overlay {
+                    let emoji = super::emoji::search(editor.text())
+                        .get(*selected)
+                        .map(|e| e.as_str().to_owned());
+                    if let Some(emoji) = emoji {
+                        self.view.overlay = None;
+                        self.edit_current(EditAction::Insert(emoji));
+                    }
+                    return;
+                }
                 if matches!(self.view.overlay, Some(Overlay::Attachment { .. })) {
                     self.import_attachment(effects);
                     return;
@@ -840,7 +866,11 @@ impl App {
             _ => None,
         };
         if let Some(edit) = edit {
-            if let Some(Overlay::Attachment {
+            if let Some(Overlay::Emoji { editor, selected }) = &mut self.view.overlay {
+                if super::search::edit_query(editor, edit) {
+                    *selected = 0;
+                }
+            } else if let Some(Overlay::Attachment {
                 editor,
                 importing,
                 error,

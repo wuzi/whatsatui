@@ -34,13 +34,15 @@ whatsapp-tui
 - Unicode composition, multiline paste, quoted replies, and persistent per-chat drafts.
 - Styled message text and captions: emphasis, code, quotes, and lists.
 - A message action menu, original-text copying, and an explicit web-link picker.
-- Explicit downloads for received images/documents, with a separate action to open a saved file.
+- Inline images and stickers, with Ghostty/Kitty graphics and a half-block fallback.
+- Image attachments with captions, persistent drafts, and a searchable Unicode emoji picker.
+- Verified downloads for received images, stickers, and documents, with a separate viewer action.
 - Local history, unread counts, delivery states, and known group receipt counts.
 - Durable outgoing attempts before transmission, with explicit confirmation for resending uncertain attempts.
 - Phone-number/LID reconciliation, edits, deletion/expiry placeholders, and bounded message pages.
 - Configurable colors and scoped bindings; layouts for ordinary and narrow terminals.
 
-Images and documents show their type, filename when supplied, size, and caption. Other media remains a placeholder. Sending media, inline image previews, calls, reactions, group management, statuses, and newsletters are outside this iteration. History is limited to what WhatsApp syncs and what this client has cached.
+Images and stickers load previews within the conversation; animated WebP shows its first frame. Documents retain download/open actions. Sending documents, sticker packs, animation playback, calls, reactions, group management, statuses, and newsletters remain outside this iteration. History is limited to what WhatsApp syncs and what this client has cached.
 
 ## Main controls
 
@@ -51,6 +53,9 @@ Images and documents show their type, filename when supplied, size, and caption.
 | Enter in Chats | Open the composer |
 | Enter in Composer | Send |
 | Alt-Enter | Insert a newline |
+| Ctrl-O in Composer | Attach an image by path |
+| Alt-A in Composer | Remove the attached image |
+| Ctrl-E in Composer | Search and insert an emoji |
 | Esc | Return to the previous pane or close an overlay |
 | / in lists, Ctrl-P | Fuzzy chat/contact switcher |
 | u in Chats, Ctrl-U in switcher | Open unread chats / toggle All and Unread |
@@ -79,6 +84,7 @@ Defaults:
 - History/drafts: `~/.local/share/whatsapp-tui/chat.sqlite3`
 - Linked-device credentials: `~/.local/share/whatsapp-tui/session.sqlite3`
 - Downloaded attachments: `~/.local/share/whatsapp-tui/media/`
+- Prepared image snapshots: `~/.local/share/whatsapp-tui/outgoing/`
 
 Absolute `XDG_CONFIG_HOME` and `XDG_DATA_HOME` override those bases. `--config PATH` and `--data-dir PATH` select explicit locations. Copy [examples/config.toml](examples/config.toml) to customize the palette and keys.
 
@@ -88,7 +94,7 @@ See [usage and recovery](docs/usage.md), [design](docs/superpowers/specs/2026-09
 
 ## Next iterations
 
-The [navigation plan](docs/superpowers/plans/2026-09-29-navigation.md) applies ideas from [Concord's fuzzy switcher, search, and unread inbox](https://github.com/chojs23/concord#features) to this app's pane controls. The [message reading and actions plan](docs/superpowers/plans/2026-09-29-message-actions.md) adds formatting, clipboard support, and a link picker. The [received-media plan](docs/superpowers/plans/2026-09-29-received-media.md) adds downloads and external viewers. Real-account pairing, restoration, messaging, and media acceptance remain the next step before relying on the client daily; sending attachments and inline previews can follow.
+The [navigation plan](docs/superpowers/plans/2026-09-29-navigation.md) applies ideas from [Concord's fuzzy switcher, search, and unread inbox](https://github.com/chojs23/concord#features) to this app's pane controls. The [message reading and actions plan](docs/superpowers/plans/2026-09-29-message-actions.md) adds formatting, clipboard support, and a link picker. The [received-media plan](docs/superpowers/plans/2026-09-29-received-media.md) adds downloads and external viewers. The [inline media and emoji plan](docs/superpowers/plans/2026-09-29-inline-media.md) adds previews, image sending, and emoji search. Real-account media acceptance and visual checks in your Ghostty session remain the next validation step.
 
 ## Development
 

@@ -43,3 +43,12 @@ Scan the displayed QR from WhatsApp → Linked devices. Type `chats` for cached 
 No automated tests or CI jobs send messages to contacts. Live release acceptance remains outstanding until this table is updated with actual observed results.
 
 The upstream durability hook runs before acknowledgement for eligible inbound messages. Event-only placeholder recoveries follow the event ingestion path; newsletters are outside scope. Disk-full failures can also prevent upstream replay buffers from being written. Local transactions and idempotent replay improve recovery; they do not establish exactly-once end-to-end delivery. Never infer server acceptance solely from a locally persisted outgoing attempt.
+
+
+## Inline media and emoji verification
+
+The inline-media iteration passes 178 synthetic tests and Clippy with warnings denied. Tests cover sticker/view-once normalization, corrupt/oversized decoding, verified cache reuse and stale/deleted bodies, clipping/resize, Ghostty protocol selection, private immutable JPEG snapshots, persisted attachment-only drafts and restart uncertainty, newer draft preservation, image-only alias drafts, caption/quote/message-ID encoding, upload failure/account change/missing snapshots, cancellable HTTP, and grapheme-safe emoji insertion. A Linux PTY exercises Ctrl-O attachment, Ctrl-E shortcode search, image-plus-emoji sending, group receipt display, received stickers, Kitty upload/delete sequences, and terminal restoration. This verifies protocol output, not actual Ghostty pixels. No real WhatsApp account or CDN was used.
+
+Native image uploads use asynchronous buffered HTTP, with a 60-second overall deadline and bounded native command concurrency; image decode/preparation is serialized to bound peak memory. Received previews use the existing cancellable worker and private verified cache. Prepared outgoing snapshots have a separate bounded folder and are retained for draft recovery/resending.
+
+Pending live acceptance: send PNG/JPEG/WebP input to a test contact/group, confirm captions and quotes on a phone, receive static/animated stickers, inspect actual Ghostty clipping/resize/overlays, interrupt an upload, and restart with an image draft. Animated previews intentionally show a still frame; standard emoji use the terminal font.

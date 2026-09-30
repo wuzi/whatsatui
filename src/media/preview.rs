@@ -73,7 +73,7 @@ pub async fn load(
         {
             return Err("Image changed or expired".into());
         }
-        let result = load_local(image.clone(), store.data_dir().to_owned()).await?;
+        let result = load_local(*image.clone(), store.data_dir().to_owned()).await?;
         check_cancel(&cancel)?;
         if store
             .get_message(message.key.clone())

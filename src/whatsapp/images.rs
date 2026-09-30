@@ -179,7 +179,7 @@ mod tests {
             },
             draft: Draft {
                 text: "Caption 😀".into(),
-                attachment: Some(local),
+                attachment: Some(Box::new(local)),
                 ..Default::default()
             },
             created_at_ms: 0,

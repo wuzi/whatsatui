@@ -1,4 +1,5 @@
 pub mod editor;
+pub mod emoji;
 pub mod input;
 pub mod model;
 pub mod search;
