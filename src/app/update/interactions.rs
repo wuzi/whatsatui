@@ -237,3 +237,90 @@ impl App {
         }
     }
 }
+
+impl App {
+    pub(super) fn jump_to_quote(&mut self, effects: &mut Vec<Effect>) {
+        let Some(message) = self.action_message() else {
+            return;
+        };
+        let Some(quote) = message.quote else {
+            self.view.notice = Some("This message has no quoted original".into());
+            return;
+        };
+        if quote.key.account != message.key.account || quote.key.chat != message.key.chat {
+            self.view.notice = Some("The quoted original is from another conversation".into());
+            return;
+        }
+        if matches!(
+            quote.availability,
+            QuoteAvailability::Deleted | QuoteAvailability::Expired
+        ) {
+            self.view.notice = Some("The quoted original was deleted or expired".into());
+            return;
+        }
+        let request = self.request();
+        self.original_request = Some((request, message.key, quote.key.clone()));
+        effects.push(Effect::LoadOriginal {
+            request,
+            key: quote.key,
+        });
+    }
+    pub(super) fn original_loaded(
+        &mut self,
+        request: RequestId,
+        key: MessageKey,
+        result: Result<Option<Box<MessageRecord>>, String>,
+        effects: &mut Vec<Effect>,
+    ) {
+        let Some((expected, source, target)) = &self.original_request else {
+            return;
+        };
+        if *expected != request || target != &key {
+            return;
+        }
+        let valid = self.view.account.as_ref() == Some(&source.account)
+            && self.view.chat.as_ref() == Some(&source.chat);
+        self.original_request = None;
+        if !valid {
+            return;
+        }
+        let original = match result {
+            Ok(Some(m))
+                if self.view.account.as_ref() == Some(&m.key.account)
+                    && self.view.chat.as_ref() == Some(&m.key.chat)
+                    && !matches!(m.body, MessageBody::Deleted | MessageBody::Expired)
+                    && !m
+                        .expires_at_ms
+                        .is_some_and(|at| at <= chrono::Utc::now().timestamp_millis()) =>
+            {
+                m
+            }
+            Err(e) => {
+                self.view.notice = Some(e);
+                return;
+            }
+            _ => {
+                self.view.notice =
+                    Some("Original is missing from local history, deleted, or expired".into());
+                return;
+            }
+        };
+        self.view.overlay = None;
+        self.focus(Focus::Messages, effects);
+        self.view.at_bottom = false;
+        self.view.message_scroll = 0;
+        self.view.message_scroll_max = 0;
+        self.view.selected_message = Some(original.key.clone());
+        self.view.timeline_anchor = Some(original.key.clone());
+        self.visible_messages.clear();
+        self.timeline_tail_rows = 0;
+        self.load_chat(
+            Some(PageCursor {
+                direction: PageDirection::AtOrBefore,
+                created_at_ms: original.created_at_ms,
+                key: original.key,
+            }),
+            effects,
+        );
+    }
+}

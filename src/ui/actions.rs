@@ -33,6 +33,7 @@ pub(super) fn menu(
         .into_iter()
         .map(|action| {
             let label = match action {
+                A::JumpToQuote => "Go to quoted original",
                 A::React => "React / change reaction",
                 A::Reactions => "View reactions",
                 A::EditMessage => "Edit message",

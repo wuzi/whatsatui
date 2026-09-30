@@ -24,6 +24,7 @@ async fn search_is_literal_unicode_and_scoped() {
     };
     let mut quote = message(key("chat", "alice", "quote"), "thanks");
     quote.quote = Some(Quote {
+        media_kind: None,
         key: key("chat", "alice", "missing"),
         preview: "café".into(),
         availability: QuoteAvailability::Available,

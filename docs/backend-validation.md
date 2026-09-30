@@ -91,3 +91,12 @@ The user confirmed conversation profile photos looked good in their Ghostty sess
 The sidebar iteration passes **225 synthetic tests**, formatting and Clippy with warnings denied. New checks cover actual decoded sidebar pixels, group identity, fetching only complete visible rows across scrolling, avatar click targets, hidden/disabled-photo cleanup, and badge visibility with long names. One independent review found no actionable issues. Automated checks use synthetic photos and demo data; no live profile fetches or messages were performed by the agent.
 
 The optimized demo also passed clicking a sidebar avatar to switch conversations, opening message actions, resizing 80×24 → 40×13 → 120×32, mouse Help/close, and terminal restoration. The smoke harness waits for each resized frame before sending its next action.
+
+
+## Reactions, sent-text editing, and media replies
+
+The local suite now passes **254 tests**. New coverage includes live and historical reaction normalization, sender-relative target ownership, replacement/removal ordering, pre-original delivery, PN/LID merges, account isolation, expiry/deletion and migration of a version-2 database. Outgoing mutations are committed before the transport runs, wait for a matching server acknowledgement, preserve the original on rejection/timeout, and recover interrupted work without automatic resend.
+
+UI checks cover stable reaction targets during arrivals, counts and participant lists, reaction-row mouse targets at 40×16 and 120×35, edit save/cancel/failure, concurrent edits and old-account responses, unchanged normal drafts, remapped controls, and printable composer keys. Media replies have typed quote bodies and bounded previews. Quote jumps load cached pages by identity, ignore stale user navigation, and survive incoming messages during the lookup. Full live-service acceptance remains user-operated; these tests never send through a linked account.
+
+Formatting and Clippy with warnings denied pass. The final independent review and optimized demo verification are recorded below once complete.

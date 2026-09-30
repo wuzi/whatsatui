@@ -178,11 +178,9 @@ pub(super) fn normalize(
                 .participant
                 .clone()
                 .unwrap_or_else(|| key.sender.0.clone());
-            let text = ctx
-                .quoted_message
-                .as_option()
-                .and_then(|m| m.text_content());
+            let summary = ctx.quoted_message.as_option().and_then(quoted_summary);
             Quote {
+                media_kind: summary.as_ref().and_then(|(_, kind)| *kind),
                 key: MessageKey {
                     account: key.account.clone(),
                     chat: ctx
@@ -194,8 +192,14 @@ pub(super) fn normalize(
                     id: id.as_str().into(),
                     from_me: sender == key.account.0,
                 },
-                preview: text.unwrap_or("").graphemes(true).take(160).collect(),
-                availability: if text.is_some() {
+                preview: summary
+                    .as_ref()
+                    .map(|(text, _)| text.as_str())
+                    .unwrap_or("")
+                    .graphemes(true)
+                    .take(160)
+                    .collect(),
+                availability: if summary.is_some() {
                     QuoteAvailability::Available
                 } else if ctx.quoted_message.is_set() {
                     QuoteAvailability::Unsupported
@@ -718,5 +722,77 @@ mod edit_identity_tests {
         };
         assert_eq!(key.sender.0, "222@s.whatsapp.net");
         assert!(!key.from_me);
+    }
+}
+
+fn quoted_summary(payload: &wa::Message) -> Option<(String, Option<crate::media::AttachmentKind>)> {
+    use crate::media::AttachmentKind as K;
+    if payload.is_view_once() {
+        return None;
+    }
+    let base = payload.get_base_message();
+    if let Some(text) = base.text_content() {
+        return Some((text.into(), None));
+    }
+    let (kind, caption) = if let Some(image) = base.image_message.as_option() {
+        (K::Image, image.caption.as_deref())
+    } else if base.sticker_message.is_set() {
+        (K::Sticker, None)
+    } else {
+        let document = base.document_message.as_option()?;
+        (
+            K::Document,
+            document
+                .caption
+                .as_deref()
+                .or(document.file_name.as_deref())
+                .or(document.title.as_deref()),
+        )
+    };
+    let label = format!("[{}]", kind.label());
+    let text = match caption.filter(|s| !s.is_empty()) {
+        Some(s) if s.starts_with(&label) => s.to_owned(),
+        Some(s) => format!("{label} {s}"),
+        None => label,
+    };
+    Some((text, Some(kind)))
+}
+
+#[cfg(test)]
+mod media_quote_tests {
+    use super::*;
+    use whatsapp_rust::prelude::{MessageBuilderExt, MessageField};
+    #[test]
+    fn incoming_captionless_sticker_quote_keeps_identity_and_kind() {
+        let context = wa::ContextInfo {
+            stanza_id: Some("sticker-original".into()),
+            participant: Some("222@s.whatsapp.net".into()),
+            quoted_message: MessageField::some(wa::Message {
+                sticker_message: MessageField::some(wa::message::StickerMessage::default()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let key = MessageKey {
+            account: "111@s.whatsapp.net".into(),
+            chat: "group@g.us".into(),
+            sender: "333@s.whatsapp.net".into(),
+            id: "reply".into(),
+            from_me: false,
+        };
+        let MessageChange::Upsert(m) = normalize(
+            key,
+            &wa::Message::text_with_context("nice sticker", context),
+            1,
+            None,
+        ) else {
+            panic!()
+        };
+        let q = m.quote.unwrap();
+        assert_eq!(q.preview, "[sticker]");
+        assert_eq!(q.key.id.0, "sticker-original");
+        assert_eq!(q.key.sender.0, "222@s.whatsapp.net");
+        assert_eq!(q.availability, QuoteAvailability::Available);
+        assert_eq!(q.media_kind, Some(crate::media::AttachmentKind::Sticker));
     }
 }

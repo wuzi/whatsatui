@@ -7,6 +7,7 @@ pub enum Target {
     Chat(ChatId),
     Message(MessageKey),
     Reactions(MessageKey),
+    Quote(MessageKey),
     Composer(usize),
     Query(usize),
     Menu(usize),

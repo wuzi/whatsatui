@@ -34,6 +34,7 @@ pub enum Context {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ActionId {
+    JumpToQuote,
     React,
     Reactions,
     RemoveReaction,
@@ -76,6 +77,7 @@ pub(super) type Overrides = BTreeMap<Context, BTreeMap<ActionId, Vec<String>>>;
 impl ActionId {
     pub fn label(self) -> &'static str {
         match self {
+            Self::JumpToQuote => "quoted original",
             Self::React => "react",
             Self::Reactions => "view reactions",
             Self::RemoveReaction => "remove reaction",
@@ -122,6 +124,7 @@ impl Default for Bindings {
         let mut b = Self { entries: vec![] };
         b.add(C::Global, A::Quit, "ctrl-q");
         for c in [C::Messages, C::MessageActions] {
+            b.add(c, A::JumpToQuote, "q");
             for (a, k) in [(A::React, "a"), (A::Reactions, "i"), (A::EditMessage, "e")] {
                 b.add(c, a, k);
             }
@@ -451,7 +454,8 @@ fn allowed(c: Context, a: ActionId) -> bool {
         C::MessageSearch => matches!(a, A::Back | A::Open | A::Next | A::Previous),
         C::MessageActions => matches!(
             a,
-            A::React
+            A::JumpToQuote
+                | A::React
                 | A::Reactions
                 | A::EditMessage
                 | A::Back

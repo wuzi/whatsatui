@@ -27,16 +27,18 @@ pub fn available(message: &MessageRecord, now_ms: i64) -> Vec<crate::config::bin
             actions.push(A::OpenLinks);
         }
     }
-    if matches!(message.body, MessageBody::Text(_)) && !actions.is_empty() {
+    if quote(message, now_ms).is_some() {
         actions.push(A::Reply);
-        if message.key.from_me
-            && matches!(
-                message.send_state,
-                Some(SendState::Failed | SendState::Unconfirmed)
-            )
-        {
-            actions.push(A::Resend);
-        }
+    }
+    if matches!(message.body, MessageBody::Text(_))
+        && !actions.is_empty()
+        && message.key.from_me
+        && matches!(
+            message.send_state,
+            Some(SendState::Failed | SendState::Unconfirmed)
+        )
+    {
+        actions.push(A::Resend);
     }
     if matches!(message.body, MessageBody::LocalImage { .. })
         && message.key.from_me
@@ -46,6 +48,13 @@ pub fn available(message: &MessageRecord, now_ms: i64) -> Vec<crate::config::bin
         )
     {
         actions.push(A::Resend);
+    }
+    if message
+        .quote
+        .as_ref()
+        .is_some_and(|q| q.key.account == message.key.account && q.key.chat == message.key.chat)
+    {
+        actions.push(A::JumpToQuote);
     }
     if can_react(message, now_ms) {
         actions.extend([A::React, A::Reactions]);
@@ -118,4 +127,57 @@ pub fn can_edit(message: &MessageRecord, now_ms: i64) -> bool {
         && can_react(message, now_ms)
         && matches!(message.body, MessageBody::Text(_))
         && (0..900_000).contains(&now_ms.saturating_sub(message.created_at_ms))
+}
+
+pub fn quote(message: &MessageRecord, now_ms: i64) -> Option<crate::app::model::Quote> {
+    use crate::{
+        app::model::{Quote, QuoteAvailability},
+        media::AttachmentKind,
+    };
+    use unicode_segmentation::UnicodeSegmentation;
+    if !can_react(message, now_ms) {
+        return None;
+    }
+    let (preview, media_kind) = match &message.body {
+        MessageBody::Text(text) => (text.clone(), None),
+        MessageBody::Media(a) => (
+            format!(
+                "[{}]{}",
+                a.kind.label(),
+                a.caption
+                    .as_deref()
+                    .filter(|s| !s.is_empty())
+                    .or(a.filename.as_deref())
+                    .map(|s| format!(" {s}"))
+                    .unwrap_or_default()
+            ),
+            Some(a.kind),
+        ),
+        MessageBody::LocalImage { image, caption } => {
+            let kind = if image.sticker.is_some() {
+                AttachmentKind::Sticker
+            } else {
+                AttachmentKind::Image
+            };
+            (
+                format!(
+                    "[{}]{}",
+                    kind.label(),
+                    if caption.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" {caption}")
+                    }
+                ),
+                Some(kind),
+            )
+        }
+        _ => return None,
+    };
+    Some(Quote {
+        key: message.key.clone(),
+        preview: preview.graphemes(true).take(160).collect(),
+        availability: QuoteAvailability::Available,
+        media_kind,
+    })
 }

@@ -35,12 +35,13 @@ fn encode_base(outbound: &OutboundText) -> Result<EncodedText, BackendError> {
         } else {
             "[message unavailable]"
         };
+        let quoted = quoted_body(quote, preview);
         let context = whatsapp_rust::wacore::proto_helpers::build_quote_context_with_info(
             quote.key.id.0.clone(),
             &sender,
             &to,
             &to,
-            &wa::Message::text(preview),
+            &quoted,
         );
         wa::Message::text_with_context(outbound.draft.text.clone(), context)
     } else {
@@ -174,6 +175,34 @@ pub fn classify_transport_result<T>(result: &Result<T, SendError>) -> SendState 
     }
 }
 
+fn quoted_body(quote: &Quote, preview: &str) -> wa::Message {
+    use crate::media::AttachmentKind;
+    if quote.availability != QuoteAvailability::Available {
+        return wa::Message::text(preview);
+    }
+    match quote.media_kind {
+        Some(AttachmentKind::Image) => wa::Message {
+            image_message: MessageField::some(wa::message::ImageMessage {
+                caption: Some(preview.into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        Some(AttachmentKind::Sticker) => wa::Message {
+            sticker_message: MessageField::some(wa::message::StickerMessage::default()),
+            ..Default::default()
+        },
+        Some(AttachmentKind::Document) => wa::Message {
+            document_message: MessageField::some(wa::message::DocumentMessage {
+                title: Some(preview.into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        None => wa::Message::text(preview),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -239,6 +268,7 @@ mod tests {
                 attachment: None,
                 text: "  hello\nworld  ".into(),
                 reply: Some(Quote {
+                    media_kind: None,
                     key,
                     preview: "previous text".into(),
                     availability: QuoteAvailability::Available,

@@ -56,6 +56,7 @@ async fn expiry_removes_all_previews() {
     let mut m = message(k.clone(), "expired secret");
     m.expires_at_ms = Some(2000);
     let quote = Quote {
+        media_kind: None,
         key: k,
         preview: "expired secret".into(),
         availability: QuoteAvailability::Available,
@@ -433,6 +434,7 @@ async fn transmit_refreshes_a_quote_expired_after_staging() {
     s.apply_batch(batch(vec![original.clone()])).await.unwrap();
     let mut d = draft("reply", 1);
     d.reply = Some(Quote {
+        media_kind: None,
         key: original.key,
         preview: "secret".into(),
         availability: QuoteAvailability::Available,

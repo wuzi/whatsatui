@@ -170,3 +170,40 @@ async fn equal_timestamp_removal_wins_and_expiry_scrubs_reactions() {
             .is_empty()
     );
 }
+
+#[tokio::test]
+async fn version_two_database_migrates_without_losing_saved_drafts() {
+    use diesel::{Connection, RunQueryDsl, connection::SimpleConnection};
+    let d = tempfile::tempdir().unwrap();
+    let path = d.path().join("db");
+    let mut db = diesel::SqliteConnection::establish(path.to_str().unwrap()).unwrap();
+    db.batch_execute(include_str!("../migrations/00000000000001_initial/up.sql"))
+        .unwrap();
+    db.batch_execute(include_str!(
+        "../migrations/00000000000002_draft_barrier/up.sql"
+    ))
+    .unwrap();
+    diesel::sql_query("INSERT INTO drafts(account,chat,revision,data) VALUES('test','chat',3,?)")
+        .bind::<diesel::sql_types::Text, _>(
+            serde_json::to_string(&draft("saved before upgrade", 3)).unwrap(),
+        )
+        .execute(&mut db)
+        .unwrap();
+    drop(db);
+    let s = Store::open(path).await.unwrap();
+    let m = message(key("chat", "alice", "one"), "hello");
+    apply(
+        &s,
+        vec![
+            MessageChange::Upsert(m.clone()),
+            reaction(m.key, "test", "👍", 10),
+        ],
+    )
+    .await;
+    let snap = s
+        .snapshot(account("test"), "chat".into(), None)
+        .await
+        .unwrap();
+    assert_eq!(snap.draft.text, "saved before upgrade");
+    assert_eq!(snap.interactions.reactions[0].emoji, "👍");
+}

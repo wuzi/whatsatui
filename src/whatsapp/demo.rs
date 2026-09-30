@@ -134,11 +134,24 @@ async fn initialize(store: &Store) -> Result<StoreChange, BackendError> {
     let mut sticker = message("leo@demo", "leo@demo", "l-sticker", "", 35_000);
     sticker.body = MessageBody::Media(Box::new(sticker_attachment()));
     messages.push(sticker);
+    let mut changes = messages
+        .into_iter()
+        .map(MessageChange::Upsert)
+        .collect::<Vec<_>>();
+    for (reactor, emoji) in [(ACCOUNT, "👍"), ("alice@demo", "👍")] {
+        changes.push(MessageChange::Reaction(Reaction {
+            key: key("alice@demo", "alice@demo", "a3"),
+            reactor: reactor.into(),
+            emoji: emoji.into(),
+            at_ms: TIME + 121_000,
+            event_id: format!("demo-reaction-{reactor}").into(),
+        }));
+    }
     store
         .apply_batch(MessageBatch {
             account: ACCOUNT.into(),
             source: MessageSource::History,
-            changes: messages.into_iter().map(MessageChange::Upsert).collect(),
+            changes,
         })
         .await
         .map_err(|e| BackendError::Service(e.into()))
@@ -164,11 +177,12 @@ pub fn start(store: Store) -> BackendHandle {
         let mut counter = 0u64;
         loop {
             tokio::select! {_=&mut stopping=>break,command=requests.recv()=>{let Some(command)=command else{break};match command{
-                BackendCommand::PrepareText{request,chat,draft}=>{counter+=1;let message=OutboundText{key:key(&chat.0,ACCOUNT,&format!("demo-{counter:06}")),draft,created_at_ms:TIME+180_000+counter as i64*1000};if tx.send(BackendEvent::Prepared {request,message: Box::new(message)}).await.is_err(){break;}},
+                BackendCommand::PrepareText{request,chat,draft}=>{counter+=1;let message=OutboundText{key:key(&chat.0,ACCOUNT,&format!("demo-{counter:06}")),draft,created_at_ms:chrono::Utc::now().timestamp_millis()};if tx.send(BackendEvent::Prepared {request,message: Box::new(message)}).await.is_err(){break;}},
                 BackendCommand::Transmit(sent)=>{
                     if tx.send(BackendEvent::SendOutcome{key:sent.key.clone(),state:SendState::Sent}).await.is_err(){break;}
                     let sender=if sent.key.chat.0.ends_with("@g.us"){"maya@demo"}else{&sent.key.chat.0};
-                    let reply=message(&sent.key.chat.0,sender,&format!("reply-{counter:06}"),"Message received. This is an offline demo response.",181_000+counter as i64*1000);
+                    let mut reply=message(&sent.key.chat.0,sender,&format!("reply-{counter:06}"),"Message received. This is an offline demo response.",181_000+counter as i64*1000);
+                    reply.created_at_ms=sent.created_at_ms+1;
                     let change=store.apply_batch(MessageBatch{account:ACCOUNT.into(),source:MessageSource::Live,changes:vec![MessageChange::Upsert(reply)]}).await.map_err(|e|BackendError::Service(e.into()))?;
                     let _=tx.send(BackendEvent::StoreChanged(change)).await;
                     let change=store.record_receipt(Receipt{key:sent.key.clone(),recipient:sender.into(),state:ReceiptState::Read,at_ms:TIME+182_000+counter as i64*1000}).await.map_err(|e|BackendError::Service(e.into()))?;

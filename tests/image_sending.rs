@@ -345,6 +345,7 @@ async fn conflicting_image_drafts_keep_their_captions_quotes_and_recover_after_s
     let mut alias = draft("caption A", 2);
     alias.attachment = Some(Box::new(image(dir.path())));
     alias.reply = Some(Quote {
+        media_kind: None,
         key: key("alias", "alias", "quoted"),
         preview: "original".into(),
         availability: QuoteAvailability::Available,

@@ -47,6 +47,8 @@ pub enum QuoteAvailability {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Quote {
+    #[serde(default)]
+    pub media_kind: Option<crate::media::AttachmentKind>,
     pub key: MessageKey,
     pub preview: String,
     pub availability: QuoteAvailability,

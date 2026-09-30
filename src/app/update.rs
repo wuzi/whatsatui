@@ -10,6 +10,10 @@ mod search;
 mod stickers;
 #[derive(Clone, Debug)]
 pub enum Effect {
+    LoadOriginal {
+        request: RequestId,
+        key: MessageKey,
+    },
     Mutate {
         request: RequestId,
         message: Box<MessageRecord>,
@@ -100,6 +104,11 @@ pub enum Effect {
 }
 #[derive(Debug)]
 pub enum StoreCompletion {
+    Original {
+        request: RequestId,
+        key: MessageKey,
+        result: Result<Option<Box<MessageRecord>>, String>,
+    },
     Stickers {
         request: RequestId,
         account: AccountId,
@@ -151,7 +160,6 @@ pub enum StoreCompletion {
 use crate::config::bindings::{ActionId, Context};
 use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
 use std::collections::HashMap;
-use unicode_segmentation::UnicodeSegmentation;
 #[derive(Clone)]
 struct LocalDraft {
     data: Draft,
@@ -172,6 +180,7 @@ pub struct App {
     pub config: Config,
     view: ViewModel,
     rendered: Option<crate::ui::InteractionMap>,
+    original_request: Option<(RequestId, MessageKey, MessageKey)>,
     last_click: Option<(crate::ui::interaction::Target, Context, Instant)>,
     help_max_scroll: usize,
     editor: Editor,
@@ -202,6 +211,7 @@ impl App {
         Self {
             config,
             rendered: None,
+            original_request: None,
             last_click: None,
             help_max_scroll: 0,
             view: ViewModel {
@@ -424,6 +434,7 @@ impl App {
         effects.extend(self.flush_drafts());
         self.clipboard_request = None;
         self.view.editing = None;
+        self.original_request = None;
         self.view.interactions = Default::default();
         self.view.chat = Some(chat.clone());
         self.view.messages.clear();
@@ -671,6 +682,7 @@ impl App {
             return;
         }
         match action {
+            A::JumpToQuote => self.jump_to_quote(effects),
             A::React => self.open_reaction_picker(),
             A::Reactions => self.open_reactions(),
             A::RemoveReaction => self.remove_reaction(effects),
@@ -723,6 +735,7 @@ impl App {
                         self.view.notice = Some("Saving edit; waiting for WhatsApp".into());
                         return;
                     }
+                    self.original_request = None;
                     self.view.editing = None;
                     self.focus(Focus::Composer, effects);
                     return;
@@ -860,14 +873,10 @@ impl App {
                 }
             }
             A::Reply => {
-                if let Some(message) = self.selected().cloned()
-                    && let MessageBody::Text(text) = &message.body
-                {
-                    self.view.draft.reply = Some(Quote {
-                        key: message.key,
-                        preview: text.graphemes(true).take(160).collect(),
-                        availability: QuoteAvailability::Available,
-                    });
+                if let Some(quote) = self.selected().and_then(|m| {
+                    crate::message_actions::quote(m, chrono::Utc::now().timestamp_millis())
+                }) {
+                    self.view.draft.reply = Some(quote);
                     self.remember();
                     self.focus(Focus::Composer, effects);
                 }
@@ -1010,6 +1019,10 @@ impl App {
         }
     }
     fn terminal(&mut self, event: Event, effects: &mut Vec<Effect>) {
+        if matches!(&event, Event::Key(_) | Event::Paste(_) | Event::Mouse(_)) {
+            self.original_request = None;
+        }
+
         if self.quitting {
             return;
         }
@@ -1154,6 +1167,7 @@ impl App {
                     self.view.editing = None;
                     self.view.interactions = Default::default();
                     self.mutation_requests.clear();
+                    self.original_request = None;
                     self.view.account = Some(account.clone());
                     self.view.list_offsets.clear();
                     self.view.chat = None;
@@ -1248,6 +1262,11 @@ impl App {
     }
     fn completion(&mut self, event: StoreCompletion, effects: &mut Vec<Effect>) {
         match event {
+            StoreCompletion::Original {
+                request,
+                key,
+                result,
+            } => self.original_loaded(request, key, result, effects),
             StoreCompletion::Stickers {
                 request,
                 account,

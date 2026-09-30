@@ -107,6 +107,7 @@ fn renders_empty_sync_offline_quotes_media_and_group_counts() {
     v.messages = vec![message(key("g@g.us", "test", "one"), "text")];
     v.messages[0].send_state = Some(SendState::Failed);
     v.messages[0].quote = Some(Quote {
+        media_kind: None,
         key: key("g@g.us", "alice", "quote"),
         preview: String::new(),
         availability: QuoteAvailability::Missing,

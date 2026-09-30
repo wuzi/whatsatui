@@ -29,9 +29,10 @@ impl App {
                 }
             } else {
                 match target {
-                    Target::Message(_) | Target::Reactions(_) | Target::Pane(Focus::Messages) => {
-                        self.scroll_timeline(delta, effects)
-                    }
+                    Target::Message(_)
+                    | Target::Reactions(_)
+                    | Target::Quote(_)
+                    | Target::Pane(Focus::Messages) => self.scroll_timeline(delta, effects),
                     Target::Chat(_) | Target::Pane(Focus::Chats) => {
                         self.focus(Focus::Chats, effects);
                         self.move_selection(delta, effects);
@@ -84,6 +85,14 @@ impl App {
                 if button == MouseButton::Right || double {
                     self.action(ActionId::MessageActions, effects);
                 }
+            }
+            Target::Quote(key)
+                if button == MouseButton::Left
+                    && self.view.messages.iter().any(|m| m.key == key) =>
+            {
+                self.focus(Focus::Messages, effects);
+                self.view.selected_message = Some(key);
+                self.jump_to_quote(effects);
             }
             Target::Reactions(key) if self.view.messages.iter().any(|m| m.key == key) => {
                 self.focus(Focus::Messages, effects);

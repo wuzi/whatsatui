@@ -9,16 +9,7 @@ pub(super) fn rows(
     let mut lines = Vec::new();
     let mut preview_at = None;
     if let Some(quote) = &message.quote {
-        let preview = match quote.availability {
-            QuoteAvailability::Available => single(&quote.preview),
-            QuoteAvailability::Missing => "[original missing]".into(),
-            QuoteAvailability::Unsupported => "[unsupported original]".into(),
-            QuoteAvailability::Deleted => "[original deleted]".into(),
-            QuoteAvailability::Expired => "[original expired]".into(),
-        };
-        for line in wrap(&format!("> {preview}"), width) {
-            lines.push(Line::styled(line, style(config, view, ThemeRole::Inactive)));
-        }
+        lines.extend(quote_rows(quote, view, config, width));
     }
     let body = match &message.body {
         MessageBody::LocalImage { image, caption } => {
@@ -86,4 +77,28 @@ pub(super) fn rows(
         ));
     }
     (lines, preview_at)
+}
+
+pub(super) fn quote_rows(
+    quote: &Quote,
+    view: &ViewModel,
+    config: &Config,
+    width: usize,
+) -> Vec<Line<'static>> {
+    let preview = match quote.availability {
+        QuoteAvailability::Available => single(&quote.preview),
+        QuoteAvailability::Missing => "[original missing]".into(),
+        QuoteAvailability::Unsupported => "[unsupported original]".into(),
+        QuoteAvailability::Deleted => "[original deleted]".into(),
+        QuoteAvailability::Expired => "[original expired]".into(),
+    };
+    let author = if quote.key.from_me {
+        "You".into()
+    } else {
+        sender(view, &quote.key.sender.0)
+    };
+    wrap(&format!("> {author}: {preview}"), width)
+        .into_iter()
+        .map(|line| Line::styled(line, style(config, view, ThemeRole::Inactive)))
+        .collect()
 }

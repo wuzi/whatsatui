@@ -32,11 +32,11 @@
 
 **Interfaces:** Produce `Reaction { key, reactor, emoji, at_ms, event_id }`, `MessageChange::Reaction(Reaction)`, `MessageInteractions { reactions, mutations }`, `ChatSnapshot.interactions`, and storage snapshot hydration for visible keys. `normalize::history_changes` supplements the existing single-message normalization with stored history reactions.
 
-- [ ] Write tests: live direct/group/self reaction targets, history summaries; replay, replacement, empty removal, late add, reaction before original, alias/account isolation, deletion/expiry. Assert one original chat message and unchanged unread/preview, literal emoji/counts and canonical identities.
-- [ ] Run the new test targets and observe the expected missing reaction behavior.
-- [ ] Implement normalization, schema version 3, reaction ordering/rekeying and snapshot hydration. Skip malformed reaction envelopes; validate target scope.
-- [ ] Run `cargo test -j 2 --test reactions --lib -- --test-threads=2`; expect all pass.
-- [ ] Commit the completed receive/storage slice.
+- [x] Write tests: live direct/group/self reaction targets, history summaries; replay, replacement, empty removal, late add, reaction before original, alias/account isolation, deletion/expiry. Assert one original chat message and unchanged unread/preview, literal emoji/counts and canonical identities.
+- [x] Run the new test targets and observe the expected missing reaction behavior.
+- [x] Implement normalization, schema version 3, reaction ordering/rekeying and snapshot hydration. Skip malformed reaction envelopes; validate target scope.
+- [x] Run `cargo test -j 2 --test reactions --lib -- --test-threads=2`; expect all pass.
+- [x] Commit the completed receive/storage slice.
 
 ## Task 2: Durable outgoing reactions and edits
 
@@ -44,10 +44,10 @@
 
 **Interfaces:** Produce `MutationKind::{Reaction { emoji }, Edit { text }}`, `MutationAttempt { id, target, kind, created_at_ms, state }`, store stage/finish APIs with target-version validation, `BackendCommand::Mutate { request, message, kind }`, and `BackendEvent::MutationOutcome { request, account, result }`. Transport trait sends a validated attempt; test fake records the committed journal before returning an outcome.
 
-- [ ] Write tests for durable-before-send, success, rejection, timeout, restart recovery, simultaneous target operation refusal, stale body/version, ownership, 15-minute boundary and expiry. Assert original send state/quote and normal draft unchanged; never replay interrupted work.
-- [ ] Run and observe missing behavior; implement the shared orchestration plus native/default-method transport and demo transport.
-- [ ] Run `cargo test -j 2 --test mutations --lib -- --test-threads=2`; expect all pass.
-- [ ] Commit the durable sending slice.
+- [x] Write tests for durable-before-send, success, rejection, timeout, restart recovery, simultaneous target operation refusal, stale body/version, ownership, 15-minute boundary and expiry. Assert original send state/quote and normal draft unchanged; never replay interrupted work.
+- [x] Run and observe missing behavior; implement the shared orchestration plus native/default-method transport and demo transport.
+- [x] Run `cargo test -j 2 --test mutations --lib -- --test-threads=2`; expect all pass.
+- [x] Commit the durable sending slice.
 
 ## Task 3: Reaction and edit UI
 
@@ -55,10 +55,10 @@
 
 **Interfaces:** Consume Tasks 1–2 state and commands. Produce captured reaction-picker target, reaction-details popup, separate `EditingMessage { message, editor, request, error }` state and mutation effect. Render reaction totals/You and durable operation status inside message rows, keeping hit regions aligned with wrapped rows.
 
-- [ ] Write tests for target stability through arrivals, reaction change/remove via picker/menu, group participant details, narrow rendering and click targets, draft preservation during edit/save/cancel/failure, stale edits and old-account completions, printable composer keys and remapped controls.
-- [ ] Run and observe missing behavior; implement reducer, rendering, mouse hit maps and command routing.
-- [ ] Run `cargo test -j 2 --test message_interactions --test message_actions_flow --test interaction --test emoji_picker -- --test-threads=2`; expect all pass.
-- [ ] Commit the usable UI slice.
+- [x] Write tests for target stability through arrivals, reaction change/remove via picker/menu, group participant details, narrow rendering and click targets, draft preservation during edit/save/cancel/failure, stale edits and old-account completions, printable composer keys and remapped controls.
+- [x] Run and observe missing behavior; implement reducer, rendering, mouse hit maps and command routing.
+- [x] Run `cargo test -j 2 --test message_interactions --test message_actions_flow --test interaction --test emoji_picker -- --test-threads=2`; expect all pass.
+- [x] Commit the usable UI slice.
 
 ## Task 4: Media replies, original jumps and release verification
 
@@ -66,9 +66,9 @@
 
 **Interfaces:** Produce serde-defaulted quote media kind and `message_actions::quote(message, now_ms) -> Option<Quote>`, original lookup effect/completion, and stable quote hit targets. Reuse existing page cursor rather than inventing another navigation model.
 
-- [ ] Write tests for captionless image/sticker/document quotes, typed wire quote and group sender, stale/missing/expired originals, cross-account/chat refusal, cached-page jump, clipped quote hits, and existing text replies.
-- [ ] Run and observe missing behavior; implement and update usage/validation docs and demo fixtures.
-- [ ] Run focused media-reply tests, then full `cargo test -j 2 -- --test-threads=2`, `cargo fmt --check`, and `cargo clippy -j 2 --all-targets -- -D warnings`; expect all pass.
+- [x] Write tests for captionless image/sticker/document quotes, typed wire quote and group sender, stale/missing/expired originals, cross-account/chat refusal, cached-page jump, clipped quote hits, and existing text replies.
+- [x] Run and observe missing behavior; implement and update usage/validation docs and demo fixtures.
+- [x] Run focused media-reply tests, then full `cargo test -j 2 -- --test-threads=2`, `cargo fmt --check`, and `cargo clippy -j 2 --all-targets -- -D warnings`; expect all pass.
 - [ ] Commit, obtain one independent whole-branch review, resolve actionable findings with regression evidence.
 - [ ] Build `cargo build --release -j 2`; run demo PTY actions/edit/reaction/quote/resize/quit smoke with frame synchronization; retain logs.
 - [ ] Fast-forward local main after source verification, remove owned worktree/branch and report controls, checks, and service-testing limitations.

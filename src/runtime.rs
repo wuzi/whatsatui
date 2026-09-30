@@ -244,6 +244,15 @@ async fn execute_with_media(
     cancel: tokio::sync::watch::Receiver<bool>,
 ) -> Option<Input> {
     let event = match effect {
+        Effect::LoadOriginal { request, key } => StoreCompletion::Original {
+            request,
+            result: store
+                .get_message(key.clone())
+                .await
+                .map(|m| m.map(Box::new))
+                .map_err(|e| e.to_string()),
+            key,
+        },
         Effect::Mutate {
             request,
             message,

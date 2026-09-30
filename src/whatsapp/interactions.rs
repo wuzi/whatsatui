@@ -85,7 +85,6 @@ pub fn target_key(
         from_me: Some(key.from_me),
         id: Some(key.id.0.clone()),
         participant: to.is_group().then(|| sender.to_string()),
-        ..Default::default()
     };
     Ok((to, wire))
 }

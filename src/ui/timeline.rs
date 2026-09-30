@@ -8,6 +8,7 @@ struct Run {
     avatar: bool,
     preview: Option<usize>,
     reactions: std::ops::Range<usize>,
+    quote: std::ops::Range<usize>,
 }
 pub(super) struct Timeline {
     pub area: Rect,
@@ -181,6 +182,11 @@ pub(super) fn layout(area: Rect, view: &ViewModel, config: &Config) -> Timeline 
             config,
             gutter_width,
         ));
+        let quote_start = lines.len();
+        let quote_count = message.quote.as_ref().map_or(0, |q| {
+            message_body::quote_rows(q, view, config, width).len()
+        });
+        let quote = quote_start..quote_start + quote_count;
         let (body, preview) = message_body::rows(message, view, config, width);
         let preview = preview.map(|offset| lines.len() + offset);
         for line in body {
@@ -229,6 +235,7 @@ pub(super) fn layout(area: Rect, view: &ViewModel, config: &Config) -> Timeline 
             }
         }
         runs.push(Run {
+            quote,
             reactions,
             index,
             start,
@@ -330,7 +337,9 @@ pub(super) fn render(
                     layout.area.width,
                     1,
                 ),
-                if run.reactions.contains(row) {
+                if run.quote.contains(row) {
+                    Target::Quote(view.messages[run.index].key.clone())
+                } else if run.reactions.contains(row) {
                     Target::Reactions(view.messages[run.index].key.clone())
                 } else {
                     Target::Message(view.messages[run.index].key.clone())
