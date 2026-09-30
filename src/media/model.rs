@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AttachmentKind {
     Image,
+    Sticker,
     Document,
 }
 
@@ -10,6 +11,7 @@ impl AttachmentKind {
     pub fn label(self) -> &'static str {
         match self {
             Self::Image => "image",
+            Self::Sticker => "sticker",
             Self::Document => "document",
         }
     }

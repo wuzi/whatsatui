@@ -49,6 +49,7 @@ async fn receive(input: WorkerInput, downloader: &MediaDownloader) -> Result<(),
     };
     let kind = match attachment.kind {
         AttachmentKind::Image => MediaType::Image,
+        AttachmentKind::Sticker => MediaType::Sticker,
         AttachmentKind::Document => MediaType::Document,
     };
     let params = DownloadParams::encrypted(
@@ -135,6 +136,7 @@ mod tests {
     async fn receives_encrypted_images_and_documents_through_the_streaming_boundary() {
         for (kind, media_type) in [
             (AttachmentKind::Image, MediaType::Image),
+            (AttachmentKind::Sticker, MediaType::Sticker),
             (AttachmentKind::Document, MediaType::Document),
         ] {
             let encrypted =

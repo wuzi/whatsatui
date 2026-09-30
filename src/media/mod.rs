@@ -4,6 +4,8 @@ mod worker;
 pub use download::NativeDownloader;
 pub use worker::run as run_worker;
 mod model;
+pub mod outgoing;
+pub mod preview;
 use crate::{
     app::model::{MessageBody, MessageRecord},
     desktop::Desktop,

@@ -37,6 +37,7 @@ fn edit(message: &MessageRecord, caption: &str, at: i64) -> MessageChange {
     };
     // Caption edits need not repeat the original encrypted media references.
     let content = match attachment.kind {
+        AttachmentKind::Sticker => panic!("stickers do not have editable captions"),
         AttachmentKind::Image => wa::Message {
             image_message: MessageField::some(wa::message::ImageMessage {
                 caption: Some(caption.into()),
