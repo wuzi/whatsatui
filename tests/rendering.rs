@@ -37,10 +37,13 @@ fn ordinary_and_narrow_layouts() {
     }
 }
 #[test]
-fn footer_uses_effective_shortcuts() {
+fn shortcuts_live_in_help_instead_of_the_footer() {
     let c = Config::parse("[bindings.global]\nquit=['ctrl-x']").unwrap();
     let t = text(&draw(&ready_app().view(), &c, 120, 40));
-    assert!(t.contains("ctrl-x"));
+    assert!(!t.contains("ctrl-x"));
+    let mut view = ready_app().view();
+    view.overlay = Some(Overlay::Help);
+    assert!(text(&draw(&view, &c, 120, 40)).contains("ctrl-x"));
     assert!(!t.contains("ctrl-q"));
 }
 #[test]

@@ -167,8 +167,10 @@ pub fn import_sticker(
     preserve: bool,
 ) -> Result<LocalImage, String> {
     if preserve {
-        let info = sticker_info(source)?;
-        return save_sticker(source, info, data_dir);
+        let info = inspect_sticker(source)?;
+        if info.animated || source.len() <= 100 * 1024 {
+            return save_sticker(source, info, data_dir);
+        }
     }
     let image = decode(source)?
         .resize(512, 512, image::imageops::FilterType::Lanczos3)
@@ -208,6 +210,16 @@ fn save_sticker(bytes: &[u8], sticker: StickerInfo, data_dir: &Path) -> Result<L
 }
 
 fn sticker_info(bytes: &[u8]) -> Result<StickerInfo, String> {
+    let info = inspect_sticker(bytes)?;
+    if !info.animated && bytes.len() > 100 * 1024 {
+        return Err("Static sticker exceeds 100 KiB".into());
+    }
+    Ok(info)
+}
+
+/// Intake validation is separate from the encoded output budget: a received
+/// static sticker may need compression before it can become an outgoing snapshot.
+fn inspect_sticker(bytes: &[u8]) -> Result<StickerInfo, String> {
     use image::ImageDecoder;
     if bytes.len() > 500 * 1024 {
         return Err("Sticker exceeds 500 KiB".into());
@@ -218,9 +230,6 @@ fn sticker_info(bytes: &[u8]) -> Result<StickerInfo, String> {
         return Err("Sticker must be 512 × 512 pixels".into());
     }
     let animated = decoder.has_animation();
-    if !animated && bytes.len() > 100 * 1024 {
-        return Err("Static sticker exceeds 100 KiB".into());
-    }
     decode(bytes)?;
     if animated {
         let mut offset = 12;

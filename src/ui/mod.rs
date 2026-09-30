@@ -155,43 +155,6 @@ fn render_content(frame: &mut Frame, view: &ViewModel, config: &Config, images: 
     chat_list::render(frame, regions.chats, view, config);
     timeline::render(frame, regions.messages, view, config, images);
     composer::render(frame, regions.composer, view, config, images);
-    let context = match &view.overlay {
-        Some(Overlay::Stickers(_)) => Context::Stickers,
-        Some(Overlay::Emoji { .. }) => Context::Emoji,
-        Some(Overlay::Attachment { .. }) => Context::Attachment,
-        Some(Overlay::MessageActions(_)) => Context::MessageActions,
-        Some(Overlay::MessageLinks(_)) => Context::MessageLinks,
-        Some(Overlay::MessageSearch(_)) => Context::MessageSearch,
-        Some(Overlay::Search { .. }) => Context::Search,
-        Some(Overlay::Help) => Context::Help,
-        Some(Overlay::Resend { .. }) => Context::Resend,
-        None => match view.focus {
-            Focus::Chats => Context::Chats,
-            Focus::Messages => Context::Messages,
-            Focus::Composer => Context::Composer,
-        },
-    };
-    let mut actions = std::collections::BTreeSet::new();
-    let mut bindings = config.bindings.help(context);
-    // Keep escape hatches visible even when a custom binding was appended last.
-    bindings.sort_by_key(|(_, action)| match action {
-        crate::config::bindings::ActionId::Quit => 0,
-        crate::config::bindings::ActionId::Help => 1,
-        crate::config::bindings::ActionId::MessageActions => 2,
-        crate::config::bindings::ActionId::PasteClipboard => 2,
-        crate::config::bindings::ActionId::Stickers => 3,
-        crate::config::bindings::ActionId::AttachImage => 4,
-        crate::config::bindings::ActionId::Emoji => 3,
-        crate::config::bindings::ActionId::CopyText
-        | crate::config::bindings::ActionId::OpenLinks => 3,
-        _ => 4,
-    });
-    let hints = bindings
-        .into_iter()
-        .filter(|(_, a)| actions.insert(*a))
-        .map(|(key, a)| format!("{key} {}", a.label()))
-        .collect::<Vec<_>>()
-        .join("  ·  ");
     let second =
         view.notice
             .as_deref()
@@ -199,24 +162,21 @@ fn render_content(frame: &mut Frame, view: &ViewModel, config: &Config, images: 
             .unwrap_or(if view.account.is_none() {
                 "Link your phone from WhatsApp → Linked devices"
             } else {
-                "Local history · drafts saved while you type"
+                ""
             });
     frame.render_widget(
-        Paragraph::new(vec![
-            Line::styled(format!(" {hints}"), style(config, view, ThemeRole::Hints)),
-            Line::styled(
-                format!(" {}", single(second)),
-                style(
-                    config,
-                    view,
-                    if view.notice.is_some() {
-                        ThemeRole::Error
-                    } else {
-                        ThemeRole::Inactive
-                    },
-                ),
+        Paragraph::new(vec![Line::styled(
+            format!(" {}", single(second)),
+            style(
+                config,
+                view,
+                if view.notice.is_some() {
+                    ThemeRole::Error
+                } else {
+                    ThemeRole::Inactive
+                },
             ),
-        ]),
+        )]),
         regions.footer,
     );
     if view.qr.is_some() {

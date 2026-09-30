@@ -12,15 +12,15 @@ pub fn calculate(area: Rect, focus: Focus) -> LayoutRegions {
     let header = Rect::new(area.x, area.y, area.width, 1.min(area.height));
     let footer = Rect::new(
         area.x,
-        area.bottom().saturating_sub(2),
+        area.bottom().saturating_sub(1),
         area.width,
-        2.min(area.height),
+        1.min(area.height),
     );
     let main = Rect::new(
         area.x,
         area.y + 1,
         area.width,
-        area.height.saturating_sub(3),
+        area.height.saturating_sub(2),
     );
     let (chats, right) = if area.width >= 80 {
         let w = (area.width * 30 / 100).clamp(25, 40);

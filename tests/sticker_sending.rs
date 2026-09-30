@@ -30,6 +30,91 @@ fn received(id: &str) -> MessageRecord {
 }
 
 #[test]
+fn oversized_received_static_sticker_is_optimized_with_alpha() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut pixels = image::RgbaImage::new(512, 512);
+    let mut random = 1729u32;
+    for y in 128..384 {
+        for x in 128..384 {
+            random ^= random << 13;
+            random ^= random >> 17;
+            random ^= random << 5;
+            pixels.put_pixel(
+                x,
+                y,
+                image::Rgba([random as u8, (random >> 8) as u8, (random >> 16) as u8, 255]),
+            );
+        }
+    }
+    let mut source = Vec::new();
+    image::DynamicImage::ImageRgba8(pixels)
+        .write_to(
+            &mut std::io::Cursor::new(&mut source),
+            image::ImageFormat::WebP,
+        )
+        .unwrap();
+    assert!(source.len() > 100 * 1024 && source.len() < 500 * 1024);
+    let local = outgoing::import_sticker(&source, dir.path(), true).unwrap();
+    assert!(local.size <= 100 * 1024);
+    assert!(!local.sticker.as_ref().unwrap().animated);
+    let prepared = outgoing::read(&local, dir.path()).unwrap();
+    let decoded = image::load_from_memory(&prepared).unwrap().to_rgba8();
+    assert_eq!(decoded.dimensions(), (512, 512));
+    assert_eq!(decoded.get_pixel(0, 0)[3], 0);
+    assert_eq!(decoded.get_pixel(256, 256)[3], 255);
+}
+
+#[test]
+fn optimized_received_sticker_is_previewed_before_sending() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = ready_app();
+    press(&mut app, "enter");
+    press(&mut app, "x");
+    let original = app.view().draft;
+    open(&mut app, vec![received("one")]);
+    let Effect::ImportSticker {
+        request,
+        account,
+        chat,
+        ..
+    } = press(&mut app, "enter").remove(0)
+    else {
+        panic!()
+    };
+    let image =
+        outgoing::import_sticker(include_bytes!("fixtures/sticker.webp"), dir.path(), false)
+            .unwrap();
+    let id = image.id.clone();
+    let effects = app.update(
+        Input::StickerImported {
+            request,
+            account,
+            chat,
+            result: Ok(image),
+        },
+        Instant::now(),
+    );
+    assert!(
+        effects.is_empty(),
+        "changed sticker must be previewed before preparation sends it"
+    );
+    let Some(Overlay::Stickers(picker)) = app.view().overlay else {
+        panic!("picker closed")
+    };
+    assert_eq!(picker.items[picker.selected].content_id(), Some(id));
+    assert!(matches!(
+        &picker.items[picker.selected],
+        StickerChoice::Local(_)
+    ));
+    assert_eq!(app.view().draft, original);
+    assert!(
+        press(&mut app, "enter")
+            .iter()
+            .any(|e| matches!(e, Effect::Prepare { .. }))
+    );
+}
+
+#[test]
 fn pasted_stickers_have_transparent_padding_and_received_animation_is_preserved() {
     let dir = tempfile::tempdir().unwrap();
     let mut source = Vec::new();

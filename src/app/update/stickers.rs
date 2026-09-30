@@ -165,7 +165,23 @@ impl App {
         }
         picker.sending = None;
         match result {
-            Ok(image) => self.prepare_sticker(image, effects),
+            Ok(image) => {
+                let original = picker
+                    .items
+                    .get(picker.selected)
+                    .and_then(StickerChoice::content_id);
+                if original.as_ref() != Some(&image.id) {
+                    picker
+                        .items
+                        .insert(0, StickerChoice::Local(Box::new(image)));
+                    picker.items.truncate(60);
+                    picker.selected = 0;
+                    self.view.notice =
+                        Some("Sticker optimized; review the preview, then send.".into());
+                } else {
+                    self.prepare_sticker(image, effects);
+                }
+            }
             Err(reason) => picker.error = Some(reason),
         }
     }
