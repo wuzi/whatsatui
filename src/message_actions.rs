@@ -90,3 +90,26 @@ pub(crate) fn valid_web_link(url: &str) -> bool {
         && !url.chars().any(|c| c.is_control() || c.is_whitespace()
             || matches!(c, '\\' | '<' | '>' | '"' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'))
 }
+
+pub fn can_react(message: &MessageRecord, now_ms: i64) -> bool {
+    !message.expires_at_ms.is_some_and(|at| at <= now_ms)
+        && matches!(
+            message.body,
+            MessageBody::Text(_) | MessageBody::Media(_) | MessageBody::LocalImage { .. }
+        )
+        && (!message.key.from_me
+            || matches!(
+                message.send_state,
+                Some(
+                    crate::app::model::SendState::Sent
+                        | crate::app::model::SendState::Delivered
+                        | crate::app::model::SendState::Read
+                )
+            ))
+}
+pub fn can_edit(message: &MessageRecord, now_ms: i64) -> bool {
+    message.key.from_me
+        && can_react(message, now_ms)
+        && matches!(message.body, MessageBody::Text(_))
+        && (0..900_000).contains(&now_ms.saturating_sub(message.created_at_ms))
+}

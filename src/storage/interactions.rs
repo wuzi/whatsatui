@@ -113,6 +113,172 @@ pub(super) fn rekey(
             react(c, reaction)?;
         }
     }
-    // Outgoing journal rekeying is handled with the mutation APIs.
+    let attempts: Vec<MutationAttempt> = rows(
+        c,
+        "SELECT data FROM outgoing_mutations WHERE account=?",
+        &[&account.0],
+    )?;
+    for mut attempt in attempts {
+        let key = merge::canonical_key(c, &attempt.target.key)?;
+        if key != attempt.target.key {
+            execute(
+                c,
+                "DELETE FROM outgoing_mutations WHERE key=?",
+                &[&json(&attempt.target.key)?],
+            )?;
+            attempt.target.key = key;
+            let other: Option<MutationAttempt> = rows(
+                c,
+                "SELECT data FROM outgoing_mutations WHERE key=?",
+                &[&json(&attempt.target.key)?],
+            )?
+            .pop();
+            if other
+                .as_ref()
+                .is_none_or(|a| a.created_at_ms < attempt.created_at_ms)
+            {
+                if let Some(q) = &mut attempt.target.quote {
+                    merge::quote(c, q)?;
+                }
+                affected.push(attempt.target.key.chat.clone());
+                save_attempt(c, &attempt)?;
+            }
+        }
+    }
     Ok(affected)
+}
+
+fn save_attempt(c: &mut SqliteConnection, attempt: &MutationAttempt) -> Result<(), StoreError> {
+    execute(
+        c,
+        "INSERT INTO outgoing_mutations(key,account,id,data) VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET id=excluded.id,data=excluded.data",
+        &[
+            &json(&attempt.target.key)?,
+            &attempt.target.key.account.0,
+            &attempt.id,
+            &json(attempt)?,
+        ],
+    )?;
+    Ok(())
+}
+pub(super) fn stage(
+    c: &mut SqliteConnection,
+    mut attempt: MutationAttempt,
+    now_ms: i64,
+) -> Result<MutationAttempt, StoreError> {
+    use diesel::Connection;
+    c.transaction(|c| {
+        let current = worker::get(c, &attempt.target.key)?
+            .ok_or(StoreError::Mutation("Message is no longer available"))?;
+        if current.body != attempt.target.body
+            || current.edited_at_ms != attempt.target.edited_at_ms
+            || current.created_at_ms != attempt.target.created_at_ms
+        {
+            return Err(StoreError::Mutation("Message changed; reopen its actions"));
+        }
+        if attempt.id.is_empty()
+            || attempt.id == current.key.id.0
+            || attempt.state != MutationState::Pending
+        {
+            return Err(StoreError::InvalidData);
+        }
+        match &attempt.kind {
+            MutationKind::Reaction { emoji }
+                if crate::message_actions::can_react(&current, now_ms)
+                    && (emoji.is_empty() || emojis::get(emoji).is_some()) => {}
+            MutationKind::Edit { text }
+                if crate::message_actions::can_edit(&current, now_ms)
+                    && !text.trim().is_empty()
+                    && text.len() <= 65_536 => {}
+            _ => {
+                return Err(StoreError::Mutation(
+                    "Action unavailable: check ownership, expiry, and the 15-minute edit limit",
+                ));
+            }
+        }
+        let old: Option<MutationAttempt> = rows(
+            c,
+            "SELECT data FROM outgoing_mutations WHERE key=?",
+            &[&json(&current.key)?],
+        )?
+        .pop();
+        if old.is_some_and(|a| a.state == MutationState::Pending) {
+            return Err(StoreError::Mutation(
+                "An action on this message is still pending",
+            ));
+        }
+        attempt.target = current;
+        save_attempt(c, &attempt)?;
+        Ok(attempt)
+    })
+}
+pub(super) fn finish(
+    c: &mut SqliteConnection,
+    account: &AccountId,
+    id: &str,
+    state: MutationState,
+) -> Result<StoreChange, StoreError> {
+    use diesel::Connection;
+    c.transaction(|c| {
+        let Some(mut attempt) = rows::<MutationAttempt>(
+            c,
+            "SELECT data FROM outgoing_mutations WHERE account=? AND id=?",
+            &[&account.0, id],
+        )?
+        .pop() else {
+            return Ok(StoreChange {
+                account: account.clone(),
+                chats: vec![],
+            });
+        };
+        if attempt.state == MutationState::Sent {
+            return Ok(StoreChange {
+                account: account.clone(),
+                chats: vec![attempt.target.key.chat],
+            });
+        }
+        attempt.state = state;
+        let key = attempt.target.key.clone();
+        if state == MutationState::Sent {
+            let change = match &attempt.kind {
+                MutationKind::Reaction { emoji } => MessageChange::Reaction(Reaction {
+                    key: key.clone(),
+                    reactor: account.0.clone().into(),
+                    emoji: emoji.clone(),
+                    at_ms: attempt.created_at_ms,
+                    event_id: attempt.id.clone().into(),
+                }),
+                MutationKind::Edit { text } => MessageChange::Edit {
+                    key: key.clone(),
+                    text: text.clone(),
+                    edited_at_ms: attempt.created_at_ms,
+                },
+            };
+            worker::apply(
+                c,
+                MessageBatch {
+                    account: account.clone(),
+                    source: MessageSource::History,
+                    changes: vec![change],
+                },
+            )?;
+        }
+        save_attempt(c, &attempt)?;
+        Ok(StoreChange {
+            account: account.clone(),
+            chats: vec![key.chat],
+        })
+    })
+}
+pub(super) fn recover(c: &mut SqliteConnection, account: &AccountId) -> Result<(), StoreError> {
+    let pending: Vec<MutationAttempt> = rows(
+        c,
+        "SELECT data FROM outgoing_mutations WHERE account=? AND json_extract(data,'$.state')='Pending'",
+        &[&account.0],
+    )?;
+    for mut attempt in pending {
+        attempt.state = MutationState::Unconfirmed;
+        save_attempt(c, &attempt)?;
+    }
+    Ok(())
 }

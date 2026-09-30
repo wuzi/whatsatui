@@ -176,6 +176,47 @@ async fn command_once(
     command: BackendCommand,
 ) -> Result<(), BackendError> {
     match command {
+        BackendCommand::Mutate {
+            request,
+            message,
+            kind,
+        } => {
+            let account = message.key.account.clone();
+            let chat = message.key.chat.clone();
+            let result = if self::account(client).as_ref() != Some(&account) {
+                Err("Account is not connected".into())
+            } else {
+                super::interactions::execute(
+                    store,
+                    &super::interactions::Native(client),
+                    MutationAttempt {
+                        id: client.generate_message_id(),
+                        target: *message,
+                        kind,
+                        created_at_ms: chrono::Utc::now().timestamp_millis(),
+                        state: MutationState::Pending,
+                    },
+                )
+                .await
+            };
+            emit(
+                tx,
+                BackendEvent::StoreChanged(StoreChange {
+                    account: account.clone(),
+                    chats: vec![chat],
+                }),
+            )
+            .await?;
+            emit(
+                tx,
+                BackendEvent::MutationOutcome {
+                    request,
+                    account,
+                    result,
+                },
+            )
+            .await?;
+        }
         BackendCommand::PrepareText {
             request,
             chat,

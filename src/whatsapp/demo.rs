@@ -174,6 +174,13 @@ pub fn start(store: Store) -> BackendHandle {
                     let change=store.record_receipt(Receipt{key:sent.key.clone(),recipient:sender.into(),state:ReceiptState::Read,at_ms:TIME+182_000+counter as i64*1000}).await.map_err(|e|BackendError::Service(e.into()))?;
                     let _=tx.send(BackendEvent::StoreChanged(change)).await;
                 }
+                BackendCommand::Mutate { request, message, kind } => {
+                    counter += 1;
+                    let account=message.key.account.clone(); let chat=message.key.chat.clone();
+                    let result=super::interactions::execute(&store,&super::interactions::Demo,MutationAttempt { id:format!("demo-mutation-{counter}-{}",chrono::Utc::now().timestamp_millis()),target:*message,kind,created_at_ms:chrono::Utc::now().timestamp_millis(),state:MutationState::Pending }).await;
+                    let _=tx.send(BackendEvent::StoreChanged(StoreChange { account:account.clone(),chats:vec![chat] })).await;
+                    let _=tx.send(BackendEvent::MutationOutcome { request,account,result }).await;
+                }
                 BackendCommand::MarkRead(_)=>{}
             }}}
         }

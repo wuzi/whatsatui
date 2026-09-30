@@ -141,21 +141,22 @@ pub(super) fn normalize(
     if let Some(protocol) = message.protocol_message.as_option()
         && let Some(target) = protocol.key.as_option()
     {
-        let from_me = target.from_me.unwrap_or(false);
+        // Protocol target ownership is relative to the envelope sender.
+        let sender = if target.from_me.unwrap_or(false) {
+            key.sender.clone()
+        } else {
+            target
+                .participant
+                .clone()
+                .map(ParticipantId)
+                .unwrap_or_else(|| key.sender.clone())
+        };
         let target_key = MessageKey {
             account: key.account.clone(),
             chat: key.chat.clone(),
-            sender: if from_me {
-                ParticipantId(key.account.0.clone())
-            } else {
-                target
-                    .participant
-                    .clone()
-                    .map(ParticipantId)
-                    .unwrap_or_else(|| key.sender.clone())
-            },
+            from_me: sender.0 == key.account.0,
+            sender,
             id: target.id.clone().unwrap_or_default().into(),
-            from_me,
         };
         if protocol.r#type == Some(wa::message::protocol_message::Type::Revoke) {
             return MessageChange::Delete { key: target_key };
@@ -683,4 +684,39 @@ pub(super) fn history_changes(
         }));
     }
     changes
+}
+
+#[cfg(test)]
+mod edit_identity_tests {
+    use super::*;
+    use whatsapp_rust::prelude::{MessageBuilderExt, MessageField};
+    #[test]
+    fn peers_edit_targets_their_message_not_our_account() {
+        let key = MessageKey {
+            account: "111@s.whatsapp.net".into(),
+            chat: "222@s.whatsapp.net".into(),
+            sender: "222@s.whatsapp.net".into(),
+            id: "edit-envelope".into(),
+            from_me: false,
+        };
+        let payload = wa::Message {
+            protocol_message: MessageField::some(wa::message::ProtocolMessage {
+                key: MessageField::some(wa::MessageKey {
+                    id: Some("original".into()),
+                    from_me: Some(true),
+                    ..Default::default()
+                }),
+                r#type: Some(wa::message::protocol_message::Type::MessageEdit),
+                edited_message: MessageField::some(wa::Message::text("edited")),
+                timestamp_ms: Some(101),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let MessageChange::Edit { key, .. } = normalize(key, &payload, 101, None) else {
+            panic!()
+        };
+        assert_eq!(key.sender.0, "222@s.whatsapp.net");
+        assert!(!key.from_me);
+    }
 }

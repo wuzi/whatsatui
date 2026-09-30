@@ -5,6 +5,7 @@ mod durability;
 pub mod encode;
 mod http;
 mod images;
+pub mod interactions;
 mod media;
 #[cfg(test)]
 mod media_edit_tests;
@@ -28,6 +29,11 @@ use tokio::time::Instant;
 
 #[derive(Clone, Debug)]
 pub enum BackendCommand {
+    Mutate {
+        request: RequestId,
+        message: Box<MessageRecord>,
+        kind: MutationKind,
+    },
     PrepareText {
         request: RequestId,
         chat: ChatId,
@@ -38,6 +44,11 @@ pub enum BackendCommand {
 }
 #[derive(Clone, Debug)]
 pub enum BackendEvent {
+    MutationOutcome {
+        request: RequestId,
+        account: AccountId,
+        result: Result<MutationState, String>,
+    },
     AccountKnown(AccountId),
     ConnectionChanged {
         state: ConnectionState,

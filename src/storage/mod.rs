@@ -24,6 +24,8 @@ pub enum StoreError {
     Database(#[from] diesel::result::Error),
     #[error("Local data has an unsupported format")]
     Format(#[from] serde_json::Error),
+    #[error("{0}")]
+    Mutation(&'static str),
     #[error("Local data has an invalid identity or revision")]
     InvalidData,
 }
@@ -74,6 +76,23 @@ impl Store {
             .await
             .map_err(|_| StoreError::Unavailable)?;
         rx.await.map_err(|_| StoreError::Unavailable)?
+    }
+    pub async fn stage_mutation(
+        &self,
+        attempt: MutationAttempt,
+        now_ms: i64,
+    ) -> Result<MutationAttempt, StoreError> {
+        self.call(move |c| interactions::stage(c, attempt, now_ms))
+            .await
+    }
+    pub async fn finish_mutation(
+        &self,
+        account: AccountId,
+        id: String,
+        state: MutationState,
+    ) -> Result<StoreChange, StoreError> {
+        self.call(move |c| interactions::finish(c, &account, &id, state))
+            .await
     }
     pub async fn apply_batch(&self, batch: MessageBatch) -> Result<StoreChange, StoreError> {
         self.call(move |c| worker::apply(c, batch)).await

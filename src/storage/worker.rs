@@ -478,6 +478,7 @@ pub(super) fn set_state(
 pub(super) fn recover(c: &mut SqliteConnection, a: &AccountId) -> Result<(), StoreError> {
     c.transaction::<_,StoreError,_>(|c| {
 
+        super::interactions::recover(c, a)?;
         let pending: Vec<MessageRecord> = rows(c,"SELECT data FROM messages WHERE account=? AND json_extract(data,'$.send_state')='Sending'", &[&a.0])?;
 
         for m in pending {

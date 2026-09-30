@@ -1029,6 +1029,7 @@ impl App {
     }
     fn backend(&mut self, event: BackendEvent, effects: &mut Vec<Effect>) {
         match event {
+            BackendEvent::MutationOutcome { .. } => {}
             BackendEvent::AccountKnown(account) => {
                 if self.view.account.as_ref() != Some(&account) {
                     effects.extend(self.flush_drafts());
