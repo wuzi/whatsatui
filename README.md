@@ -36,7 +36,8 @@ whatsapp-tui
 - A message action menu, original-text copying, and an explicit web-link picker.
 - Inline images and stickers, with Ghostty/Kitty graphics and a half-block fallback.
 - Clipboard image paste with captions, persistent drafts, a recent-sticker picker, and searchable Unicode emoji.
-- Verified downloads for received images, stickers, and documents, with a separate viewer action.
+- Verified downloads for received images, stickers, audio, and documents, with a separate viewer action.
+- In-TUI voice-message/audio playback with pause/resume, progress, and 1× / 1.5× / 2× speed (requires mpv).
 - Sender blocks with cached profile photos, date separators, and distinct own-message styling.
 - Mouse selection, message actions, popup controls, and composer cursor placement.
 - Local history, unread counts, delivery states, and known group receipt counts.
@@ -71,6 +72,8 @@ Images and stickers load previews within the conversation; animated WebP shows i
 | y in Messages / link picker | Copy original text / selected URL |
 | o in Messages | Choose a link to open in your browser |
 | d / v in Messages | Download attachment / open its downloaded file |
+| p / Space in Messages | Play or pause the selected audio |
+| s / x in Messages | Cycle playback speed / stop audio |
 | r in Messages | Quote the selected message |
 | R in Messages | Confirm a resend of a failed/unconfirmed attempt |
 | Alt-R in Composer | Remove the quote, keep your text |
@@ -79,6 +82,8 @@ Images and stickers load previews within the conversation; animated WebP shows i
 | Ctrl-Q | Save drafts and quit |
 
 Printable keys remain ordinary text in the composer. Bracketed paste never submits a message. Shortcuts live in Help (F1 or the header button) and use your configured bindings. The footer is reserved for status and notices.
+
+For voice messages and audio files, install **mpv** (`sudo dnf install mpv` on Fedora, `sudo apt install mpv` on Debian/Ubuntu). Click the audio row or select it and press `p`; the first play downloads and verifies it. Playback controls also appear in the header and remain available while changing chats. See [listening to audio](docs/usage.md#listening-to-audio), including the limitation for old `[audio]` placeholders.
 
 The message finder searches downloaded history, including older cached pages, while offline. Type a literal phrase and press Enter; use arrows and Enter to jump to a match. It shows the newest 50 matches and asks you to refine broader searches. Esc returns to your previous pane with your draft intact. See [finding conversations and messages](docs/usage.md#finding-conversations-and-messages) for details.
 

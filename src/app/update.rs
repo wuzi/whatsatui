@@ -3,6 +3,7 @@ use crate::{config::Config, whatsapp::BackendEvent};
 use tokio::time::Instant;
 mod actions;
 mod attachments;
+mod audio;
 mod interactions;
 mod mouse;
 mod navigation;
@@ -10,6 +11,7 @@ mod search;
 mod stickers;
 #[derive(Clone, Debug)]
 pub enum Effect {
+    Audio(Option<crate::audio::Request>),
     LoadOriginal {
         request: RequestId,
         key: MessageKey,
@@ -189,6 +191,8 @@ pub struct App {
     drafts: HashMap<ChatId, LocalDraft>,
     pending: HashMap<RequestId, PendingSend>,
     mutation_requests: HashMap<RequestId, (MessageRecord, MutationKind)>,
+    audio_request: Option<crate::audio::Request>,
+    audio_speed: crate::audio::Speed,
     reading: std::collections::HashSet<ChatId>,
     read_watermarks: HashMap<ChatId, Option<MessageKey>>,
     last_expiry_ms: i64,
@@ -215,6 +219,7 @@ impl App {
             last_click: None,
             help_max_scroll: 0,
             view: ViewModel {
+                playback: None,
                 interactions: Default::default(),
                 editing: None,
                 list_offsets: Default::default(),
@@ -254,6 +259,8 @@ impl App {
             drafts: HashMap::new(),
             pending: HashMap::new(),
             mutation_requests: HashMap::new(),
+            audio_request: None,
+            audio_speed: Default::default(),
             reading: Default::default(),
             read_watermarks: Default::default(),
             last_expiry_ms: 0,
@@ -682,6 +689,9 @@ impl App {
             return;
         }
         match action {
+            A::PlayAudio => self.play_audio(effects),
+            A::AudioSpeed => self.change_audio_speed(effects),
+            A::AudioStop => self.stop_audio(effects),
             A::JumpToQuote => self.jump_to_quote(effects),
             A::React => self.open_reaction_picker(),
             A::Reactions => self.open_reactions(),
@@ -1747,6 +1757,7 @@ impl App {
     pub fn request_shutdown(&mut self) -> Vec<Effect> {
         self.quitting = true;
         let mut effects = self.flush_drafts();
+        self.stop_audio(&mut effects);
         for (account, chat) in self.buffered.keys().cloned().collect::<Vec<_>>() {
             let request = self.request();
             self.draft_loads
@@ -1781,6 +1792,7 @@ impl App {
         if matches!(
             &input,
             Input::Backend(_)
+                | Input::Playback(_)
                 | Input::Store(_)
                 | Input::Terminal(Event::Key(_) | Event::Paste(_) | Event::Resize(..))
         ) {
@@ -1791,6 +1803,7 @@ impl App {
         self.reconcile_message_actions();
         self.reconcile_editing();
         match input {
+            Input::Playback(playback) => self.audio_observed(playback),
             Input::Rendered(map) => {
                 if map.matches(&self.view) {
                     self.help_max_scroll = map.help_max_scroll;
@@ -1869,6 +1882,7 @@ impl App {
         }
         self.reconcile_message_actions();
         self.reconcile_editing();
+        self.reconcile_audio(&mut effects);
         self.maybe_read(&mut effects);
         self.finish_shutdown(&mut effects);
         effects

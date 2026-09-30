@@ -13,6 +13,9 @@ pub fn available(message: &MessageRecord, now_ms: i64) -> Vec<crate::config::bin
         return vec![];
     }
     let mut actions = vec![];
+    if can_play(message, now_ms) {
+        actions.push(A::PlayAudio);
+    }
     if let MessageBody::Media(attachment) = &message.body
         && attachment.validate().is_ok()
     {
@@ -121,6 +124,10 @@ pub fn can_react(message: &MessageRecord, now_ms: i64) -> bool {
                         | crate::app::model::SendState::Read
                 )
             ))
+}
+pub fn can_play(message: &MessageRecord, now_ms: i64) -> bool {
+    !message.expires_at_ms.is_some_and(|at| at <= now_ms)
+        && matches!(&message.body,MessageBody::Media(a) if a.kind==crate::media::AttachmentKind::Audio && a.validate().is_ok())
 }
 pub fn can_edit(message: &MessageRecord, now_ms: i64) -> bool {
     message.key.from_me

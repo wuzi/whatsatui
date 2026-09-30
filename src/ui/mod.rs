@@ -1,4 +1,5 @@
 mod actions;
+mod audio;
 mod avatars;
 mod reactions;
 pub use avatars::Avatars;
@@ -188,6 +189,18 @@ fn render_content(
             ThemeRole::Accent,
         )),
         regions.header,
+    );
+    audio::header(
+        frame,
+        Rect::new(
+            regions.header.x,
+            regions.header.y,
+            regions.header.width.saturating_sub(7),
+            regions.header.height,
+        ),
+        view,
+        config,
+        hits,
     );
     let help = Rect::new(
         regions.header.right().saturating_sub(7),

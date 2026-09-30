@@ -58,6 +58,7 @@ pub struct TimelineViewport {
 }
 #[derive(Clone, Debug)]
 pub struct ViewModel {
+    pub playback: Option<crate::audio::Playback>,
     pub interactions: MessageInteractions,
     pub editing: Option<EditingMessage>,
     pub list_offsets: std::collections::BTreeMap<crate::config::bindings::Context, usize>,

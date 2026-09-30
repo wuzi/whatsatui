@@ -30,6 +30,7 @@ impl App {
             } else {
                 match target {
                     Target::Message(_)
+                    | Target::PlayAudio(_)
                     | Target::Reactions(_)
                     | Target::Quote(_)
                     | Target::Pane(Focus::Messages) => self.scroll_timeline(delta, effects),
@@ -61,6 +62,27 @@ impl App {
             Some((target.clone(), map.context, self.view.now))
         };
         match target {
+            Target::PlayAudio(key)
+                if button == MouseButton::Left
+                    && self.view.overlay.is_none()
+                    && self.view.messages.iter().any(|m| m.key == key) =>
+            {
+                self.focus(Focus::Messages, effects);
+                self.view.selected_message = Some(key);
+                self.play_audio(effects);
+            }
+            Target::Playback(id, action)
+                if button == MouseButton::Left
+                    && self.view.overlay.is_none()
+                    && self.audio_request.as_ref().is_some_and(|r| r.id == id) =>
+            {
+                match action {
+                    ActionId::PlayAudio => self.toggle_audio(effects),
+                    ActionId::AudioSpeed => self.change_audio_speed(effects),
+                    ActionId::AudioStop => self.stop_audio(effects),
+                    _ => {}
+                }
+            }
             Target::Action(action) if button == MouseButton::Left => self.action(action, effects),
             Target::Chat(chat) if self.view.chats.iter().any(|c| c.chat == chat) => {
                 self.select_chat(chat, effects);
@@ -75,7 +97,10 @@ impl App {
                     effects,
                 );
             }
-            Target::Message(key) if self.view.messages.iter().any(|m| m.key == key) => {
+            Target::Message(key) | Target::PlayAudio(key)
+                if self.view.overlay.is_none()
+                    && self.view.messages.iter().any(|m| m.key == key) =>
+            {
                 self.focus(Focus::Messages, effects);
                 if self.view.timeline_anchor.is_none() {
                     self.view.timeline_anchor = self.view.messages.last().map(|m| m.key.clone());

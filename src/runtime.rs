@@ -569,7 +569,7 @@ async fn execute_with_media(
             }
             StoreCompletion::Changed { account, result }
         }
-        Effect::Shutdown => return None,
+        Effect::Shutdown | Effect::Audio(_) => return None,
     };
     Some(Input::Store(event))
 }
@@ -591,6 +591,12 @@ where
         control,
         media,
     } = backend;
+    let mut audio = crate::audio::Player::start(
+        store.clone(),
+        media.clone(),
+        app.config.audio.player.clone(),
+    );
+    let mut audio_closed = false;
     let (cancel_media, media_cancelled) = tokio::sync::watch::channel(false);
     let mut control = Some(control);
     let mut pending = VecDeque::new();
@@ -614,10 +620,18 @@ where
         if let Some(index) = pending.iter().position(|e| matches!(e, Effect::Shutdown)) {
             pending.remove(index);
             closing = true;
+            audio.set(None);
             let _ = cancel_media.send(true);
             screen.stop_media();
             if let Some(control) = control.take() {
                 shutdown = Some(Box::pin(control.shutdown()));
+            }
+        }
+        while let Some(index) = pending.iter().position(|e| matches!(e, Effect::Audio(_))) {
+            if let Some(Effect::Audio(request)) = pending.remove(index)
+                && !closing
+            {
+                audio.set(request);
             }
         }
         while jobs.len() < 16 {
@@ -660,6 +674,12 @@ where
             return shutdown_error.map_or(Ok(()), |e| Err(AppError::Backend(e)));
         }
         let next = tokio::select! {
+            update=audio.events.changed(),if !closing&&!audio_closed=>{
+                if update.is_ok() {audio.events.borrow_and_update().clone().map(Input::Playback)} else {
+                    audio_closed=true;
+                    app.view().playback.map(|mut p|{p.phase=crate::audio::Phase::Failed;p.error=Some("Audio player unavailable; restart the app".into());Input::Playback(p)})
+                }
+            },
             event=input.next(),if !closing&&!input_closed=>match event{Some(Ok(event))=>Some(Input::Terminal(event)),Some(Err(e))=>return Err(e.into()),None=>{input_closed=true;pending.extend(app.request_shutdown());None}},
             event=events.recv(),if !events_closed&&(closing||pending.len()<48)=>match event{Some(event)=>Some(Input::Backend(event)),None=>{events_closed=true;Some(Input::Backend(BackendEvent::Stopped))}},
             completion=jobs.join_next(),if !jobs.is_empty()=>match completion{Some(Ok((command,event)))=>{command_jobs-=usize::from(command);event},Some(Err(_))=>return Err(AppError::Backend(BackendError::Stopped)),None=>None},

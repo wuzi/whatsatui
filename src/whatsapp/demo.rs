@@ -5,6 +5,24 @@ use crate::media::{Attachment, AttachmentKind};
 use sha2::{Digest, Sha256};
 const STICKER: &[u8] = include_bytes!("../../tests/fixtures/send-sticker.webp");
 const IMAGE: &[u8] = include_bytes!("demo-image.png");
+const AUDIO: &[u8] = include_bytes!("../../tests/fixtures/voice.ogg");
+fn audio_attachment() -> Attachment {
+    Attachment {
+        kind: AttachmentKind::Audio,
+        audio: Some(crate::media::AudioMetadata {
+            voice: true,
+            seconds: Some(8),
+        }),
+        filename: None,
+        mime: Some("audio/ogg; codecs=opus".into()),
+        caption: None,
+        size: AUDIO.len() as u64,
+        direct_path: "/v/offline-audio".into(),
+        media_key: [0; 32],
+        sha256: Sha256::digest(AUDIO).into(),
+        encrypted_sha256: [0; 32],
+    }
+}
 fn image_attachment() -> Attachment {
     Attachment {
         audio: None,
@@ -136,6 +154,9 @@ async fn initialize(store: &Store) -> Result<StoreChange, BackendError> {
     let mut sticker = message("leo@demo", "leo@demo", "l-sticker", "", 35_000);
     sticker.body = MessageBody::Media(Box::new(sticker_attachment()));
     messages.push(sticker);
+    let mut audio = message("maya@demo", "maya@demo", "m-audio", "", 50_000);
+    audio.body = MessageBody::Media(Box::new(audio_attachment()));
+    messages.push(audio);
     let mut changes = messages
         .into_iter()
         .map(MessageChange::Upsert)
@@ -224,12 +245,17 @@ impl crate::media::Downloader for DemoDownloader {
         if *cancel.borrow() || cancel.has_changed().is_err() {
             return Err("Demo download canceled".into());
         }
-        if attachment != &image_attachment() && attachment != &sticker_attachment() {
+        if attachment != &image_attachment()
+            && attachment != &sticker_attachment()
+            && attachment != &audio_attachment()
+        {
             return Err("Attachment is not an offline demo fixture".into());
         }
         std::fs::write(
             destination,
-            if attachment.kind == AttachmentKind::Sticker {
+            if attachment.kind == AttachmentKind::Audio {
+                AUDIO
+            } else if attachment.kind == AttachmentKind::Sticker {
                 STICKER
             } else {
                 IMAGE

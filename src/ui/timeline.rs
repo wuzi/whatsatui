@@ -9,6 +9,7 @@ struct Run {
     preview: Option<usize>,
     reactions: std::ops::Range<usize>,
     quote: std::ops::Range<usize>,
+    audio: std::ops::Range<usize>,
 }
 pub(super) struct Timeline {
     pub area: Rect,
@@ -188,6 +189,12 @@ pub(super) fn layout(area: Rect, view: &ViewModel, config: &Config) -> Timeline 
         });
         let quote = quote_start..quote_start + quote_count;
         let (body, preview) = message_body::rows(message, view, config, width);
+        let audio =
+            if crate::message_actions::can_play(message, chrono::Utc::now().timestamp_millis()) {
+                quote.end..lines.len() + body.len()
+            } else {
+                0..0
+            };
         let preview = preview.map(|offset| lines.len() + offset);
         for line in body {
             lines.push(gutter(line, message, false, view, config, gutter_width));
@@ -235,6 +242,7 @@ pub(super) fn layout(area: Rect, view: &ViewModel, config: &Config) -> Timeline 
             }
         }
         runs.push(Run {
+            audio,
             quote,
             reactions,
             index,
@@ -339,6 +347,8 @@ pub(super) fn render(
                 ),
                 if run.quote.contains(row) {
                     Target::Quote(view.messages[run.index].key.clone())
+                } else if run.audio.contains(row) {
+                    Target::PlayAudio(view.messages[run.index].key.clone())
                 } else if run.reactions.contains(row) {
                     Target::Reactions(view.messages[run.index].key.clone())
                 } else {

@@ -34,6 +34,9 @@ pub enum Context {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ActionId {
+    PlayAudio,
+    AudioSpeed,
+    AudioStop,
     JumpToQuote,
     React,
     Reactions,
@@ -77,6 +80,9 @@ pub(super) type Overrides = BTreeMap<Context, BTreeMap<ActionId, Vec<String>>>;
 impl ActionId {
     pub fn label(self) -> &'static str {
         match self {
+            Self::PlayAudio => "play/pause audio",
+            Self::AudioSpeed => "audio speed",
+            Self::AudioStop => "stop audio",
             Self::JumpToQuote => "quoted original",
             Self::React => "react",
             Self::Reactions => "view reactions",
@@ -198,9 +204,13 @@ impl Default for Bindings {
         b.add(C::Messages, A::CopyText, "y");
         b.add(C::Messages, A::OpenLinks, "o");
         for c in [C::Messages, C::MessageActions] {
+            b.add(c, A::PlayAudio, "p");
             b.add(c, A::DownloadMedia, "d");
             b.add(c, A::OpenMedia, "v");
         }
+        b.add(C::Messages, A::PlayAudio, "space");
+        b.add(C::Messages, A::AudioSpeed, "s");
+        b.add(C::Messages, A::AudioStop, "x");
         for (a, k) in [
             (A::Back, "esc"),
             (A::Reply, "r"),
@@ -454,7 +464,8 @@ fn allowed(c: Context, a: ActionId) -> bool {
         C::MessageSearch => matches!(a, A::Back | A::Open | A::Next | A::Previous),
         C::MessageActions => matches!(
             a,
-            A::JumpToQuote
+            A::PlayAudio
+                | A::JumpToQuote
                 | A::React
                 | A::Reactions
                 | A::EditMessage

@@ -35,6 +35,14 @@ pub(super) fn rows(
         }
         MessageBody::Text(t) => Some(t.as_str()),
         MessageBody::Media(attachment) => {
+            if attachment.kind == crate::media::AttachmentKind::Audio {
+                lines.extend(
+                    wrap(&audio::label(message, view), width)
+                        .into_iter()
+                        .map(|s| Line::styled(s, style(config, view, ThemeRole::Accent))),
+                );
+                return (lines, None);
+            }
             lines.extend(
                 wrap(&single(&attachment.label()), width)
                     .into_iter()

@@ -3,6 +3,8 @@ use crate::{app::model::*, config::bindings::ActionId};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Target {
+    PlayAudio(MessageKey),
+    Playback(RequestId, ActionId),
     Pane(Focus),
     Chat(ChatId),
     Message(MessageKey),

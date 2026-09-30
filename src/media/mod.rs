@@ -81,7 +81,7 @@ async fn acquire(
     cancel: watch::Receiver<bool>,
 ) -> Result<(cache::Cache, std::path::PathBuf, bool), String> {
     check_cancel(&cancel)?;
-    let attachment = current(&message, &store).await?;
+    let attachment = current(message, store).await?;
     attachment.validate()?;
     if attachment.size > MAX_FILE_BYTES {
         return Err("Attachment exceeds the 50 MiB download limit".into());
@@ -116,7 +116,7 @@ async fn acquire(
             .await?;
         check_cancel(&cancel)?;
         cache::verify(temporary.path().to_owned(), &attachment).await?;
-        current(&message, &store).await?;
+        current(message, store).await?;
         check_cancel(&cancel)?;
         cache.publish(temporary, &message.key, &attachment)?;
     }

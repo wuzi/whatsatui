@@ -52,6 +52,6 @@
 
 **Interfaces:** `Effect::Audio(Option<audio::Request>)`, `Input::Playback(audio::Playback)`, `ViewModel.playback: Option<audio::Playback>`. Runtime owns Player and routes effects outside ordinary store-job slots. Rendered audio/control targets include message or active request identity.
 
-- [ ] Write reducer/rendering tests for play/pause/replacement, captured menu targets, speed, stop, stale events/account change, expiry/deletion, playback across chat changes, unchanged drafts/composer keys, configured bindings, actual clipped mouse hits at 40x12 and 120x34. Observe RED then implement controls and runtime routing.
-- [ ] Add an offline synthetic voice note and update usage/validation/example configuration. Run focused audio tests, then full `cargo test -j 2 -- --test-threads=2`, fmt and Clippy; expect all pass.
+- [x] Write reducer/rendering tests for play/pause/replacement, captured menu targets, speed, stop, stale events/account change, expiry/deletion, playback across chat changes, unchanged drafts/composer keys, configured bindings, actual clipped mouse hits at 40x12 and 120x34. Observe RED then implement controls and runtime routing.
+- [x] Add an offline synthetic voice note and update usage/validation/example configuration. Run focused audio tests, then full `cargo test -j 2 -- --test-threads=2`, fmt and Clippy; expect all pass.
 - [ ] Commit; request one whole-branch review and fix actionable findings with regressions. Build release, run demo PTY + player smoke (null output), preserve logs, merge main, verify tested source, remove owned worktree/branch.

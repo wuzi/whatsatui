@@ -29,6 +29,9 @@ previous = ["k", "up"]
 open = ["enter"]
 
 [bindings.messages]
+play_audio = ["p", "space"]
+audio_speed = ["s"]
+audio_stop = ["x"]
 react = ["a"]
 reactions = ["i"]
 edit_message = ["e"]
@@ -96,6 +99,7 @@ next = ["down"]
 previous = ["up"]
 
 [bindings.message_actions]
+play_audio = ["p"]
 react = ["a"]
 reactions = ["i"]
 edit_message = ["e"]
@@ -123,6 +127,10 @@ copy_text = ["y"]
 avatars = true
 inline = true
 protocol = "auto" # auto, kitty, halfblocks; tmux/SSH use halfblocks
+
+# Required only for received voice-message/audio playback.
+[audio]
+player = "mpv" # executable name or absolute path
 
 [bindings.attachment]
 open = ["enter"]

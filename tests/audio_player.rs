@@ -198,3 +198,62 @@ async fn eof_finishes_and_expired_offscreen_content_stops_the_player() {
     observed(&mut player, |p| p.phase == Phase::Failed).await;
     f.reaped().await;
 }
+
+#[tokio::test]
+#[ignore = "Requires installed mpv; uses silent null audio output"]
+async fn installed_mpv_decodes_opus_and_observes_pause_speed_and_eof() {
+    struct Opus;
+    #[async_trait::async_trait]
+    impl Downloader for Opus {
+        async fn download(
+            &self,
+            _: &Attachment,
+            path: &Path,
+            _: watch::Receiver<bool>,
+        ) -> Result<(), String> {
+            tokio::fs::write(path, include_bytes!("fixtures/voice.ogg"))
+                .await
+                .map_err(|e| e.to_string())
+        }
+    }
+    let f = Fixture::new().await;
+    std::fs::write(&f.exe, "#!/bin/sh\nexec mpv --ao=null \"$@\"\n").unwrap();
+    let mut message = record("opus", "normal");
+    let MessageBody::Media(a) = &mut message.body else {
+        panic!()
+    };
+    a.size = include_bytes!("fixtures/voice.ogg").len() as u64;
+    a.sha256 = Sha256::digest(include_bytes!("fixtures/voice.ogg")).into();
+    f.store
+        .apply_batch(batch(vec![message.clone()]))
+        .await
+        .unwrap();
+    let mut player = Player::start(f.store.clone(), Arc::new(Opus), f.exe.clone());
+    let mut request = Request {
+        id: RequestId(1),
+        message,
+        paused: false,
+        speed: Speed::Normal,
+    };
+    player.set(Some(request.clone()));
+    let playing = observed(&mut player, |p| {
+        p.phase == Phase::Playing && p.position_ms > 0
+    })
+    .await;
+    assert!(
+        playing
+            .duration_ms
+            .is_some_and(|ms| (7900..8100).contains(&ms))
+    );
+    request.paused = true;
+    player.set(Some(request.clone()));
+    observed(&mut player, |p| p.phase == Phase::Paused).await;
+    request.speed = Speed::Double;
+    request.paused = false;
+    player.set(Some(request));
+    observed(&mut player, |p| {
+        p.phase == Phase::Playing && p.request.speed == Speed::Double
+    })
+    .await;
+    observed(&mut player, |p| p.phase == Phase::Finished).await;
+}
