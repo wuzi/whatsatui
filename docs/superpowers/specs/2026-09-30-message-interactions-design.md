@@ -1,0 +1,25 @@
+# Message interactions
+
+The user approved the recommended next release: reactions, editing sent text, and better replies to media. The goal is to complete the Concord-style message selection workflow without interrupting composition. Keep the existing pane model, mouse interaction, theme, and quiet footer.
+
+## Design
+
+Use the current action menu and searchable emoji picker. Reactions appear below their message as emoji/count pairs; the user's reaction has an accent and a You marker. A reaction-details popup lists participants (including groups), offers React/change and Remove mine, and is reachable from the menu or by clicking the reaction row. Selecting the same emoji removes it. Actions operate on the captured message, never a newly arrived/selected message. Printable composer keys remain text. Defaults in Messages: `a` react, `e` edit, `i` reaction details, `r` reply, `q` jump to quoted original. Configured controls appear in Help and contextual dialogs.
+
+Editing is for the user's successfully sent plain text within 15 minutes of original send time. Enter saves, Escape cancels, and the normal rich draft remains untouched. The composer clearly says Editing. Editing uses a separate editor so snapshots, receipt updates, alias merges, and draft saves cannot replace edit text or overwrite the normal draft. Opening another chat cancels the edit. Sending revalidates ownership, body/version, expiry, and age in storage immediately before transmission. An incoming edit or deletion invalidates a stale attempt; show an explanation and keep the proposed edit available to copy/cancel. No media-caption editing in this release.
+
+Replies support text and received images, stickers, and documents (plus sent local image/sticker bodies once sent). Quotes have a bounded 160-grapheme label/caption preview. The wire quote retains a minimal typed image/sticker/document body, without attaching downloaded media or secrets. A click on the quoted lines or `q` loads the cached original by stable key, using the existing pagination cursor; a missing/deleted/expired original gives a clear notice. Only the same account and conversation may be followed.
+
+## State and durability
+
+Store reactions separately from messages: one row per target message and reactor, including an empty-emoji removal tombstone. Normalize live reaction envelopes and history reaction summaries. Key scope is account/chat/target sender/message ID/from-me; reactor is independently canonicalized. Apply newest sender timestamp, with a deterministic event-ID tie break (removals win equal timestamps). Replay, pre-original delivery and PN/LID merges must not resurrect old reactions or create unread/chat-preview messages. Do not turn malformed reactions into ordinary chat entries. Deleted/expired targets clear interaction content.
+
+Add a small durable outgoing-mutation journal, distinct from normal outgoing messages. Store the captured target/version, action and pending state before calling WhatsApp. Only one pending operation per target is allowed. Success applies the reaction/edit atomically with the journal result. Errors retain the original message and show Failed/Unconfirmed; startup marks interrupted attempts Unconfirmed and never automatically transmits them. Unconfirmed operations require a deliberate new action after checking WhatsApp. Use the pinned backend's `send_reaction` and `edit_message` methods so its encrypted community-reaction handling and fresh edit stanza IDs remain intact; journal IDs identify local attempts, not wire stanza IDs. Normal send receipts/state are unaffected.
+
+Hydrate reactions and the latest mutation status for visible message keys in ChatSnapshot. Keep SQL mutation/reconciliation code in a dedicated storage module and outgoing orchestration in a backend module with an injectable transport for tests. Do not expand the already large reducer with transport/storage logic.
+
+## Scope and validation
+
+No new dependencies. Preserve existing data with an additive SQLite migration. No live-account tests or real clipboard reads. Keep builds to one Cargo process with `-j 2` and test threads 2, using the shared target directory. Implement inline in an owned worktree, retain evidence, perform one final independent review, merge locally and rebuild the release binary; no push.
+
+Validate normalization and wire targets; account boundaries; removals/replay/ordering; reactions before originals; history summaries; identity merges; deletion/expiry scrubbing; migration; durable-before-send and crash recovery; draft preservation; stale/expired edit refusal; reaction replacement/removal; group reactor names; mouse and narrow rendering; media quotes and cached-original jumps. Run the full test suite, formatting, Clippy, and an offline release PTY smoke test. Report live service limitations honestly.
