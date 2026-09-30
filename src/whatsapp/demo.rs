@@ -3,6 +3,7 @@ use super::*;
 use crate::app::model::*;
 use crate::media::{Attachment, AttachmentKind};
 use sha2::{Digest, Sha256};
+const STICKER: &[u8] = include_bytes!("../../tests/fixtures/sticker.webp");
 const IMAGE: &[u8] = include_bytes!("demo-image.png");
 fn image_attachment() -> Attachment {
     Attachment {
@@ -14,6 +15,19 @@ fn image_attachment() -> Attachment {
         direct_path: "/v/offline-demo".into(),
         media_key: [0; 32],
         sha256: Sha256::digest(IMAGE).into(),
+        encrypted_sha256: [0; 32],
+    }
+}
+fn sticker_attachment() -> Attachment {
+    Attachment {
+        kind: AttachmentKind::Sticker,
+        filename: Some("hello.webp".into()),
+        mime: Some("image/webp".into()),
+        caption: None,
+        size: STICKER.len() as u64,
+        direct_path: "/v/offline-sticker".into(),
+        media_key: [0; 32],
+        sha256: Sha256::digest(STICKER).into(),
         encrypted_sha256: [0; 32],
     }
 }
@@ -117,6 +131,9 @@ async fn initialize(store: &Store) -> Result<StoreChange, BackendError> {
     let mut photo = message("weekend@g.us", "maya@demo", "g3", "", 150_000);
     photo.body = MessageBody::Media(Box::new(image_attachment()));
     messages.push(photo);
+    let mut sticker = message("leo@demo", "leo@demo", "l-sticker", "", 35_000);
+    sticker.body = MessageBody::Media(Box::new(sticker_attachment()));
+    messages.push(sticker);
     store
         .apply_batch(MessageBatch {
             account: ACCOUNT.into(),
@@ -183,9 +200,17 @@ impl crate::media::Downloader for DemoDownloader {
         if *cancel.borrow() || cancel.has_changed().is_err() {
             return Err("Demo download canceled".into());
         }
-        if attachment != &image_attachment() {
+        if attachment != &image_attachment() && attachment != &sticker_attachment() {
             return Err("Attachment is not an offline demo fixture".into());
         }
-        std::fs::write(destination, IMAGE).map_err(|_| "Could not write the demo image".into())
+        std::fs::write(
+            destination,
+            if attachment.kind == AttachmentKind::Sticker {
+                STICKER
+            } else {
+                IMAGE
+            },
+        )
+        .map_err(|_| "Could not write the demo image".into())
     }
 }

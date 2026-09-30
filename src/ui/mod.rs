@@ -1,6 +1,7 @@
 mod actions;
 mod chat_list;
 mod composer;
+pub mod images;
 pub mod layout;
 mod overlays;
 mod rich_text;
@@ -10,6 +11,7 @@ use crate::{
     app::{Focus, Overlay, ViewModel},
     config::{Config, bindings::Context, theme::ThemeRole},
 };
+pub use images::Images;
 use ratatui::{
     prelude::*,
     widgets::{Block, BorderType, Paragraph, Wrap},
@@ -98,6 +100,19 @@ fn sender(view: &ViewModel, id: &str) -> String {
         })
 }
 pub fn render(frame: &mut Frame, view: &ViewModel, config: &Config) {
+    render_with_images(frame, view, config, &mut Images::default());
+}
+pub fn render_with_images(
+    frame: &mut Frame,
+    view: &ViewModel,
+    config: &Config,
+    images: &mut Images,
+) {
+    images.begin_frame();
+    render_content(frame, view, config, images);
+    images.end_frame();
+}
+fn render_content(frame: &mut Frame, view: &ViewModel, config: &Config, images: &mut Images) {
     let area = frame.area();
     frame.render_widget(
         Block::default().style(
@@ -135,7 +150,7 @@ pub fn render(frame: &mut Frame, view: &ViewModel, config: &Config) {
         regions.header,
     );
     chat_list::render(frame, regions.chats, view, config);
-    timeline::render(frame, regions.messages, view, config);
+    timeline::render(frame, regions.messages, view, config, images);
     composer::render(frame, regions.composer, view, config);
     let context = match &view.overlay {
         Some(Overlay::MessageActions(_)) => Context::MessageActions,

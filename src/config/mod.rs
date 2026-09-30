@@ -11,12 +11,36 @@ pub struct ConfigError(pub String);
 pub struct Config {
     pub theme: Theme,
     pub bindings: Bindings,
+    pub media: MediaConfig,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImageProtocol {
+    #[default]
+    Auto,
+    Kitty,
+    Halfblocks,
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MediaConfig {
+    pub inline: bool,
+    pub protocol: ImageProtocol,
+}
+impl Default for MediaConfig {
+    fn default() -> Self {
+        Self {
+            inline: true,
+            protocol: ImageProtocol::Auto,
+        }
+    }
 }
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct FileConfig {
     theme: Theme,
     bindings: bindings::Overrides,
+    media: MediaConfig,
 }
 impl Config {
     pub fn parse(text: &str) -> Result<Self, ConfigError> {
@@ -25,6 +49,7 @@ impl Config {
         Ok(Self {
             theme: file.theme,
             bindings: Bindings::configured(file.bindings)?,
+            media: file.media,
         })
     }
     pub fn load(path: &Path) -> Result<Self, ConfigError> {

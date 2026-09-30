@@ -12,6 +12,32 @@ use std::{
     path::{Path, PathBuf},
 };
 
+// Explicit actions share the cache with automatic previews. Wait without occupying
+// a UI thread so a just-canceled preview cannot turn a user's action into "busy".
+pub(super) async fn wait_open(
+    data_dir: &Path,
+    create: bool,
+    mut cancel: tokio::sync::watch::Receiver<bool>,
+) -> Result<Option<Cache>, String> {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(65);
+    loop {
+        super::check_cancel(&cancel)?;
+        if let Some(cache) = Cache::open(data_dir, create)? {
+            return Ok(Some(cache));
+        }
+        if !create && !data_dir.join("media").exists() {
+            return Ok(None);
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err("Media is busy; try again".into());
+        }
+        tokio::select! {
+            _ = cancel.changed() => { return Err("Attachment download canceled".into()); },
+            _ = tokio::time::sleep(std::time::Duration::from_millis(25)) => {},
+        }
+    }
+}
+
 pub(super) struct Cache {
     pub root: PathBuf,
     _lock: File,

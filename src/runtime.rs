@@ -31,6 +31,10 @@ pub enum AppError {
     Media(String),
 }
 pub trait Screen {
+    fn poll(&mut self) -> bool {
+        false
+    }
+    fn stop_media(&mut self) {}
     fn draw(&mut self, view: &ViewModel, config: &Config) -> std::io::Result<()>;
     fn finish(&mut self) -> std::io::Result<()>;
     fn timeline_viewport(&self) -> Option<crate::app::TimelineViewport> {
@@ -120,23 +124,44 @@ where
     })
 }
 struct TerminalScreen {
+    images: crate::ui::Images,
     terminal: ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>,
     guard: crate::terminal::TerminalGuard,
     viewport: Option<crate::app::TimelineViewport>,
 }
 impl Screen for TerminalScreen {
+    fn poll(&mut self) -> bool {
+        self.images.poll()
+    }
+    fn stop_media(&mut self) {
+        self.images.stop();
+    }
     fn draw(&mut self, view: &ViewModel, config: &Config) -> std::io::Result<()> {
         self.terminal.draw(|frame| {
             self.viewport = crate::ui::timeline_viewport(frame.area(), view, config);
-            crate::ui::render(frame, view, config);
+            crate::ui::render_with_images(frame, view, config, &mut self.images);
         })?;
+        self.clean_images()?;
         Ok(())
     }
     fn finish(&mut self) -> std::io::Result<()> {
+        self.images.stop();
+        self.clean_images()?;
         self.guard.restore()
     }
     fn timeline_viewport(&self) -> Option<crate::app::TimelineViewport> {
         self.viewport.clone()
+    }
+}
+impl TerminalScreen {
+    fn clean_images(&mut self) -> std::io::Result<()> {
+        use std::io::Write;
+        let cleanup = self.images.take_cleanup();
+        if !cleanup.is_empty() {
+            std::io::stdout().write_all(cleanup.as_bytes())?;
+            std::io::stdout().flush()?;
+        }
+        Ok(())
     }
 }
 pub async fn run(mut app: App, store: Store, backend: BackendHandle) -> Result<(), AppError> {
@@ -147,6 +172,11 @@ pub async fn run(mut app: App, store: Store, backend: BackendHandle) -> Result<(
         || std::env::var("TERM").is_ok_and(|s| s.contains("direct"));
     app.set_truecolor(truecolor);
     let mut screen = TerminalScreen {
+        images: crate::ui::Images::new(
+            store.clone(),
+            backend.media.clone(),
+            app.config.media.protocol,
+        ),
         terminal,
         guard,
         viewport: None,
@@ -440,6 +470,7 @@ where
             pending.remove(index);
             closing = true;
             let _ = cancel_media.send(true);
+            screen.stop_media();
             if let Some(control) = control.take() {
                 shutdown = Some(Box::pin(control.shutdown()));
             }
@@ -485,7 +516,7 @@ where
             event=events.recv(),if !events_closed&&(closing||pending.len()<48)=>match event{Some(event)=>Some(Input::Backend(event)),None=>{events_closed=true;Some(Input::Backend(BackendEvent::Stopped))}},
             completion=jobs.join_next(),if !jobs.is_empty()=>match completion{Some(Ok((command,event)))=>{command_jobs-=usize::from(command);event},Some(Err(_))=>return Err(AppError::Backend(BackendError::Stopped)),None=>None},
             result=async{shutdown.as_mut().expect("shutdown future exists").await},if closing&&!shutdown_done=>{if let Err(e)=result{shutdown_error=Some(e);}shutdown_done=true;None},
-            _=tick.tick(),if !closing=>{let epoch=chrono::Utc::now().timestamp_millis();if epoch/1000!=last_second{dirty=true;last_second=epoch/1000;}Some(Input::Tick(epoch))},
+            _=tick.tick(),if !closing=>{dirty |= screen.poll();let epoch=chrono::Utc::now().timestamp_millis();if epoch/1000!=last_second{dirty=true;last_second=epoch/1000;}Some(Input::Tick(epoch))},
             _=tokio::signal::ctrl_c(),if !closing=>{pending.extend(app.request_shutdown());None},
             _=terminate.recv(),if !closing=>{pending.extend(app.request_shutdown());None},
         };

@@ -46,8 +46,13 @@ pub async fn execute(
     if attachment.size > MAX_FILE_BYTES {
         return Err("Attachment exceeds the 50 MiB download limit".into());
     }
-    let cache = cache::Cache::open(store.data_dir(), matches!(action, MediaAction::Download))?
-        .ok_or("Download the attachment first, or wait for the current media action")?;
+    let cache = cache::wait_open(
+        store.data_dir(),
+        matches!(action, MediaAction::Download),
+        cancel.clone(),
+    )
+    .await?
+    .ok_or("Download the attachment first, or wait for the current media action")?;
     cache.remove_orphans()?;
     let id = cache::token(&message.key, &attachment);
     let path = cache.path(&id, &attachment);

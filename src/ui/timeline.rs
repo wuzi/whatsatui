@@ -1,6 +1,12 @@
 use super::*;
 use crate::app::model::*;
-pub(super) fn render(frame: &mut Frame, area: Rect, view: &ViewModel, config: &Config) {
+pub(super) fn render(
+    frame: &mut Frame,
+    area: Rect,
+    view: &ViewModel,
+    config: &Config,
+    images: &mut super::Images,
+) {
     if area.is_empty() {
         return;
     }
@@ -43,33 +49,61 @@ pub(super) fn render(frame: &mut Frame, area: Rect, view: &ViewModel, config: &C
         .unwrap_or(view.messages.len() - 1);
     let mut lines = Vec::new();
     let mut chosen = (0, 0);
+    let mut previews = Vec::new();
     for (index, message) in view.messages.iter().enumerate().take(selected + 1) {
         let start = lines.len();
-        lines.extend(message_rows(
+        let (rows, preview_at) = message_rows(
             message,
             index == selected,
             view,
             config,
             inner.width as usize,
-        ));
+        );
+        if let Some(offset) = preview_at {
+            previews.push((start + offset, message));
+        }
+        lines.extend(rows);
         if index == selected {
             chosen = (start, lines.len());
         }
     }
     let height = inner.height as usize;
-    let visible = if chosen.1 - chosen.0 > height && height > 1 {
-        let mut v = vec![lines[chosen.0].clone()];
+    let indexes: Vec<usize> = if chosen.1 - chosen.0 > height && height > 1 {
+        let mut indexes = vec![chosen.0];
         let max_scroll = (chosen.1 - chosen.0).saturating_sub(height);
         let end = chosen.1 - view.message_scroll.min(max_scroll);
-        v.extend_from_slice(&lines[end.saturating_sub(height - 1)..end]);
-        v
+        indexes.extend(end.saturating_sub(height - 1)..end);
+        indexes
     } else {
-        lines
-            .into_iter()
-            .skip(chosen.1.saturating_sub(height))
-            .collect()
+        (chosen.1.saturating_sub(height)..chosen.1).collect()
     };
-    frame.render_widget(Paragraph::new(visible), inner);
+    frame.render_widget(
+        Paragraph::new(
+            indexes
+                .iter()
+                .map(|i| lines[*i].clone())
+                .collect::<Vec<_>>(),
+        ),
+        inner,
+    );
+    if view.overlay.is_none() && view.qr.is_none() && view.account.is_some() {
+        for (start, message) in previews {
+            let span = start..start + super::images::PREVIEW_ROWS as usize;
+            if let Some(first) = indexes.iter().position(|i| span.contains(i)) {
+                let count = indexes[first..]
+                    .iter()
+                    .take_while(|i| span.contains(i))
+                    .count();
+                images.draw(
+                    frame,
+                    message,
+                    Rect::new(inner.x, inner.y + first as u16, inner.width, count as u16),
+                    (indexes[first] - start) as u16,
+                    Size::new(inner.width, super::images::PREVIEW_ROWS),
+                );
+            }
+        }
+    }
 }
 
 fn message_rows(
@@ -78,8 +112,9 @@ fn message_rows(
     view: &ViewModel,
     config: &Config,
     width: usize,
-) -> Vec<Line<'static>> {
+) -> (Vec<Line<'static>>, Option<usize>) {
     let mut lines = Vec::new();
+    let mut preview_at = None;
     let who = if message.key.from_me {
         "You".into()
     } else {
@@ -148,6 +183,15 @@ fn message_rows(
                     .into_iter()
                     .map(Line::from),
             );
+            if config.media.inline
+                && matches!(
+                    attachment.kind,
+                    crate::media::AttachmentKind::Image | crate::media::AttachmentKind::Sticker
+                )
+            {
+                preview_at = Some(lines.len());
+                lines.extend((0..super::images::PREVIEW_ROWS).map(|_| Line::from("")));
+            }
             attachment.caption.as_deref()
         }
         MessageBody::Unsupported { kind, caption } => {
@@ -176,7 +220,7 @@ fn message_rows(
         ));
     }
     lines.push(Line::from(""));
-    lines
+    (lines, preview_at)
 }
 
 pub(super) fn viewport(
@@ -195,7 +239,7 @@ pub(super) fn viewport(
         .or_else(|| view.messages.last())?;
     let height = regions.messages.height.saturating_sub(2) as usize;
     let width = regions.messages.width.saturating_sub(2) as usize;
-    let total = message_rows(message, true, view, config, width).len();
+    let total = message_rows(message, true, view, config, width).0.len();
     Some(crate::app::TimelineViewport {
         selected: view.selected_message.clone(),
         max_scroll: total.saturating_sub(height),

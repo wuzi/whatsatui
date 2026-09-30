@@ -29,9 +29,9 @@ Files: `src/media/{model,mod,worker,preview,outgoing}.rs`, `src/whatsapp/media.r
 
 Interfaces: `AttachmentKind::Sticker`; `preview::load(message, store, downloader, cancel)` returns bounded decoded image; `outgoing::import(path, data_dir)` returns serializable `LocalImage`; `outgoing::read(image, data_dir)` verifies immutable stored bytes.
 
-- [ ] Write and run failing tests for sticker/view-once extraction, bounded image decoding, corrupt data, immutable snapshot import and validation.
-- [ ] Implement metadata, codecs, verified cached preview loading, and private content-addressed JPEG snapshots.
-- [ ] Run targeted tests and full suite; commit.
+- [x] Write and run failing tests for sticker/view-once extraction, bounded image decoding, corrupt data, immutable snapshot import and validation.
+- [x] Implement metadata, codecs, verified cached preview loading, and private content-addressed JPEG snapshots.
+- [x] Run targeted tests and full suite; commit.
 
 ## Task 2: Inline timeline and composer graphics
 
@@ -39,9 +39,9 @@ Files: `src/ui/{timeline,images,mod}.rs`, `src/runtime.rs`, config, demo, render
 
 Interfaces: `ui::Images` owns bounded prepared protocols and pending/failed identities; `Screen` owns preview scheduling/results; shared timeline rows reserve and clip image slots consistently with viewport calculations. Preserve public stateless test rendering entrypoint.
 
-- [ ] Write and run failing tests for reserved rows, clipping, stale-result eviction, disabled previews, and renderer selection.
-- [ ] Implement asynchronous preview preparation, Ghostty Kitty/half-block selection, clipping, overlays, resize, demo sticker and config.
-- [ ] Run targeted tests and full suite; commit.
+- [x] Write and run failing tests for reserved rows, clipping, stale-result eviction, disabled previews, and renderer selection.
+- [x] Implement asynchronous preview preparation, Ghostty Kitty/half-block selection, clipping, overlays, resize, demo sticker and config.
+- [x] Run targeted tests and full suite; commit.
 
 ## Task 3: Durable image attachment and sending
 
