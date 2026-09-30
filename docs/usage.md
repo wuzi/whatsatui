@@ -18,6 +18,8 @@ Messages/Composer at the bottom mark the conversation read; selecting a chat whi
 
 ## Sender blocks, photos, and mouse
 
+The sidebar shows a small profile photo beside each chat’s name and latest-message preview, with initials when no photo is available. Group rows use the group photo. Long names shorten to keep unread counts and draft indicators visible; clicking the photo selects the same chat as clicking its text.
+
 Direct and group chats use sender blocks: profile photo, bold name and time. Consecutive messages from the same person within five minutes share a block; dates start new blocks. Every message keeps its timestamp and its own selection. Your messages show **You** and a green identity marker (`theme.own`); the cyan marker identifies the selected message. Group messages use participant photos, and the conversation header uses the group photo.
 
 Visible profile photos load in the background and fall back to initials if missing or private. Photos are scoped by account, resized to 96×96 thumbnails, and cached under `<data-dir>/avatars/` with private permissions. The cache retains at most 128 thumbnails; the renderer holds at most 32 visible photo protocols separately from message previews. Downloads are limited to 1 MiB and decoding to 1024×1024. Photos refresh after an hour; unavailable photos are checked again after five minutes. An offline refresh may keep the previously cached photo. Set `[media] avatars = false` to hide photos and stop these lookups. The demo uses initials without network lookups.

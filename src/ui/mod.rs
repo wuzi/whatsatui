@@ -209,8 +209,8 @@ fn render_content(
     ] {
         hits.push(rect, Target::Pane(focus));
     }
-    chat_list::render(frame, regions.chats, view, config, hits);
     timeline::render(frame, regions.messages, view, config, images, avatars, hits);
+    chat_list::render(frame, regions.chats, view, config, avatars, hits);
     composer::render(frame, regions.composer, view, config, images, hits);
     let second =
         view.notice

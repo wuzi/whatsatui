@@ -144,3 +144,29 @@ fn overlays_use_configured_confirmation_and_dismissal_keys() {
     assert!(screen.contains("ctrl-y confirms"));
     assert!(screen.contains("ctrl-n cancels"));
 }
+
+#[test]
+fn sidebar_photos_leave_unread_counts_and_draft_state_visible() {
+    let mut view = ready_app().view();
+    view.chats[0].name = "Alexandria 👩‍💻 Very Long Contact Name".into();
+    view.chats[0].unread = 42;
+    view.chats[0].has_draft = true;
+    view.chats[0].preview = "Recent message".into();
+    for avatars in [true, false] {
+        let mut config = Config::default();
+        config.media.avatars = avatars;
+        let screen = draw(&view, &config, 80, 24);
+        let sidebar = ui::layout::calculate(screen.area, view.focus).chats;
+        let row: String = (sidebar.x..sidebar.right())
+            .map(|x| screen[(x, sidebar.y + 1)].symbol())
+            .collect();
+        assert!(
+            row.contains("(42)"),
+            "unread count hidden behind name: {row}"
+        );
+        assert!(
+            row.contains("draft"),
+            "draft state hidden behind name: {row}"
+        );
+    }
+}
