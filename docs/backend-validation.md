@@ -187,3 +187,5 @@ Regression checks cover adjacent body rows, avatar-enabled/disabled layouts, per
 The single independent review identified one Important issue: scrolling from compact bodies onto a header could leave a blank bottom row. A failing regression reproduced it before the fix. Reserved context space now stays above the content at header boundaries, preserving the newest body's position and mouse target. The regression covers minute, edit-metadata and sender transitions. No findings were deferred and no second review was performed.
 
 Formatting, Clippy with warnings denied, and whitespace checks pass after the review fix. Physical Ghostty appearance remains user-operated acceptance; automated checks use synthetic buffers and emitted terminal commands.
+
+The optimized release was built from corrected source 2117153 and reports whatsapp-tui 0.1.0. Its SHA256 is `b9a61eac3134adbe33b4db2e1a821edd211f7c8a63b37432c4fc33a049e84cf1`. Verification evidence is preserved under `.superpowers/sdd/2026-10-01-compact-timestamps/` during local integration; nothing is pushed.
