@@ -159,6 +159,75 @@ fn backend_errors_are_sanitized() {
             .contains("PRIVATE_SENTINEL")
     );
 }
+
+#[tokio::test]
+async fn retained_event_sender_cannot_block_quit_or_drop_final_outcomes() {
+    retained_sender_shutdown(false).await;
+}
+
+#[tokio::test]
+async fn failed_backend_still_restores_terminal_with_a_retained_event_sender() {
+    retained_sender_shutdown(true).await;
+}
+
+async fn retained_sender_shutdown(fail: bool) {
+    use whatsapp_tui::{app::model::*, whatsapp::BackendEvent};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db");
+    let store = Store::open(path.clone()).await.unwrap();
+    let keys: Vec<_> = (0..8)
+        .map(|i| key("chat", "test", &format!("final-{i}")))
+        .collect();
+    let messages = keys
+        .iter()
+        .map(|key| {
+            let mut m = message(key.clone(), "Synthetic pending send");
+            m.send_state = Some(SendState::Sending);
+            m
+        })
+        .collect();
+    store.apply_batch(batch(messages)).await.unwrap();
+    // A Stopped notice is not a lifecycle join: final outcomes can still be
+    // queued. The channel is deliberately smaller than this final burst.
+    let mut final_events = vec![BackendEvent::Stopped];
+    final_events.extend(keys.iter().map(|key| BackendEvent::SendOutcome {
+        key: key.clone(),
+        state: SendState::Sent,
+    }));
+    let backend = retained_event_backend(final_events, fail);
+    let retained = backend.profiles.clone();
+    let input = futures_util::stream::iter(vec![
+        Ok(Event::Key(
+            whatsapp_tui::config::bindings::parse_key("enter").unwrap(),
+        )),
+        Ok(Event::Paste("exit draft".into())),
+        Ok(Event::Key(
+            whatsapp_tui::config::bindings::parse_key("ctrl-q").unwrap(),
+        )),
+    ]);
+    let mut screen = CheckScreen {
+        path,
+        finished: false,
+    };
+    let result = tokio::time::timeout(
+        Duration::from_secs(2),
+        runtime::run_with_screen(ready_app(), store.clone(), backend, &mut screen, input),
+    )
+    .await
+    .expect("backend shutdown completed, but an idle sender kept quitting stuck");
+    assert_eq!(result.is_err(), fail);
+    assert!(
+        screen.finished,
+        "restore the screen even when the backend reports an error"
+    );
+    for key in keys {
+        assert_eq!(
+            store.get_message(key).await.unwrap().unwrap().send_state,
+            Some(SendState::Sent)
+        );
+    }
+    drop(retained);
+}
 #[tokio::test]
 async fn media_download_allows_typing_and_is_cancelled_before_exit() {
     use whatsapp_tui::{app::model::*, media::*, whatsapp::BackendEvent};

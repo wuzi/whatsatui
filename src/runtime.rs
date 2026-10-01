@@ -744,7 +744,16 @@ where
             event=input.next(),if !closing&&!input_closed=>match event{Some(Ok(event))=>Some(Input::Terminal(event)),Some(Err(e))=>return Err(e.into()),None=>{input_closed=true;pending.extend(app.request_shutdown());None}},
             event=events.recv(),if !events_closed&&(closing||pending.len()<48)=>match event{Some(event)=>Some(Input::Backend(event)),None=>{events_closed=true;Some(Input::Backend(BackendEvent::Stopped))}},
             completion=jobs.join_next(),if !jobs.is_empty()=>match completion{Some(Ok((command,event)))=>{command_jobs-=usize::from(command);event},Some(Err(_))=>return Err(AppError::Backend(BackendError::Stopped)),None=>None},
-            result=async{shutdown.as_mut().expect("shutdown future exists").await},if closing&&!shutdown_done=>{if let Err(e)=result{shutdown_error=Some(e);}shutdown_done=true;None},
+            result=async{shutdown.as_mut().expect("shutdown future exists").await},if closing&&!shutdown_done=>{
+                if let Err(e)=result { shutdown_error=Some(e); }
+                shutdown_done=true;
+                // The backend has finished. Avatar providers can still own a
+                // client with a notification sender, so sender drop is not a
+                // shutdown signal. Close explicitly, then drain queued events
+                // and their storage effects before restoring the terminal.
+                events.close();
+                None
+            },
             _=tick.tick(),if !closing=>{dirty |= screen.poll();let epoch=chrono::Utc::now().timestamp_millis();if epoch/1000!=last_second{dirty=true;last_second=epoch/1000;}Some(Input::Tick(epoch))},
             _=tokio::signal::ctrl_c(),if !closing=>{pending.extend(app.request_shutdown());None},
             _=terminate.recv(),if !closing=>{pending.extend(app.request_shutdown());None},

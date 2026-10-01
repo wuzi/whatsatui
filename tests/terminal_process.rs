@@ -523,6 +523,32 @@ fn terminal_child() {
     let Ok(mode) = std::env::var("WHATSAPP_TUI_TEST_CHILD") else {
         return;
     };
+    if mode == "retained-events" {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let dir = tempfile::tempdir().unwrap();
+                let store = whatsapp_tui::storage::Store::open(dir.path().join("db"))
+                    .await
+                    .unwrap();
+                let mut app = support::ready_app();
+                app.config.notifications.enabled = false;
+                whatsapp_tui::runtime::run(
+                    app,
+                    store,
+                    support::retained_event_backend(
+                        vec![whatsapp_tui::whatsapp::BackendEvent::Stopped],
+                        false,
+                    ),
+                )
+                .await
+                .unwrap();
+            });
+        return;
+    }
     let _guard = whatsapp_tui::terminal::TerminalGuard::enter().unwrap();
     if mode == "panic" {
         panic!("PRIVATE_SENTINEL");
@@ -594,4 +620,15 @@ fn terminal_child() {
                 .contains("PRIVATE_SENTINEL")
         );
     });
+}
+
+#[test]
+fn ctrl_q_restores_tty_when_the_avatar_provider_retains_events() {
+    for quit in [b"\x11".as_slice(), b"\x1b[113;5u".as_slice()] {
+        let mut p = Process::launch(harness("retained-events"));
+        p.wait_for("Alice");
+        p.master.write_all(quit).unwrap();
+        assert!(p.finish().success());
+        p.restored();
+    }
 }

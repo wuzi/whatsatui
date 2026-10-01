@@ -1,5 +1,56 @@
 #![allow(dead_code)]
 use whatsapp_tui::app::model::*;
+
+/// Match the native ownership graph: the avatar provider keeps a protocol
+/// client alive, and that client's durability hook retains an event sender.
+pub fn retained_event_backend(
+    final_events: Vec<whatsapp_tui::whatsapp::BackendEvent>,
+    fail: bool,
+) -> whatsapp_tui::whatsapp::BackendHandle {
+    use whatsapp_tui::whatsapp::*;
+    struct Profiles {
+        _events: tokio::sync::mpsc::Sender<BackendEvent>,
+    }
+    #[async_trait::async_trait]
+    impl whatsapp_tui::avatars::Provider for Profiles {
+        async fn fetch(
+            &self,
+            _: &whatsapp_tui::avatars::Identity,
+        ) -> Result<Option<Vec<u8>>, String> {
+            Ok(None)
+        }
+    }
+    let (commands, mut requests) = tokio::sync::mpsc::channel(2);
+    let (tx, events) = tokio::sync::mpsc::channel(2);
+    let profiles = std::sync::Arc::new(Profiles {
+        _events: tx.clone(),
+    });
+    let (stop, mut stopping) = tokio::sync::oneshot::channel();
+    let task = tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = &mut stopping => break,
+                command = requests.recv() => if command.is_none() { break; },
+            }
+        }
+        for event in final_events {
+            tx.send(event).await.map_err(|_| BackendError::Stopped)?;
+        }
+        if fail {
+            Err(BackendError::Stopped)
+        } else {
+            Ok(())
+        }
+    });
+    BackendHandle {
+        profiles,
+        commands,
+        events,
+        control: BackendControl::new(stop, task),
+        media: std::sync::Arc::new(whatsapp_tui::whatsapp::demo::DemoDownloader),
+    }
+}
+
 pub fn account(s: &str) -> AccountId {
     s.into()
 }
