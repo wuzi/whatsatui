@@ -97,6 +97,13 @@ impl Store {
     pub async fn apply_batch(&self, batch: MessageBatch) -> Result<StoreChange, StoreError> {
         self.call(move |c| worker::apply(c, batch)).await
     }
+    pub(crate) async fn apply_batch_with_incoming(
+        &self,
+        batch: MessageBatch,
+    ) -> Result<(StoreChange, Vec<MessageRecord>), StoreError> {
+        self.call(move |c| worker::apply_with_incoming(c, batch))
+            .await
+    }
     pub async fn save_draft(
         &self,
         account: AccountId,

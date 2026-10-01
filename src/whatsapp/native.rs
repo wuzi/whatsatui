@@ -60,11 +60,12 @@ pub(super) async fn start(
         .map_err(|e| BackendError::Service(e.into()))?;
     let (bridge, raw) = bridge::bounded(128);
     let (notices, mut problems) = tokio::sync::watch::channel(None);
+    let (events, rx) = mpsc::channel(256);
     let bot = Bot::builder()
         .with_backend(device)
         .with_http_client(super::http::Http::new().map_err(BackendError::Service)?)
         .with_event_handler(RawHandler(bridge))
-        .with_inbound_durability_hook(DurableInbox(store.clone(), notices))
+        .with_inbound_durability_hook(DurableInbox(store.clone(), notices, events.clone()))
         .build()
         .await
         .map_err(|e| BackendError::Service(e.into()))?
@@ -73,7 +74,6 @@ pub(super) async fn start(
     let profiles = Arc::new(
         super::avatars::Native::new(client.clone()).map_err(|e| BackendError::Service(e.into()))?,
     );
-    let (events, rx) = mpsc::channel(256);
     let (commands, mut requests) = mpsc::channel(32);
     let (stop, mut stopping) = oneshot::channel();
     let finished = Arc::new(AtomicBool::new(false));
@@ -407,7 +407,7 @@ async fn handle_event(
     match event {
         Event::Messages(batch) => {
             for chunk in batch.messages.chunks(100) {
-                let change = super::durability::persist_inbound(store, a.clone(), chunk)
+                let change = super::durability::persist_inbound(store, a.clone(), chunk, tx)
                     .await
                     .map_err(storage_error)?;
                 emit(tx, BackendEvent::StoreChanged(change)).await?;

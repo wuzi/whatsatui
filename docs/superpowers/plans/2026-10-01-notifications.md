@@ -31,9 +31,9 @@
 
 **Interfaces:** `Store::apply_batch_with_incoming(MessageBatch) -> Result<(StoreChange, Vec<MessageRecord>), StoreError>` (crate-visible), preserving existing `apply_batch`. `BackendEvent::IncomingMessages(Vec<MessageRecord>)` carries only first committed live unread inserts. `DurableInbox` receives the bounded backend event sender. Existing UI backend matching temporarily accepts the new event without behavior until Task 2.
 
-- [ ] Add RED tests for first insertion vs replay/history/own/edit/reaction/delete, transactional rollback, alias canonicalization, and the real durability helper followed by protocol replay.
-- [ ] Implement the transactional result and hook forwarding. The normal inbound event path forwards any first-insertion result too; only one path can produce one.
-- [ ] Run `cargo test -j 2 --lib whatsapp::durability -- --test-threads=2`; expect pass and commit.
+- [x] Add RED tests for first insertion vs replay/history/own/edit/reaction/delete, transactional rollback, alias canonicalization, and the real durability helper followed by protocol replay.
+- [x] Implement the transactional result and hook forwarding. The normal inbound event path forwards any first-insertion result too; only one path can produce one.
+- [x] Run `cargo test -j 2 --lib whatsapp::durability -- --test-threads=2`; expect pass and commit.
 
 ## Task 2: Notification policy and desktop delivery
 

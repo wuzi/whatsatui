@@ -185,8 +185,16 @@ pub(super) fn apply(
     c: &mut SqliteConnection,
     batch: MessageBatch,
 ) -> Result<StoreChange, StoreError> {
+    apply_with_incoming(c, batch).map(|(change, _)| change)
+}
+
+pub(super) fn apply_with_incoming(
+    c: &mut SqliteConnection,
+    batch: MessageBatch,
+) -> Result<(StoreChange, Vec<MessageRecord>), StoreError> {
     c.transaction::<_, StoreError, _>(|c| {
         let mut chats = BTreeSet::new();
+        let mut incoming_keys = Vec::new();
 
         for change in batch.changes {
             let raw_key = match &change {
@@ -217,7 +225,9 @@ pub(super) fn apply(
                         merge::quote(c, q)?;
                     }
 
-                    if let Some(old) = get(c, &key)? {
+                    let old = get(c, &key)?;
+                    let inserted = old.is_none();
+                    if let Some(old) = old {
                         if matches!(old.body, MessageBody::Expired)
                             || matches!(old.body, MessageBody::Deleted)
                                 && !matches!(m.body, MessageBody::Expired)
@@ -274,6 +284,9 @@ pub(super) fn apply(
 
                     let unread = batch.source == MessageSource::Live && merge::unread(c, &m)?;
                     put(c, &m, unread)?;
+                    if inserted && unread {
+                        incoming_keys.push(key.clone());
+                    }
 
                     if matches!(m.body, MessageBody::Deleted | MessageBody::Expired) {
                         let state = if matches!(m.body, MessageBody::Expired) {
@@ -363,10 +376,25 @@ edited_at_ms:at,..}
             }
         }
 
-        Ok(StoreChange {
-            account: batch.account,
-            chats: chats.into_iter().collect(),
-        })
+        // Inspect the final transaction state: a later delete/expiry in this
+        // same batch must never leak content to a desktop notification.
+        let mut incoming = Vec::new();
+        let now = chrono::Utc::now().timestamp_millis();
+        for key in incoming_keys {
+            if let Some(m) = get(c, &key)?
+                && m.expires_at_ms.is_none_or(|at| at > now)
+                && merge::unread(c, &m)?
+            {
+                incoming.push(m);
+            }
+        }
+        Ok((
+            StoreChange {
+                account: batch.account,
+                chats: chats.into_iter().collect(),
+            },
+            incoming,
+        ))
     })
 }
 

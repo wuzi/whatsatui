@@ -44,6 +44,8 @@ pub enum BackendCommand {
 }
 #[derive(Clone, Debug)]
 pub enum BackendEvent {
+    /// First live incoming insertions, emitted only after their commit succeeds.
+    IncomingMessages(Vec<MessageRecord>),
     MutationOutcome {
         request: RequestId,
         account: AccountId,

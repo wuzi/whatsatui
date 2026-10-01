@@ -1172,6 +1172,7 @@ impl App {
     }
     fn backend(&mut self, event: BackendEvent, effects: &mut Vec<Effect>) {
         match event {
+            BackendEvent::IncomingMessages(_) => {}
             BackendEvent::MutationOutcome {
                 request,
                 account,
