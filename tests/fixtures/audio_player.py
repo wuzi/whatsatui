@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 """Synthetic mpv IPC peer; never opens an audio device or reads user files."""
-import json, os, pathlib, select, sys, time
+import json, os, pathlib, select, socket, sys, time
 
 base = pathlib.Path(__file__)
 base.with_suffix('.pid').write_text(str(os.getpid()))
@@ -46,6 +46,19 @@ while True:
             line, pending = pending.split(b'\n', 1)
             value = json.loads(line)
             command = value['command']
+            if mode == 'quit-after-observe' and command[0] == 'observe_property' and command[2] == 'speed':
+                peer = socket.socket(fileno=0)
+                peer.shutdown(socket.SHUT_RD)
+                emit({'request_id': value['request_id'], 'error': 'success'})
+                emit({'event': 'end-file', 'reason': 'quit'})
+                time.sleep(30)
+                sys.exit(0)
+            if mode == 'quit-on-speed' and command[:2] == ['set_property', 'speed']:
+                peer = socket.socket(fileno=0)
+                peer.shutdown(socket.SHUT_RD)
+                emit({'event': 'end-file', 'reason': 'quit'})
+                time.sleep(30)  # parent must stop/reap without writing another control
+                sys.exit(0)
             if mode == 'eof-on-health' and command[0] == 'get_property':
                 emit({'event': 'end-file', 'reason': 'eof'})
                 sys.exit(0)

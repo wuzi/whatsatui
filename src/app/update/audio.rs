@@ -22,6 +22,7 @@ impl App {
         }
         let request = Request {
             id: self.request(),
+            revision: 0,
             message,
             paused: false,
             speed: self.audio_speed,
@@ -39,6 +40,7 @@ impl App {
         self.sync_window_controls();
         if let Some(request) = &mut self.audio_request {
             request.paused = !request.paused;
+            request.revision = request.revision.wrapping_add(1);
             effects.push(Effect::Audio(Some(request.clone())));
         }
     }
@@ -50,6 +52,7 @@ impl App {
         self.audio_speed = self.audio_speed.next();
         if let Some(request) = &mut self.audio_request {
             request.speed = self.audio_speed;
+            request.revision = request.revision.wrapping_add(1);
             effects.push(Effect::Audio(Some(request.clone())));
         }
     }

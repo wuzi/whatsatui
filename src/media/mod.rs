@@ -1,5 +1,6 @@
 mod cache;
 mod download;
+mod webp_bounds;
 mod worker;
 pub use download::NativeDownloader;
 pub use worker::run as run_worker;

@@ -51,6 +51,8 @@ impl Speed {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Request {
     pub id: RequestId,
+    /// Distinguishes repeated control values from an acknowledged command.
+    pub revision: u64,
     pub message: MessageRecord,
     pub paused: bool,
     pub speed: Speed,

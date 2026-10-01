@@ -114,6 +114,7 @@ fn delays(bytes: &[u8]) -> Option<Vec<u64>> {
     if bytes.get(..4)? != b"RIFF" || bytes.get(8..12)? != b"WEBP" {
         return None;
     }
+    let canvas = super::webp_bounds::canvas(bytes)?;
     let mut offset = 12usize;
     let mut delays = vec![];
     let mut total = 0;
@@ -124,6 +125,9 @@ fn delays(bytes: &[u8]) -> Option<Vec<u64>> {
         let data = bytes.get(start..start.checked_add(size)?)?;
         if &header[..4] == b"ANMF" {
             if data.len() < 16 || delays.len() >= MAX_SOURCE_FRAMES {
+                return None;
+            }
+            if !super::webp_bounds::frame_is_safe(data, canvas) {
                 return None;
             }
             let ms = u64::from(u32::from_le_bytes([data[12], data[13], data[14], 0])).max(10);
@@ -170,6 +174,48 @@ fn samples(delays: &[u64]) -> Vec<(usize, u64)> {
 mod tests {
     use super::*;
     const MOVING: &[u8] = include_bytes!("../../tests/fixtures/moving-sticker.webp");
+    #[test]
+    fn malformed_later_bitstream_is_rejected_before_decode_and_keeps_a_safe_still() {
+        fn chunk(tag: &[u8; 4], bytes: &[u8]) -> Vec<u8> {
+            let mut c = tag.to_vec();
+            c.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+            c.extend_from_slice(bytes);
+            if !bytes.len().is_multiple_of(2) {
+                c.push(0);
+            }
+            c
+        }
+        for alpha in [false, true] {
+            // Valid small canvas/first frame, hostile dimensions in the next
+            // lossy payload (including the ALPH + VP8 representation).
+            let offsets: Vec<_> = MOVING
+                .windows(4)
+                .enumerate()
+                .filter(|(_, v)| *v == b"ANMF")
+                .map(|(i, _)| i)
+                .collect();
+            let mut frame = MOVING[offsets[1] + 8..offsets[1] + 24].to_vec();
+            if alpha {
+                frame.extend(chunk(b"ALPH", &[0; 1 + 32 * 32]));
+            }
+            frame.extend(chunk(
+                b"VP8 ",
+                &[0x10, 0, 0, 0x9d, 0x01, 0x2a, 0xff, 0x3f, 0xff, 0x3f],
+            ));
+            let mut bytes = MOVING[..offsets[1]].to_vec();
+            bytes.extend(chunk(b"ANMF", &frame));
+            let length = (bytes.len() - 8) as u32;
+            bytes[4..8].copy_from_slice(&length.to_le_bytes());
+            // Assert the preflight gate before exercising decode, so RED
+            // never makes the huge allocation on the developer's machine.
+            assert!(
+                delays(&bytes).is_none(),
+                "unsafe nested dimensions passed preflight"
+            );
+            let (_stop, cancel) = watch::channel(false);
+            assert_eq!(decode(&bytes, &cancel).unwrap().frames.len(), 1);
+        }
+    }
     #[test]
     fn composed_frames_keep_colors_delays_and_loop_timing() {
         let (_stop, cancel) = watch::channel(false);

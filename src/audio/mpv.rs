@@ -103,16 +103,24 @@ impl Mpv {
         Ok(player)
     }
     pub async fn command(&mut self, command: Value) -> Result<(), String> {
+        if self.state.finished {
+            return Ok(());
+        }
         self.serial += 1;
         let id = self.serial;
         let mut bytes = serde_json::to_vec(&json!({"command":command,"request_id":id}))
             .map_err(|_| "Invalid playback command")?;
         bytes.push(b'\n');
         tokio::time::timeout(Duration::from_secs(2), async {
-            self.writer
-                .write_all(&bytes)
-                .await
-                .map_err(|_| "Media player closed its control channel")?;
+            if self.writer.write_all(&bytes).await.is_err() {
+                // Closing a window may close its read side before we consume
+                // the queued end-file event. Drain it within this command's
+                // deadline before classifying the closed channel as a failure.
+                while !self.state.finished {
+                    self.read().await?;
+                }
+                return Ok(());
+            }
             loop {
                 let value = self.read().await?;
                 // EOF can arrive while a health query/control is in flight.

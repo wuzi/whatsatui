@@ -88,6 +88,7 @@ impl Fixture {
             .unwrap();
         Request {
             id: RequestId(id),
+            revision: 0,
             message: m,
             paused: false,
             speed: Speed::Normal,
@@ -168,6 +169,31 @@ async fn video_opens_a_window_and_normal_close_reaps_the_player() {
     f.reaped().await;
     let snapshot = std::fs::read_to_string(f.exe.with_extension("snapshot")).unwrap();
     assert!(!Path::new(&snapshot).exists());
+}
+#[tokio::test]
+async fn normal_window_close_during_speed_command_finishes_the_control_batch() {
+    for mode in ["quit-on-speed", "quit-after-observe"] {
+        let f = Fixture::new().await;
+        let mut request = f.request(1, mode).await;
+        request.message.key.id = "closing-video".into();
+        if let MessageBody::Media(a) = &mut request.message.body {
+            a.kind = AttachmentKind::Video;
+        }
+        f.store
+            .apply_batch(batch(vec![request.message.clone()]))
+            .await
+            .unwrap();
+        let mut player = f.player();
+        player.set(Some(request));
+        let ended = observed(&mut player, |p| {
+            matches!(p.phase, Phase::Finished | Phase::Failed)
+        })
+        .await;
+        assert_eq!(ended.phase, Phase::Finished, "{mode}: {:?}", ended.error);
+        f.reaped().await;
+        let snapshot = std::fs::read_to_string(f.exe.with_extension("snapshot")).unwrap();
+        assert!(!Path::new(&snapshot).exists());
+    }
 }
 #[tokio::test]
 async fn native_window_speed_changes_are_reported_as_observed_values() {
@@ -335,6 +361,7 @@ async fn installed_mpv_decodes_opus_and_observes_pause_speed_and_eof() {
     let mut player = Player::start(f.store.clone(), Arc::new(Opus), f.exe.clone());
     let mut request = Request {
         id: RequestId(1),
+        revision: 0,
         message,
         paused: false,
         speed: Speed::Normal,
@@ -399,6 +426,7 @@ async fn installed_mpv_decodes_video_and_observes_pause_speed_and_eof() {
     let mut player = Player::start(f.store.clone(), Arc::new(Video), f.exe.clone());
     let mut request = Request {
         id: RequestId(1),
+        revision: 0,
         message,
         paused: false,
         speed: Speed::Normal,

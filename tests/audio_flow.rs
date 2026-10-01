@@ -120,6 +120,24 @@ fn tui_resume_and_speed_respect_pause_changes_from_the_player_window() {
     );
 }
 #[test]
+fn native_pause_then_rapid_toggles_does_not_reuse_the_old_observation() {
+    let mut app = app();
+    let first = request(press(&mut app, "p"));
+    observe(&mut app, first.clone(), Phase::Paused);
+    let resume = request(press(&mut app, "p"));
+    assert!(!resume.paused);
+    // Neither a missing acknowledgement nor a late copy of the old observation
+    // may adopt the same native pause again.
+    observe(&mut app, first, Phase::Paused);
+    let pause = request(press(&mut app, "p"));
+    assert!(
+        pause.paused,
+        "two toggles after a native pause must end paused"
+    );
+    observe(&mut app, resume, Phase::Playing);
+    assert!(!request(press(&mut app, "p")).paused);
+}
+#[test]
 fn pausing_preserves_a_native_speed_and_speed_key_advances_from_it() {
     let mut app = app();
     let first = request(press(&mut app, "p"));

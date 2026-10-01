@@ -22,12 +22,16 @@ pub fn decode(bytes: &[u8]) -> Result<DynamicImage, String> {
     limits.max_image_width = Some(16_000);
     limits.max_image_height = Some(16_000);
     reader.limits(limits);
+    let webp = reader.format() == Some(image::ImageFormat::WebP);
     let decoder = reader
         .into_decoder()
         .map_err(|_| "Image format is unsupported or damaged")?;
     let (w, h) = decoder.dimensions();
     if w == 0 || h == 0 || u64::from(w) * u64::from(h) > MAX_PIXELS {
         return Err("Image exceeds the 16 megapixel limit".into());
+    }
+    if webp && !super::webp_bounds::first_frame_is_safe(bytes, (w, h)) {
+        return Err("WebP frame dimensions are inconsistent or damaged".into());
     }
     DynamicImage::from_decoder(decoder).map_err(|_| "Cannot decode image".into())
 }

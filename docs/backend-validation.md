@@ -139,8 +139,10 @@ The final optimized binary passed a real PTY run with four synthetic avatars see
 
 ## Animated stickers and received video
 
-The media-motion iteration passes **307 automated tests**, formatting and Clippy with warnings denied. Two opt-in tests also pass against installed mpv 0.41.0 using null outputs: Opus audio and a synthetic H.264/AAC MP4, including progress/duration, pause/resume, speed and EOF. No display window or speaker output is used in those codec tests.
+The media-motion iteration passes **310 automated tests**, formatting and Clippy with warnings denied. Two opt-in tests also pass against installed mpv 0.41.0 using null outputs: Opus audio and a synthetic H.264/AAC MP4, including progress/duration, pause/resume, speed and EOF. No display window or speaker output is used in those codec tests.
 
 New regressions cover composed WebP frames and timing, bounded frame sampling, oversized-duration still fallback, cancellation, all-frame Kitty cleanup, off-screen redraw suspension, and local/sent animated previews. Video checks cover live/history normalization, view-once and invalid-reference exclusions, Video media-key decryption, caption edits/quotes, caption rendering and narrow mouse/key controls, GUI-only mpv output arguments, normal window closure, repeated desired-state commands, and native pause/speed reconciliation. Existing avatar, static-image, playback lifecycle and terminal restoration tests remain green.
 
 Old video placeholders cannot recover missing media keys locally; fresh delivery or history replay is required. Automated verification does not establish physical Ghostty animation appearance, normal video-window/audio output on this desktop, or live WhatsApp CDN behavior.
+
+The single final independent review identified three issues; all were reproduced and fixed with regression tests. WebP preflight now verifies embedded bitstream dimensions (including ALPH + VP8) before animation decoding and validates the still fallback’s first frame. Control revisions prevent native pause observations from being reused by rapid TUI toggles. Observed or queued normal completion ends a control batch without further writes to a closed mpv socket. No review finding was deferred.
