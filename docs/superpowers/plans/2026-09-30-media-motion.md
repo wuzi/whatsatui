@@ -51,6 +51,8 @@
 
 **Interfaces:** Tasks 1–2 preserve existing runtime polling, image cleanup and Player ownership.
 
-- [ ] Update usage and limitations; run complete `cargo test -j 2 -- --test-threads=2`, fmt and Clippy, expect pass. Run native mpv with null outputs on synthetic video and optimized synthetic PTY animation checks.
-- [ ] Commit, request one whole-branch review, fix important findings with RED→GREEN regressions, and verify changed code.
-- [ ] Build release, preserve evidence, merge to local main, verify source/release correspondence and clean up owned worktree/branch. No push.
+- [x] Update usage and limitations; run complete `cargo test -j 2 -- --test-threads=2`, fmt and Clippy, expect pass. Run native mpv with null outputs on synthetic video and optimized synthetic PTY animation checks.
+- [x] Commit, request one whole-branch review, fix important findings with RED→GREEN regressions, and verify changed code.
+- [x] Build release, preserve evidence, merge to local main, verify source/release correspondence and clean up owned worktree/branch. No push.
+
+Completed locally: 310 automated tests, both opt-in native mpv tests with null outputs, fmt, Clippy and the optimized PTY smoke pass. The three final-review findings were reproduced and fixed. Source ea97c3f was merged to main; release SHA256 is `0170bec80906a0f0c0427c5cd3def73dded63f304669e313c4756a28e7186c77`. Sixteen verification files were copied and byte-verified under `.superpowers/sdd/2026-09-30-media-motion/` before removing the owned worktree and branch. Nothing was pushed.
