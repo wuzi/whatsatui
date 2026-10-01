@@ -1,4 +1,5 @@
 use super::*;
+use crate::app::model::SendState;
 use ratatui::widgets::Clear;
 pub(super) fn centered(area: Rect, width: u16, height: u16) -> Rect {
     let w = width.min(area.width);
@@ -146,7 +147,26 @@ pub(super) fn render(
                 Line::from("Mouse: click selects · double-click opens"),
                 Line::from("Right-click: message actions · wheel: scroll"),
                 Line::from("↑/↓ or Page Up/Down scroll this help"),
+                Line::from(""),
+                Line::from("Message status"),
             ]);
+            lines.extend(
+                [
+                    SendState::Sending,
+                    SendState::Sent,
+                    SendState::Delivered,
+                    SendState::Read,
+                    SendState::Failed,
+                    SendState::Unconfirmed,
+                ]
+                .into_iter()
+                .map(|state| {
+                    Line::from(vec![
+                        message_body::status_mark(state, view, config),
+                        Span::raw(format!("  {state:?}")),
+                    ])
+                }),
+            );
             hits.help_max_scroll = lines
                 .len()
                 .saturating_sub(r.height.saturating_sub(2) as usize);

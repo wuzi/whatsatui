@@ -153,7 +153,12 @@ fn compact_times_preserve_delivery_edits_and_group_receipts() {
         1
     );
     assert!(!text.contains(&clock(view.messages[1].created_at_ms)));
-    for label in ["Delivered", "Failed · edited", "delivered: 1 / read: 1"] {
+    for label in [
+        "First body  ✓✓",
+        "Second body  !",
+        "edited",
+        "delivered: 1 / read: 1",
+    ] {
         assert!(text.contains(label), "lost metadata: {label}");
     }
 }

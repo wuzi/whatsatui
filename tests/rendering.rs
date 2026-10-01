@@ -90,7 +90,7 @@ fn wrapping_keeps_sender_and_status() {
     v.messages[0].body = MessageBody::Text("wide 界 👩‍💻 words ".repeat(80));
     let t = text(&draw(&v, &Config::default(), 80, 24));
     assert!(t.contains("You"));
-    assert!(t.contains("Unconfirmed"));
+    assert!(t.contains('?'));
 }
 #[test]
 fn renders_empty_sync_offline_quotes_media_and_group_counts() {
@@ -124,7 +124,7 @@ fn renders_empty_sync_offline_quotes_media_and_group_counts() {
     }];
     v.selected_message = Some(v.messages[0].key.clone());
     let t = text(&draw(&v, &c, 120, 40));
-    for s in ["Failed", "missing", "my caption", "read: 1"] {
+    for s in ["my caption  !", "missing", "read: 1"] {
         assert!(t.contains(s), "missing {s}");
     }
 }

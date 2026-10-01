@@ -138,15 +138,16 @@ To try playback offline, Ctrl-P → `maya` → Enter, Escape to Messages, then `
 
 ## Connection and send state
 
-An outgoing attempt receives a stable ID and is committed locally before transmission. Text typed while an earlier revision is being sent remains in the composer. The states shown are:
+An outgoing attempt receives a stable ID and is committed locally before transmission. Text typed while an earlier revision is being sent remains in the composer. A small status mark follows your message's last line, or its caption/attachment label for media. It wraps onto the next row when there is no room. Help includes a colored legend.
 
-| State | Meaning |
-| --- | --- |
-| Sending | Locally committed; backend completion is pending |
-| Sent | Server acceptance reported |
-| Delivered / Read | Recipient receipt reported |
-| Failed | A definite rejection or failure before acceptance |
-| Unconfirmed | Acceptance could not be determined |
+| Mark | State | Meaning |
+| --- | --- | --- |
+| `…` muted | Sending | Locally committed; backend completion is pending |
+| `✓` muted | Sent | Server acceptance reported |
+| `✓✓` muted | Delivered | Recipient delivery receipt reported |
+| `✓✓` accent (cyan by default) | Read | Recipient read receipt reported |
+| `!` error color | Failed | A definite rejection or failure before acceptance |
+| `?` warning color | Unconfirmed | Acceptance could not be determined |
 
 Group receipts show known recipient counts, not a claim that everyone has read the message. A disconnected send keeps the draft. Restart and reconnect never automatically resend an attempt. R on a Failed or Unconfirmed message opens a confirmation; resending creates a new ID, so an unconfirmed original may also arrive. Late receipts still reconcile against the original ID.
 

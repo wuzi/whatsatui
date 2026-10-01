@@ -315,34 +315,44 @@ fn selecting_first_message_keeps_following_context_visible() {
 #[test]
 fn compact_messages_keep_keyboard_selection_and_mouse_actions_on_the_body() {
     use crossterm::event::{MouseButton, MouseEventKind::Down};
-    let mut app = ready_app();
-    load(
-        &mut app,
-        vec![
-            message(key("chat", "alice", "one"), "First body"),
-            message(key("chat", "alice", "two"), "Second body"),
-            message(key("chat", "alice", "three"), "Third body"),
-        ],
-    );
-    press(&mut app, "tab");
-    press(&mut app, "k");
-    let screen = interactive(&mut app);
-    assert_eq!(app.view().selected_message.unwrap().id.0, "two");
-    let second = point(&screen, "Second body");
-    let area = ui::layout::calculate(screen.area, app.view().focus).messages;
-    assert_eq!(
-        screen[(area.x + 1, second.1)].symbol(),
-        "▸",
-        "compact messages select their first body row"
-    );
-    mouse(
-        &mut app,
-        point(&screen, "Third body"),
-        Down(MouseButton::Right),
-    );
-    assert!(
-        matches!(app.view().overlay, Some(Overlay::MessageActions(m)) if m.message.key.id.0 == "three")
-    );
+    for own in [false, true] {
+        let mut app = ready_app();
+        let mut messages = [
+            ("one", "First body"),
+            ("two", "Second body"),
+            ("three", "Third body"),
+        ]
+        .into_iter()
+        .map(|(id, body)| message(key("chat", if own { "test" } else { "alice" }, id), body))
+        .collect::<Vec<_>>();
+        for message in &mut messages {
+            message.send_state = own.then_some(SendState::Delivered);
+        }
+        load(&mut app, messages);
+        press(&mut app, "tab");
+        press(&mut app, "k");
+        let screen = interactive(&mut app);
+        assert_eq!(app.view().selected_message.unwrap().id.0, "two");
+        let second = point(&screen, "Second body");
+        let first = point(&screen, "First body");
+        let third = point(&screen, "Third body");
+        assert_eq!(second.1, first.1 + 1);
+        assert_eq!(third.1, second.1 + 1);
+        let area = ui::layout::calculate(screen.area, app.view().focus).messages;
+        assert_eq!(
+            screen[(area.x + 1, second.1)].symbol(),
+            "▸",
+            "compact messages select their first body row"
+        );
+        mouse(
+            &mut app,
+            (third.0 + if own { 12 } else { 0 }, third.1),
+            Down(MouseButton::Right),
+        );
+        assert!(
+            matches!(app.view().overlay, Some(Overlay::MessageActions(m)) if m.message.key.id.0 == "three")
+        );
+    }
 }
 
 #[test]

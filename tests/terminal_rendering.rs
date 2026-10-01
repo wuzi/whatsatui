@@ -203,6 +203,42 @@ fn compact_emoji_conversations_redraw_without_timestamp_fragments() {
 }
 
 #[test]
+fn inline_status_changes_redraw_cleanly_next_to_emoji_and_wrapped_text() {
+    for (width, height) in [(40, 16), (100, 30)] {
+        let mut replay = Replay::new(width, height);
+        let (mut view, _) = conversation();
+        view.messages = (0..8)
+            .map(|i| {
+                let mut message = support::message(
+                    support::key("chat", "test", &i.to_string()),
+                    "*Hello ❤️*\nWide 界 👩‍💻 message",
+                );
+                message.created_at_ms += i * 60_000;
+                message
+            })
+            .collect();
+        for state in [
+            Some(SendState::Sending),
+            Some(SendState::Sent),
+            Some(SendState::Delivered),
+            Some(SendState::Read),
+            Some(SendState::Unconfirmed),
+            Some(SendState::Failed),
+            None,
+        ] {
+            for message in &mut view.messages {
+                message.send_state = state;
+            }
+            for scroll in [0, 1, 2, 5, 0] {
+                view.message_scroll = scroll;
+                replay.draw(|frame| ui::render(frame, &view, &Config::default()));
+                replay.assert_matches(&format!("{width}x{height}, {state:?}, scroll {scroll}"));
+            }
+        }
+    }
+}
+
+#[test]
 fn emoji_text_survives_overlays_and_narrow_conversation_transitions() {
     let config = Config::default();
     for (width, height) in [(40, 12), (60, 20), (100, 30)] {

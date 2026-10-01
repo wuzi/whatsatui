@@ -61,9 +61,6 @@ fn header(
     if show_time {
         details.push(timestamp(message.created_at_ms));
     }
-    if let Some(state) = message.send_state {
-        details.push(format!("{state:?}"));
-    }
     if message.edited_at_ms.is_some() {
         details.push("edited".into());
     }
