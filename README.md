@@ -34,9 +34,10 @@ whatsapp-tui
 - Unicode composition, multiline paste, quoted replies, and persistent per-chat drafts.
 - Styled message text and captions: emphasis, code, quotes, and lists.
 - A message action menu, original-text copying, and an explicit web-link picker.
-- Inline images and stickers, with Ghostty/Kitty graphics and a half-block fallback.
+- Inline images and animated stickers, with Ghostty/Kitty graphics and a half-block fallback.
 - Clipboard image paste with captions, persistent drafts, a recent-sticker picker, and searchable Unicode emoji.
-- Verified downloads for received images, stickers, audio, and documents, with a separate viewer action.
+- Verified downloads for received images, stickers, audio, videos, and documents, with a separate viewer action.
+- Video playback in an mpv window with sound, seeking, and fullscreen controls.
 - In-TUI voice-message/audio playback with pause/resume, progress, and 1× / 1.5× / 2× speed (requires mpv).
 - Sender blocks with cached profile photos, date separators, and distinct own-message styling.
 - Mouse selection, message actions, popup controls, and composer cursor placement.
@@ -45,7 +46,7 @@ whatsapp-tui
 - Phone-number/LID reconciliation, edits, deletion/expiry placeholders, and bounded message pages.
 - Configurable colors and scoped bindings; layouts for ordinary and narrow terminals.
 
-Images and stickers load previews within the conversation; animated WebP shows its first frame. Documents retain download/open actions. Sending documents, sticker-pack management, animation playback, calls, reactions, group management, statuses, and newsletters remain outside this iteration. History is limited to what WhatsApp syncs and what this client has cached.
+Images and stickers load previews within the conversation; animated WebP plays while visible. Documents retain download/open actions. Sending documents/videos, sticker-pack management, calls, group management, statuses, and newsletters remain outside this iteration. History is limited to what WhatsApp syncs and what this client has cached.
 
 ## Main controls
 

@@ -6,6 +6,21 @@ use sha2::{Digest, Sha256};
 const STICKER: &[u8] = include_bytes!("../../tests/fixtures/send-sticker.webp");
 const IMAGE: &[u8] = include_bytes!("demo-image.png");
 const AUDIO: &[u8] = include_bytes!("../../tests/fixtures/voice.ogg");
+const VIDEO: &[u8] = include_bytes!("../../tests/fixtures/video.mp4");
+fn video_attachment() -> Attachment {
+    Attachment {
+        kind: AttachmentKind::Video,
+        audio: None,
+        filename: Some("demo-video.mp4".into()),
+        mime: Some("video/mp4".into()),
+        caption: Some("A synthetic video · try Play to open mpv".into()),
+        size: VIDEO.len() as u64,
+        direct_path: "/v/offline-video".into(),
+        media_key: [0; 32],
+        sha256: Sha256::digest(VIDEO).into(),
+        encrypted_sha256: [0; 32],
+    }
+}
 fn audio_attachment() -> Attachment {
     Attachment {
         kind: AttachmentKind::Audio,
@@ -151,6 +166,9 @@ async fn initialize(store: &Store) -> Result<StoreChange, BackendError> {
     let mut photo = message("weekend@g.us", "maya@demo", "g3", "", 150_000);
     photo.body = MessageBody::Media(Box::new(image_attachment()));
     messages.push(photo);
+    let mut video = message("leo@demo", "leo@demo", "l-video", "", 34_000);
+    video.body = MessageBody::Media(Box::new(video_attachment()));
+    messages.push(video);
     let mut sticker = message("leo@demo", "leo@demo", "l-sticker", "", 35_000);
     sticker.body = MessageBody::Media(Box::new(sticker_attachment()));
     messages.push(sticker);
@@ -248,12 +266,15 @@ impl crate::media::Downloader for DemoDownloader {
         if attachment != &image_attachment()
             && attachment != &sticker_attachment()
             && attachment != &audio_attachment()
+            && attachment != &video_attachment()
         {
             return Err("Attachment is not an offline demo fixture".into());
         }
         std::fs::write(
             destination,
-            if attachment.kind == AttachmentKind::Audio {
+            if attachment.kind == AttachmentKind::Video {
+                VIDEO
+            } else if attachment.kind == AttachmentKind::Audio {
                 AUDIO
             } else if attachment.kind == AttachmentKind::Sticker {
                 STICKER
@@ -261,6 +282,6 @@ impl crate::media::Downloader for DemoDownloader {
                 IMAGE
             },
         )
-        .map_err(|_| "Could not write the demo image".into())
+        .map_err(|_| "Could not write the demo media".into())
     }
 }
