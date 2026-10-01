@@ -53,4 +53,6 @@
 
 - [x] Document behavior, config, notify-send dependency and version-one limitations. Run fmt, full `cargo test -j 2 -- --test-threads=2`, and Clippy; expect pass.
 - [x] Commit and request one fresh whole-branch review. Resolve important findings with RED→GREEN regressions; verify affected code and full suite after fixes.
-- [ ] Build the release, preserve evidence, merge into local main, verify source/release correspondence and remove the owned worktree/branch. No push.
+- [x] Build the release, preserve evidence, merge into local main, verify source/release correspondence and remove the owned worktree/branch. No push.
+
+Completed locally: 336 automated tests, installed notify-send on a private synthetic D-Bus session, fmt, Clippy and release build pass. Both Important review findings were fixed with RED→GREEN regressions; no findings deferred. Source c501c8a is merged into main; release SHA256 is `c2ff692fca931e3753ce3139c24cb5aa98151622f3c134dbc95ebd5d5eccaab9`. Thirteen evidence files were copied and hash-verified under `.superpowers/sdd/2026-10-01-notifications/` before removing the owned worktree and branch. Nothing was pushed.
