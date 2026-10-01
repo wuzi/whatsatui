@@ -25,6 +25,7 @@ use crate::{
 };
 pub use images::Images;
 use ratatui::{
+    buffer::{CellDiffOption, CellWidth},
     prelude::*,
     widgets::{Block, BorderType, Paragraph, Wrap},
 };
@@ -142,10 +143,30 @@ pub fn render_interactive(
     images.begin_frame();
     avatars.begin_frame();
     render_content(frame, view, config, images, avatars, &mut hits);
+    preserve_emoji_widths(frame.buffer_mut());
     images.end_frame();
     avatars.end_frame();
     hits
 }
+
+fn preserve_emoji_widths(buffer: &mut Buffer) {
+    // Ratatui-core 0.1.2 may emit an extra blank for the trailing cell of a
+    // VS16 emoji. Crossterm assumes adjacent updates advance one column, so
+    // that blank shifts subsequent text and leaves untracked timestamp digits.
+    // Keep the emoji indivisible during diffing, as with other wide glyphs.
+    // Image protocols already specify their own width/skip behavior.
+    for cell in &mut buffer.content {
+        if cell.diff_option == CellDiffOption::None && cell.symbol().contains('\u{fe0f}') {
+            let width = cell.cell_width();
+            if width > 1 {
+                cell.set_diff_option(CellDiffOption::ForcedWidth(
+                    std::num::NonZeroU16::new(width).expect("wide emoji"),
+                ));
+            }
+        }
+    }
+}
+
 fn render_content(
     frame: &mut Frame,
     view: &ViewModel,
@@ -265,4 +286,42 @@ fn render_content(
         );
     }
     overlays::render(frame, area, view, config, images, hits);
+}
+
+#[cfg(test)]
+mod emoji_diff_tests {
+    use super::*;
+    use ratatui_image::{FontSize, sliced::SlicedImage};
+
+    #[test]
+    fn emoji_finalization_preserves_kitty_uploads_and_placements() {
+        let area = Rect::new(0, 0, 10, 3);
+        let protocol = images::prepare(
+            image::DynamicImage::new_rgba8(40, 40),
+            Size::new(4, 2),
+            FontSize::new(10, 20),
+            Some(0x7800_0001),
+        )
+        .unwrap();
+        let mut previous = Buffer::empty(area);
+        for first in [true, false, false] {
+            let mut next = Buffer::empty(area);
+            SlicedImage::new(&protocol, (0, 0).into()).render(Rect::new(0, 0, 4, 2), &mut next);
+            let image_cells = next.clone();
+            next.set_string(5, 0, "❤️", Style::default());
+            preserve_emoji_widths(&mut next);
+            for y in 0..2 {
+                for x in 0..4 {
+                    assert_eq!(next[(x, y)], image_cells[(x, y)]);
+                }
+            }
+            let emitted: String = previous
+                .diff_iter(&next)
+                .map(|(_, _, cell)| cell.symbol())
+                .collect();
+            assert_eq!(emitted.contains("a=T"), first, "upload only on first draw");
+            assert!(next[(0, 0)].symbol().contains('\u{10eeee}'));
+            previous = next;
+        }
+    }
 }

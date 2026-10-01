@@ -165,3 +165,11 @@ The single independent review identified two Important findings, both fixed with
 Overflow deliberately favors a generic alert over silence: unread messages already notified within the same timestamp window may be included in this fallback. The normal non-overflow path remains keyed to first committed live inserts. Actual desktop appearance and daemon enforcement of silence/Do Not Disturb remain unverified by the synthetic bus test; the documented first-version exclusions are unchanged.
 
 Source c501c8a was fast-forwarded into local main and the optimized release rebuilt; SHA256 is `c2ff692fca931e3753ce3139c24cb5aa98151622f3c134dbc95ebd5d5eccaab9`. The merged code matches the tested source, and the binary reports whatsapp-tui 0.1.0. Thirteen verification artifacts were preserved and hash-checked before cleanup of the owned worktree/branch. Nothing was pushed.
+
+## Timestamp and stray-digit redraws
+
+The rendering correction passes **340 automated tests**; three native mpv/desktop-helper tests remain opt-in. Two regressions reproduced shifted timestamps and stray digits after scrolling sender headers containing a heart emoji. Both pass after treating wide VS16 emoji as complete glyphs during buffer diffing. This is a display correction; stored timestamps and messages are unchanged.
+
+The new tests replay actual Crossterm output across successive synthetic conversation frames, checking cursor placement rather than only the desired Ratatui buffer. Coverage includes incoming-message growth, scrollback, clearing, narrow layouts, sidebar and message emoji, styled text, other wide glyphs, Help overlays, and replacement with ASCII text. A graphics regression confirms that finalizing emoji does not alter Kitty image uploads or placeholders and retains one-time transmission. Existing avatar refresh, animation, image cleanup and terminal-restoration tests also pass.
+
+The test replay handles cursor positioning, text, styling sequences and virtual Kitty transmissions; it is not a full terminal emulator or a physical Ghostty visual check. No live account, private messages or profile photos were accessed. Restart the TUI to load the correction and clear artifacts left by the old renderer.
