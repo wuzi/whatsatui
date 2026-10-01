@@ -180,6 +180,10 @@ The optimized release was built from reviewed source b4a8d9f. Its SHA256 is `22d
 
 ## Compact message timestamps
 
-The timestamp-grouping iteration passes **346 automated tests** (three native helper checks remain opt-in). Consecutive messages from the same sender in one minute share a displayed time. Empty timestamp-only rows are removed; delivery states, edit markers and group receipt counts remain visible. New minutes, sender changes, date boundaries and out-of-order timestamps retain their own times.
+The timestamp-grouping iteration passes **347 automated tests** (three native helper checks remain opt-in). Consecutive messages from the same sender in one minute share a displayed time. Empty timestamp-only rows are removed; delivery states, edit markers and group receipt counts remain visible. New minutes, sender changes, date boundaries and out-of-order timestamps retain their own times.
 
 Regression checks cover adjacent body rows, avatar-enabled/disabled layouts, per-message keyboard selection and mouse actions, and sender/time context while scrolling a compact group. The viewport preserves the latest body and reports only fully displayed messages. Synthetic Crossterm-output replay also checks compact emoji conversations for timestamp fragments. Existing quote, media, avatar and terminal-restoration tests pass. No live account or private messages were used.
+
+The single independent review identified one Important issue: scrolling from compact bodies onto a header could leave a blank bottom row. A failing regression reproduced it before the fix. Reserved context space now stays above the content at header boundaries, preserving the newest body's position and mouse target. The regression covers minute, edit-metadata and sender transitions. No findings were deferred and no second review was performed.
+
+Formatting, Clippy with warnings denied, and whitespace checks pass after the review fix. Physical Ghostty appearance remains user-operated acceptance; automated checks use synthetic buffers and emitted terminal commands.

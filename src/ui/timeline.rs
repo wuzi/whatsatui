@@ -19,6 +19,7 @@ pub(super) struct Timeline {
     visible: Vec<usize>,
     sticky: Option<usize>,
     sticky_extra: bool,
+    content_offset: u16,
     gutter: u16,
     anchor_end: usize,
 }
@@ -286,6 +287,7 @@ pub(super) fn layout(area: Rect, view: &ViewModel, config: &Config) -> Timeline 
     };
     let mut sticky = if height > 1 { context_at(start) } else { None };
     let mut sticky_extra = false;
+    let mut content_offset = 0;
     if let Some(index) = sticky {
         let run = &runs[index];
         if !run.header || run.start < start {
@@ -293,6 +295,7 @@ pub(super) fn layout(area: Rect, view: &ViewModel, config: &Config) -> Timeline 
             // A compact message starts with its body: replacing that row with
             // a header would hide text yet report the message as fully visible.
             visible.remove(0);
+            content_offset = 1;
             sticky = visible.first().and_then(|row| context_at(*row));
             sticky_extra =
                 sticky.is_some_and(|index| !runs[index].header || runs[index].start < visible[0]);
@@ -305,6 +308,7 @@ pub(super) fn layout(area: Rect, view: &ViewModel, config: &Config) -> Timeline 
         visible,
         sticky,
         sticky_extra,
+        content_offset,
         gutter: gutter_width,
         anchor_end,
     }
@@ -321,7 +325,7 @@ impl Timeline {
         Some((
             Rect::new(
                 self.area.x,
-                self.area.y + u16::from(self.sticky_extra) + first as u16,
+                self.area.y + self.content_offset + first as u16,
                 self.area.width,
                 count as u16,
             ),
@@ -373,7 +377,7 @@ pub(super) fn render(
             hits.push(
                 Rect::new(
                     layout.area.x,
-                    layout.area.y + u16::from(layout.sticky_extra) + y as u16,
+                    layout.area.y + layout.content_offset + y as u16,
                     layout.area.width,
                     1,
                 ),
@@ -466,6 +470,11 @@ pub(super) fn render(
         } else if let Some(first) = visible.first_mut() {
             *first = context;
         }
+    }
+    if layout.content_offset > 0 && !layout.sticky_extra {
+        // The reserved context row may become unnecessary at a header or
+        // separator boundary. Keep its space above the content, not below it.
+        visible.insert(0, Line::default());
     }
     frame.render_widget(Paragraph::new(visible), layout.area);
     if !graphics {

@@ -179,3 +179,53 @@ fn scrolled_compact_messages_keep_context_and_the_newest_body_visible() {
         view.message_scroll = 0;
     }
 }
+
+#[test]
+fn compact_to_header_boundaries_keep_the_newest_body_at_the_bottom() {
+    for (sender, offset, edited) in [
+        ("alice", 60_000, false),
+        ("alice", 2_000, true),
+        ("bob", 2_000, false),
+    ] {
+        let mut view = conversation();
+        let first = support::message(support::key("chat", "alice", "one"), "First");
+        let mut second = support::message(support::key("chat", "alice", "two"), "Second");
+        second.created_at_ms += 1_000;
+        let mut third = support::message(
+            support::key("chat", sender, "three"),
+            "Third head\nThird tail",
+        );
+        third.created_at_ms += offset;
+        third.edited_at_ms = edited.then_some(third.created_at_ms + 1);
+        view.messages = vec![first, second, third];
+        let screen = draw(&view, 40, 12);
+        let area = ui::layout::calculate(screen.area, view.focus).messages;
+        let rows = rows(&screen, view.focus);
+        assert!(
+            rows[rows.len() - 2].contains("Third tail"),
+            "latest body shifted above the bottom: {rows:?}"
+        );
+        let viewport = ui::timeline_viewport(screen.area, &view, &Config::default()).unwrap();
+        assert!(viewport.fully_visible.contains(&view.messages[2].key));
+        // Mouse hit positions must include the same reserved row as rendering.
+        let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
+        let mut map = None;
+        terminal
+            .draw(|frame| {
+                map = Some(ui::render_interactive(
+                    frame,
+                    &view,
+                    &Config::default(),
+                    &mut ui::Images::default(),
+                    &mut ui::Avatars::default(),
+                ));
+            })
+            .unwrap();
+        assert_eq!(
+            map.unwrap().hit(area.x + 8, area.bottom() - 2),
+            Some(&ui::interaction::Target::Message(
+                view.messages[2].key.clone()
+            ))
+        );
+    }
+}
