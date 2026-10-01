@@ -41,9 +41,9 @@
 
 **Interfaces:** Task 1's event feeds `notifications::Inbox`, which emits bounded `notifications::Request { keys, overflow, previews }` through `Effect::Notify`. `notifications::prepare(Request, &Store, now_ms) -> Result<Option<Popup>, String>` revalidates storage, then `notifications::deliver(&Popup, &impl Notifier)` calls a replaceable notifier. `NativeNotifier` uses a bounded process. `Input::NotificationResult(Result<(), String>)` drives a single notice and retry cooldown. `NotificationConfig { enabled, previews }` defaults true/true.
 
-- [ ] Write and run RED tests for foreground/current chat suppression, background/other chats/scrollback/unknown focus, pending cancellation, startup/history/own exclusions, account switching, queue cap and burst timing. Cover disabled/demo and privacy configuration.
-- [ ] Implement config, the burst policy, storage revalidation and app/runtime effect wiring with shutdown cancellation. Add notification process/content tests covering private previews, group/media names, markup/options/control characters, timeout/failure/missing helper and bounded retries.
-- [ ] Run `cargo test -j 2 --lib --test notifications --test configuration --test runtime -- --test-threads=2`; expect pass and commit.
+- [x] Write and run RED tests for foreground/current chat suppression, background/other chats/scrollback/unknown focus, pending cancellation, startup/history/own exclusions, account switching, queue cap and burst timing. Cover disabled/demo and privacy configuration.
+- [x] Implement config, the burst policy, storage revalidation and app/runtime effect wiring with shutdown cancellation. Add notification process/content tests covering private previews, group/media names, markup/options/control characters, timeout/failure/missing helper and bounded retries.
+- [x] Run `cargo test -j 2 --lib --test notifications --test configuration --test runtime -- --test-threads=2`; expect pass and commit.
 
 ## Task 3: Validation and release
 

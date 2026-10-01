@@ -14,6 +14,21 @@ pub struct Config {
     pub bindings: Bindings,
     pub media: MediaConfig,
     pub audio: AudioConfig,
+    pub notifications: NotificationConfig,
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct NotificationConfig {
+    pub enabled: bool,
+    pub previews: bool,
+}
+impl Default for NotificationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            previews: true,
+        }
+    }
 }
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -69,6 +84,7 @@ struct FileConfig {
     bindings: bindings::Overrides,
     media: MediaConfig,
     audio: AudioConfig,
+    notifications: NotificationConfig,
 }
 impl Config {
     pub fn parse(text: &str) -> Result<Self, ConfigError> {
@@ -80,6 +96,7 @@ impl Config {
             bindings: Bindings::configured(file.bindings)?,
             media: file.media,
             audio: file.audio,
+            notifications: file.notifications,
         })
     }
     pub fn load(path: &Path) -> Result<Self, ConfigError> {

@@ -6,6 +6,7 @@ pub mod desktop;
 pub mod media;
 pub mod message_actions;
 mod message_text;
+pub mod notifications;
 pub mod runtime;
 pub mod storage;
 pub mod terminal;

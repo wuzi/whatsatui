@@ -50,6 +50,10 @@ async fn demo_uses_only_temporary_storage() {
         .await
         .unwrap();
     assert!(!s.data_path().starts_with(real.path()));
+    assert!(
+        !s.app.config.notifications.enabled,
+        "demo must never send desktop popups"
+    );
     assert_eq!(
         std::fs::read_to_string(real.path().join("sentinel")).unwrap(),
         "leave intact"

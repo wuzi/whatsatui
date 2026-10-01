@@ -7,10 +7,12 @@ mod audio;
 mod interactions;
 mod mouse;
 mod navigation;
+mod notifications;
 mod search;
 mod stickers;
 #[derive(Clone, Debug)]
 pub enum Effect {
+    Notify(crate::notifications::Request),
     Audio(Option<crate::audio::Request>),
     LoadOriginal {
         request: RequestId,
@@ -179,6 +181,7 @@ struct PendingSend {
     staging: bool,
 }
 pub struct App {
+    notifications: crate::notifications::Inbox,
     pub config: Config,
     view: ViewModel,
     rendered: Option<crate::ui::InteractionMap>,
@@ -213,6 +216,7 @@ pub struct App {
 impl App {
     pub fn new(config: Config) -> Self {
         Self {
+            notifications: crate::notifications::Inbox::new(chrono::Utc::now().timestamp_millis()),
             config,
             rendered: None,
             original_request: None,
@@ -1038,6 +1042,7 @@ impl App {
     fn terminal(&mut self, event: Event, effects: &mut Vec<Effect>) {
         if matches!(&event, Event::Key(_) | Event::Paste(_) | Event::Mouse(_)) {
             self.original_request = None;
+            self.foreground = Some(true);
         }
 
         if self.quitting {
@@ -1172,7 +1177,7 @@ impl App {
     }
     fn backend(&mut self, event: BackendEvent, effects: &mut Vec<Effect>) {
         match event {
-            BackendEvent::IncomingMessages(_) => {}
+            BackendEvent::IncomingMessages(messages) => self.incoming_notifications(messages),
             BackendEvent::MutationOutcome {
                 request,
                 account,
@@ -1728,14 +1733,16 @@ impl App {
             }
         }
     }
-    fn maybe_read(&mut self, effects: &mut Vec<Effect>) {
-        if self.quitting
+    fn reading_conversation(&self) -> bool {
+        !(self.quitting
             || self.view.overlay.is_some()
             || self.view.focus == Focus::Chats
             || !self.view.at_bottom
             || self.view.loading
-            || self.foreground == Some(false)
-        {
+            || self.foreground == Some(false))
+    }
+    fn maybe_read(&mut self, effects: &mut Vec<Effect>) {
+        if !self.reading_conversation() {
             return;
         }
         let (Some(account), Some(chat)) = (self.view.account.clone(), self.view.chat.clone())
@@ -1813,6 +1820,7 @@ impl App {
         self.reconcile_message_actions();
         self.reconcile_editing();
         match input {
+            Input::NotificationResult(result) => self.notification_result(result),
             Input::Playback(playback) => self.audio_observed(playback),
             Input::Rendered(map) => {
                 if map.matches(&self.view) {
@@ -1894,6 +1902,7 @@ impl App {
         self.reconcile_editing();
         self.reconcile_audio(&mut effects);
         self.maybe_read(&mut effects);
+        self.reconcile_notifications(&mut effects);
         self.finish_shutdown(&mut effects);
         effects
     }

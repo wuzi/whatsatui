@@ -128,7 +128,11 @@ fn helper_error(name: &str, error: io::Error) -> String {
     )
 }
 
-async fn run(mut command: Command, input: Option<&[u8]>, deadline: Duration) -> io::Result<()> {
+pub(crate) async fn run(
+    mut command: Command,
+    input: Option<&[u8]>,
+    deadline: Duration,
+) -> io::Result<()> {
     let mut child = command
         .stdin(if input.is_some() {
             Stdio::piped()

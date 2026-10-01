@@ -4,6 +4,8 @@ use crate::{
     storage::Store,
     whatsapp::{BackendError, BackendHandle},
 };
+#[cfg(test)]
+mod notification_tests;
 use std::{future::Future, path::PathBuf};
 #[derive(clap::Parser, Clone, Debug, Default)]
 #[command(version, about = "Personal WhatsApp conversations in your terminal")]
@@ -86,13 +88,18 @@ where
             "--demo cannot be combined with --data-dir",
         ));
     }
-    let config = if let Some(path) = options.config {
+    let mut config = if let Some(path) = options.config {
         Config::load(&path)?
     } else if options.demo {
         Config::default()
     } else {
         Config::load(&paths.config)?
     };
+    if options.demo {
+        config.notifications.enabled = false;
+    }
+    // Establish the notification cutoff before starting live ingestion.
+    let app = App::new(config);
     let temporary = if options.demo {
         Some(
             tempfile::Builder::new()
@@ -118,7 +125,7 @@ where
         factory(path.join("session.sqlite3"), store.clone()).await?
     };
     Ok(Session {
-        app: App::new(config),
+        app,
         store,
         backend,
         path,
@@ -244,6 +251,17 @@ async fn execute_with_media(
     cancel: tokio::sync::watch::Receiver<bool>,
 ) -> Option<Input> {
     let event = match effect {
+        Effect::Notify(request) => {
+            return Some(Input::NotificationResult(
+                notification(
+                    request,
+                    &store,
+                    cancel,
+                    &crate::notifications::NativeNotifier,
+                )
+                .await,
+            ));
+        }
         Effect::LoadOriginal { request, key } => StoreCompletion::Original {
             request,
             result: store
@@ -572,6 +590,27 @@ async fn execute_with_media(
         Effect::Shutdown | Effect::Audio(_) => return None,
     };
     Some(Input::Store(event))
+}
+
+async fn notification(
+    request: crate::notifications::Request,
+    store: &Store,
+    mut cancel: tokio::sync::watch::Receiver<bool>,
+    notifier: &impl crate::notifications::Notifier,
+) -> Result<(), String> {
+    if *cancel.borrow() {
+        return Ok(());
+    }
+    tokio::select! {
+        biased;
+        _ = cancel.changed() => Ok(()),
+        result = async {
+            if let Some(popup) = crate::notifications::prepare(request, store, chrono::Utc::now().timestamp_millis()).await? {
+                crate::notifications::deliver(&popup, notifier).await?;
+            }
+            Ok(())
+        } => result,
+    }
 }
 pub async fn run_with_screen<S, I>(
     mut app: App,

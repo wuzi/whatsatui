@@ -1,5 +1,6 @@
 mod interactions;
 mod merge;
+mod notifications;
 pub mod paths;
 mod records;
 mod search;
