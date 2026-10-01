@@ -173,3 +173,7 @@ The rendering correction passes **340 automated tests**; three native mpv/deskto
 The new tests replay actual Crossterm output across successive synthetic conversation frames, checking cursor placement rather than only the desired Ratatui buffer. Coverage includes incoming-message growth, scrollback, clearing, narrow layouts, sidebar and message emoji, styled text, other wide glyphs, Help overlays, and replacement with ASCII text. A graphics regression confirms that finalizing emoji does not alter Kitty image uploads or placeholders and retains one-time transmission. Existing avatar refresh, animation, image cleanup and terminal-restoration tests also pass.
 
 The test replay handles cursor positioning, text, styling sequences and virtual Kitty transmissions; it is not a full terminal emulator or a physical Ghostty visual check. No live account, private messages or profile photos were accessed. Restart the TUI to load the correction and clear artifacts left by the old renderer.
+
+Formatting and Clippy with warnings denied pass. The single independent review verified the cause against the pinned dependency code and found no issues; no findings were deferred.
+
+The optimized release was built from reviewed source b4a8d9f. Its SHA256 is `22d67a5a128191b06c01fbbde629be93e794c425e78dea7918f8a76f5af0afc7`. The fix and release record are integrated into local main; verification evidence is preserved under `.superpowers/sdd/2026-10-01-render-artifacts/`. Nothing was pushed.
