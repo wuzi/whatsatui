@@ -14,6 +14,8 @@ pub enum Speed {
     Normal,
     OneHalf,
     Double,
+    /// A speed chosen using the native player's controls, in thousandths.
+    Native(u32),
 }
 impl Speed {
     pub fn next(self) -> Self {
@@ -21,6 +23,9 @@ impl Speed {
             Self::Normal => Self::OneHalf,
             Self::OneHalf => Self::Double,
             Self::Double => Self::Normal,
+            Self::Native(n) if n < 1500 => Self::OneHalf,
+            Self::Native(n) if n < 2000 => Self::Double,
+            Self::Native(_) => Self::Normal,
         }
     }
     pub fn value(self) -> f64 {
@@ -28,13 +33,18 @@ impl Speed {
             Self::Normal => 1.0,
             Self::OneHalf => 1.5,
             Self::Double => 2.0,
+            Self::Native(n) => f64::from(n) / 1000.0,
         }
     }
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Normal => "1x",
-            Self::OneHalf => "1.5x",
-            Self::Double => "2x",
+    pub fn label(self) -> String {
+        format!("{}x", self.value())
+    }
+    pub(crate) fn from_milli(value: u32) -> Self {
+        match value {
+            1000 => Self::Normal,
+            1500 => Self::OneHalf,
+            2000 => Self::Double,
+            value => Self::Native(value.clamp(10, 100_000)),
         }
     }
 }
@@ -46,6 +56,9 @@ pub struct Request {
     pub speed: Speed,
 }
 impl Request {
+    pub(crate) fn is_video(&self) -> bool {
+        matches!(&self.message.body, crate::app::model::MessageBody::Media(a) if a.kind == crate::media::AttachmentKind::Video)
+    }
     pub(crate) fn same_source(&self, other: &Self) -> bool {
         self.id == other.id && self.message == other.message
     }
@@ -64,6 +77,7 @@ pub struct Playback {
     pub phase: Phase,
     pub position_ms: u64,
     pub duration_ms: Option<u64>,
+    pub speed_milli: u32,
     pub error: Option<String>,
 }
 impl Playback {
@@ -77,6 +91,7 @@ impl Playback {
             _ => None,
         };
         Self {
+            speed_milli: (request.speed.value() * 1000.0).round() as u32,
             request,
             phase: Phase::Loading,
             position_ms: 0,
@@ -86,6 +101,9 @@ impl Playback {
     }
     pub fn active(&self) -> bool {
         matches!(self.phase, Phase::Loading | Phase::Playing | Phase::Paused)
+    }
+    pub fn speed_label(&self) -> String {
+        Speed::from_milli(self.speed_milli).label()
     }
 }
 pub struct Player {

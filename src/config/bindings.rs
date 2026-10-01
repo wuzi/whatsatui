@@ -84,9 +84,9 @@ impl ActionId {
         match self {
             Self::FocusComposer => "write a message",
             Self::ClearText => "clear text",
-            Self::PlayAudio => "play/pause audio",
-            Self::AudioSpeed => "audio speed",
-            Self::AudioStop => "stop audio",
+            Self::PlayAudio => "play/pause media",
+            Self::AudioSpeed => "playback speed",
+            Self::AudioStop => "stop playback",
             Self::JumpToQuote => "quoted original",
             Self::React => "react",
             Self::Reactions => "view reactions",

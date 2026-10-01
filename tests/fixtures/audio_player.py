@@ -6,6 +6,7 @@ base = pathlib.Path(__file__)
 base.with_suffix('.pid').write_text(str(os.getpid()))
 mode = pathlib.Path(sys.argv[-1]).read_text()
 base.with_suffix('.snapshot').write_text(sys.argv[-1])
+base.with_suffix('.args').write_text(json.dumps(sys.argv[1:]))
 with base.with_suffix('.starts').open('a') as log:
     log.write(mode + '\n')
 if mode == 'exit':
@@ -24,6 +25,15 @@ emit({'event': 'file-loaded'})
 pending = b''
 stall_at = time.monotonic() + .4
 while True:
+    window = base.with_suffix('.window')
+    if window.exists():
+        event = json.loads(window.read_text())
+        window.unlink()
+        if event['event'] == 'property-change':
+            state[event['name']] = event['data']
+        emit(event)
+        if event['event'] == 'end-file':
+            sys.exit(0)
     if mode == 'late-stall' and time.monotonic() >= stall_at:
         time.sleep(30)
         sys.exit(0)

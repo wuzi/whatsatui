@@ -12,6 +12,7 @@ pub(super) struct State {
     pub paused: bool,
     pub position: u64,
     pub duration: Option<u64>,
+    pub speed_milli: u32,
     pub finished: bool,
 }
 pub(super) struct Mpv {
@@ -20,21 +21,34 @@ pub(super) struct Mpv {
     writer: tokio::net::unix::OwnedWriteHalf,
     pending: Vec<u8>,
     serial: u64,
+    video: bool,
     pub state: State,
 }
 impl Mpv {
-    pub async fn start(executable: &Path, path: &Path) -> Result<Self, String> {
+    pub async fn start(executable: &Path, path: &Path, video: bool) -> Result<Self, String> {
         let (parent, child) = std::os::unix::net::UnixStream::pair()
-            .map_err(|_| "Cannot create audio control channel")?;
+            .map_err(|_| "Cannot create playback control channel")?;
         parent
             .set_nonblocking(true)
-            .map_err(|_| "Cannot configure audio control channel")?;
+            .map_err(|_| "Cannot configure playback control channel")?;
         // FD 0 is a private duplex socket, not the terminal. mpv exits when its
         // IPC client disconnects, including an unexpected parent process exit.
-        let child = Command::new(executable)
+        let mut command = Command::new(executable);
+        if video {
+            // Restrict fallback to GUI outputs: a failed window must not write
+            // video graphics into our terminal or fall back to a null output.
+            command.args([
+                "--vo=gpu-next,gpu,wlshm,x11",
+                "--force-window=yes",
+                "--title=WhatsAppTUI video",
+                "--osc=yes",
+            ]);
+        } else {
+            command.arg("--no-video");
+        }
+        let child = command
             .args([
                 "--no-config",
-                "--no-video",
                 "--audio-display=no",
                 "--terminal=no",
                 "--input-terminal=no",
@@ -60,13 +74,13 @@ impl Mpv {
             .spawn()
             .map_err(|e| {
                 if e.kind() == std::io::ErrorKind::NotFound {
-                    "Audio player missing: install mpv or set [audio].player"
+                    "Media player missing: install mpv or set [audio].player"
                 } else {
-                    "Cannot start mpv audio player"
+                    "Cannot start mpv media player"
                 }
             })?;
         let (reader, writer) = UnixStream::from_std(parent)
-            .map_err(|_| "Cannot open audio control channel")?
+            .map_err(|_| "Cannot open playback control channel")?
             .into_split();
         let mut player = Self {
             _child: child,
@@ -74,12 +88,14 @@ impl Mpv {
             writer,
             pending: Vec::new(),
             serial: 0,
+            video,
             state: State {
                 paused: true,
+                speed_milli: 1000,
                 ..Default::default()
             },
         };
-        for (id, name) in [(1, "time-pos"), (2, "duration"), (3, "pause")] {
+        for (id, name) in [(1, "time-pos"), (2, "duration"), (3, "pause"), (4, "speed")] {
             player
                 .command(json!(["observe_property", id, name]))
                 .await?;
@@ -90,13 +106,13 @@ impl Mpv {
         self.serial += 1;
         let id = self.serial;
         let mut bytes = serde_json::to_vec(&json!({"command":command,"request_id":id}))
-            .map_err(|_| "Invalid audio command")?;
+            .map_err(|_| "Invalid playback command")?;
         bytes.push(b'\n');
         tokio::time::timeout(Duration::from_secs(2), async {
             self.writer
                 .write_all(&bytes)
                 .await
-                .map_err(|_| "Audio player closed its control channel")?;
+                .map_err(|_| "Media player closed its control channel")?;
             loop {
                 let value = self.read().await?;
                 // EOF can arrive while a health query/control is in flight.
@@ -109,13 +125,13 @@ impl Mpv {
                     return if value["error"] == "success" {
                         Ok(())
                     } else {
-                        Err("Audio player rejected a playback control".into())
+                        Err("Media player rejected a playback control".into())
                     };
                 }
             }
         })
         .await
-        .map_err(|_| "Audio player did not respond; try playing again")?
+        .map_err(|_| "Media player did not respond; try playing again")?
     }
     pub async fn read(&mut self) -> Result<Value, String> {
         loop {
@@ -125,20 +141,20 @@ impl Mpv {
                 .reader
                 .fill_buf()
                 .await
-                .map_err(|_| "Audio player stopped unexpectedly")?;
+                .map_err(|_| "Media player stopped unexpectedly")?;
             if bytes.is_empty() {
-                return Err("Audio player stopped; check the audio file and output device".into());
+                return Err("Media player stopped; check the media file and output device".into());
             }
             let newline = bytes.iter().position(|b| *b == b'\n');
             let count = newline.map_or(bytes.len(), |i| i + 1);
             if self.pending.len() + count > 64 * 1024 {
-                return Err("Audio player returned an oversized control message".into());
+                return Err("Media player returned an oversized control message".into());
             }
             self.pending.extend_from_slice(&bytes[..count]);
             self.reader.consume(count);
             if newline.is_some() {
                 let value: Value = serde_json::from_slice(&std::mem::take(&mut self.pending))
-                    .map_err(|_| "Audio player returned invalid control data")?;
+                    .map_err(|_| "Media player returned invalid control data")?;
                 self.apply(&value)?;
                 return Ok(value);
             }
@@ -147,9 +163,16 @@ impl Mpv {
     fn apply(&mut self, value: &Value) -> Result<(), String> {
         match value["event"].as_str() {
             Some("file-loaded") => self.state.loaded = true,
-            Some("end-file") if value["reason"] == "eof" => self.state.finished = true,
+            Some("end-file")
+                if value["reason"] == "eof"
+                    || (self.video
+                        && matches!(value["reason"].as_str(), Some("quit" | "stop"))) =>
+            {
+                self.state.finished = true
+            }
+            Some("shutdown") if self.video => self.state.finished = true,
             Some("end-file") => {
-                return Err("Cannot play this audio; check its format and audio output".into());
+                return Err("Cannot play this media; check its format and output device".into());
             }
             Some("property-change") => match value["name"].as_str() {
                 Some("time-pos") => {
@@ -159,6 +182,14 @@ impl Mpv {
                     }
                 }
                 Some("duration") => self.state.duration = millis(&value["data"]),
+                Some("speed") => {
+                    if let Some(speed) = value["data"]
+                        .as_f64()
+                        .filter(|s| s.is_finite() && (0.01..=100.0).contains(s))
+                    {
+                        self.state.speed_milli = (speed * 1000.0).round() as u32;
+                    }
+                }
                 Some("pause") => {
                     if let Some(paused) = value["data"].as_bool() {
                         self.state.paused = paused;

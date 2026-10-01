@@ -70,12 +70,12 @@ async fn session(
     events.send_replace(Some(playback.clone()));
     let (_cancel, cancelled) = watch::channel(false);
     let snapshot = media::audio::prepare(&initial.message, store, downloader, cancelled).await?;
-    let mut player = Mpv::start(executable, snapshot.path()).await?;
+    let mut player = Mpv::start(executable, snapshot.path(), initial.is_video()).await?;
     let mut request = desired
         .borrow_and_update()
         .clone()
         .filter(|r| r.same_source(initial))
-        .ok_or("Audio canceled")?;
+        .ok_or("Playback canceled")?;
     apply_controls(&mut player, &request).await?;
     let mut tick = tokio::time::interval(Duration::from_millis(250));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -90,6 +90,7 @@ async fn session(
     loop {
         playback.request = request.clone();
         playback.position_ms = player.state.position;
+        playback.speed_milli = player.state.speed_milli;
         playback.duration_ms = player.state.duration.or(playback.duration_ms);
         playback.phase = if player.state.finished {
             Phase::Finished
@@ -106,13 +107,13 @@ async fn session(
         }
         tokio::select! {
             change=desired.changed()=>{
-                change.map_err(|_|"Audio canceled")?;
-                let next=desired.borrow_and_update().clone().filter(|r|r.same_source(initial)).ok_or("Audio canceled")?;
-                if next!=request {apply_controls(&mut player,&next).await?;request=next;}
+                change.map_err(|_|"Playback canceled")?;
+                let next=desired.borrow_and_update().clone().filter(|r|r.same_source(initial)).ok_or("Playback canceled")?;
+                apply_controls(&mut player,&next).await?;request=next;
             }
             value=player.read()=>{value?;}
             _=tick.tick()=>{
-                if !player.state.loaded && tokio::time::Instant::now()>=startup {return Err("Audio player could not load this file".into());}
+                if !player.state.loaded && tokio::time::Instant::now()>=startup {return Err("Media player could not load this file".into());}
                 events.send_replace(Some(playback.clone()));
             }
             _=validation.tick()=>{media::current(&initial.message,store).await?;}

@@ -23,13 +23,16 @@ pub(super) fn label(message: &MessageRecord, view: &ViewModel) -> String {
             "[{control}] {} / {} · {}",
             time(p.position_ms),
             p.duration_ms.map(time).unwrap_or_else(|| "--:--".into()),
-            p.request.speed.label()
+            p.speed_label()
         );
     }
     let MessageBody::Media(a) = &message.body else {
         return String::new();
     };
     let voice = a.audio.as_ref().is_some_and(|a| a.voice);
+    if a.kind == crate::media::AttachmentKind::Video {
+        return "[Play] Video · open in mpv".into();
+    }
     format!(
         "[Play] {} · {}",
         if voice { "Voice message" } else { "Audio" },
@@ -65,10 +68,7 @@ pub(super) fn header(
     for (text, action) in [
         (control.to_owned(), Some(A::PlayAudio)),
         (progress, None),
-        (
-            format!("[{}]", p.request.speed.label()),
-            Some(A::AudioSpeed),
-        ),
+        (format!("[{}]", p.speed_label()), Some(A::AudioSpeed)),
         (" [Stop]".into(), Some(A::AudioStop)),
     ] {
         let width = text.width() as u16;

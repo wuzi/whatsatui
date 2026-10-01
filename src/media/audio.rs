@@ -12,8 +12,9 @@ pub async fn prepare(
     cancel: watch::Receiver<bool>,
 ) -> Result<tempfile::NamedTempFile, String> {
     check_cancel(&cancel)?;
-    if !matches!(&message.body, MessageBody::Media(a) if a.kind == AttachmentKind::Audio) {
-        return Err("Select a voice message or audio file".into());
+    if !matches!(&message.body, MessageBody::Media(a) if matches!(a.kind, AttachmentKind::Audio | AttachmentKind::Video))
+    {
+        return Err("Select a voice message, audio file or video".into());
     }
     let attachment = current(message, store).await?;
     let (_cache, path, _) = acquire(message, store, downloader, true, cancel.clone()).await?;
@@ -22,7 +23,7 @@ pub async fn prepare(
     let snapshot = tempfile::Builder::new()
         .prefix("whatsapp-tui-audio-")
         .tempfile()
-        .map_err(|_| "Cannot prepare audio file")?;
+        .map_err(|_| "Cannot prepare media file")?;
     let snapshot = copy_snapshot(path, snapshot).await?;
     cache::verify(snapshot.path().to_owned(), &attachment).await?;
     current(message, store).await?;
@@ -43,8 +44,8 @@ async fn copy_snapshot(
         Ok(snapshot)
     })
     .await
-    .map_err(|_| "Audio file preparation stopped")?
-    .map_err(|_| "Cannot prepare audio file".into())
+    .map_err(|_| "Media file preparation stopped")?
+    .map_err(|_| "Cannot prepare media file".into())
 }
 
 #[cfg(test)]

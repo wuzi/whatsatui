@@ -99,6 +99,85 @@ fn observe(app: &mut App, request: Request, phase: Phase) {
     app.update(Input::Playback(playback), Instant::now());
 }
 #[test]
+fn tui_resume_and_speed_respect_pause_changes_from_the_player_window() {
+    let mut app = app();
+    let first = request(press(&mut app, "p"));
+    observe(&mut app, first.clone(), Phase::Paused); // window paused; desired was still playing
+    let resume = request(press(&mut app, "p"));
+    assert!(
+        !resume.paused,
+        "Resume must clear the observed native pause"
+    );
+    observe(&mut app, resume, Phase::Playing);
+    let pause = request(press(&mut app, "p"));
+    assert!(pause.paused);
+    observe(&mut app, pause.clone(), Phase::Playing); // native window resumed
+    assert!(request(press(&mut app, "p")).paused);
+    observe(&mut app, pause, Phase::Paused);
+    assert!(
+        request(press(&mut app, "s")).paused,
+        "speed must not resume a paused window"
+    );
+}
+#[test]
+fn pausing_preserves_a_native_speed_and_speed_key_advances_from_it() {
+    let mut app = app();
+    let first = request(press(&mut app, "p"));
+    let mut observed = Playback::loading(first);
+    observed.phase = Phase::Playing;
+    observed.speed_milli = 1250;
+    app.update(Input::Playback(observed), Instant::now());
+    let paused = request(press(&mut app, "p"));
+    assert!(paused.paused);
+    assert_eq!(paused.speed.value(), 1.25);
+    observe(&mut app, paused, Phase::Paused);
+    let fast = request(press(&mut app, "s"));
+    assert!(fast.paused);
+    assert_eq!(fast.speed, Speed::OneHalf);
+}
+#[test]
+fn video_caption_and_play_target_survive_narrow_layouts() {
+    let mut app = app();
+    let mut video = voice("video");
+    if let MessageBody::Media(a) = &mut video.body {
+        a.kind = whatsapp_tui::media::AttachmentKind::Video;
+        a.audio = None;
+        a.mime = Some("video/mp4".into());
+        a.caption = Some("Watch this clip".into());
+    }
+    refresh(&mut app, vec![video.clone()]);
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 30)).unwrap();
+    for (width, height) in [(80, 30), (40, 12)] {
+        terminal.backend_mut().resize(width, height);
+        terminal
+            .resize(ratatui::layout::Rect::new(0, 0, width, height))
+            .unwrap();
+        terminal
+            .draw(|f| ui::render(f, &app.view(), &Config::default()))
+            .unwrap();
+        let text: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(text.contains("Video"), "{text}");
+        assert!(text.contains("Watch this clip"), "{text}");
+    }
+    let play = request(press(&mut app, "p"));
+    assert_eq!(play.message.key, video.key);
+    press(&mut app, "x");
+    let map = rendered(&app, 40);
+    let point = coordinate(
+        &map,
+        |t| matches!(t, Target::PlayAudio(k) if k == &video.key),
+    );
+    app.update(Input::Rendered(map), Instant::now());
+    let play = request(click(&mut app, point, MouseButton::Left));
+    assert_eq!(play.message.key, video.key);
+}
+#[test]
 fn controls_keep_the_normal_draft_and_coalesce_rapid_changes_despite_old_observations() {
     let mut app = app();
     press(&mut app, "tab");

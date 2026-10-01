@@ -6,6 +6,7 @@ pub enum AttachmentKind {
     Sticker,
     Document,
     Audio,
+    Video,
 }
 
 impl AttachmentKind {
@@ -15,6 +16,7 @@ impl AttachmentKind {
             Self::Sticker => "sticker",
             Self::Document => "document",
             Self::Audio => "audio",
+            Self::Video => "video",
         }
     }
 }
@@ -91,6 +93,10 @@ impl Attachment {
             "audio/aac" => Some("aac"),
             "audio/wav" | "audio/x-wav" => Some("wav"),
             "audio/flac" | "audio/x-flac" => Some("flac"),
+            "video/mp4" => Some("mp4"),
+            "video/3gpp" => Some("3gp"),
+            "video/webm" => Some("webm"),
+            "video/quicktime" => Some("mov"),
             "application/pdf" => Some("pdf"),
             "text/plain" => Some("txt"),
             "text/csv" => Some("csv"),

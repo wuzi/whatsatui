@@ -254,6 +254,11 @@ fn edited_text(message: &wa::Message) -> Option<&str> {
     let base = message.get_base_message();
     base.text_content()
         .or_else(|| {
+            base.video_message
+                .as_option()
+                .map(|m| m.caption.as_deref().unwrap_or(""))
+        })
+        .or_else(|| {
             base.image_message
                 .as_option()
                 .map(|m| m.caption.as_deref().unwrap_or(""))
@@ -799,6 +804,8 @@ fn quoted_summary(payload: &wa::Message) -> Option<(String, Option<crate::media:
     }
     let (kind, caption) = if let Some(image) = base.image_message.as_option() {
         (K::Image, image.caption.as_deref())
+    } else if let Some(video) = base.video_message.as_option() {
+        (K::Video, video.caption.as_deref())
     } else if base.sticker_message.is_set() {
         (K::Sticker, None)
     } else if base.audio_message.is_set() {

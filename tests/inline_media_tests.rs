@@ -25,6 +25,31 @@ fn decode_bounds_and_corruption() {
 }
 
 #[tokio::test]
+async fn outgoing_animated_sticker_preview_keeps_motion_and_accepts_cancellation() {
+    let temp = tempfile::tempdir().unwrap();
+    let bytes = include_bytes!("fixtures/send-sticker.webp");
+    let image = outgoing::import_sticker(bytes, temp.path(), true).unwrap();
+    let (stop, cancel) = tokio::sync::watch::channel(false);
+    let preview = preview::load_local(image.clone(), temp.path().to_owned(), cancel.clone())
+        .await
+        .unwrap();
+    assert!(preview.frames.len() > 1);
+    assert!(preview.frames.len() <= 96);
+    assert!(
+        preview
+            .frames
+            .iter()
+            .all(|f| f.image.width() <= 160 && f.image.height() <= 160)
+    );
+    stop.send(true).unwrap();
+    assert!(
+        preview::load_local(image, temp.path().to_owned(), cancel)
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
 async fn previews_verify_cache_and_reject_deleted_messages() {
     use sha2::{Digest, Sha256};
     use std::sync::atomic::{AtomicUsize, Ordering};

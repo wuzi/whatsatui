@@ -182,6 +182,13 @@ fn quoted_body(quote: &Quote, preview: &str) -> wa::Message {
         return wa::Message::text(preview);
     }
     match quote.media_kind {
+        Some(AttachmentKind::Video) => wa::Message {
+            video_message: MessageField::some(wa::message::VideoMessage {
+                caption: Some(preview.into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
         Some(AttachmentKind::Audio) => wa::Message {
             audio_message: MessageField::some(wa::message::AudioMessage::default()),
             ..Default::default()

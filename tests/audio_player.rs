@@ -56,6 +56,11 @@ struct Fixture {
     exe: PathBuf,
 }
 impl Fixture {
+    fn window(&self, event: &str) {
+        let temporary = self.exe.with_extension("window-next");
+        std::fs::write(&temporary, event).unwrap();
+        std::fs::rename(temporary, self.exe.with_extension("window")).unwrap();
+    }
     async fn new() -> Self {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
@@ -114,6 +119,70 @@ async fn observed(player: &mut Player, predicate: impl Fn(&Playback) -> bool) ->
     .expect("playback observation")
 }
 #[tokio::test]
+async fn repeated_desired_state_resumes_a_native_window_pause() {
+    let f = Fixture::new().await;
+    let mut player = f.player();
+    let request = f.request(1, "normal").await;
+    player.set(Some(request.clone()));
+    observed(&mut player, |p| p.phase == Phase::Playing).await;
+    f.window(r#"{"event":"property-change","name":"pause","data":true}"#);
+    observed(&mut player, |p| p.phase == Phase::Paused).await;
+    // Same request values as before, but an explicit user action must reach mpv again.
+    player.set(Some(request));
+    observed(&mut player, |p| p.phase == Phase::Playing).await;
+    player.set(None);
+    f.reaped().await;
+}
+#[tokio::test]
+async fn video_opens_a_window_and_normal_close_reaps_the_player() {
+    let f = Fixture::new().await;
+    let mut request = f.request(1, "normal").await;
+    request.message.key.id = "video".into();
+    if let MessageBody::Media(a) = &mut request.message.body {
+        a.kind = AttachmentKind::Video;
+        a.mime = Some("video/mp4".into());
+    }
+    f.store
+        .apply_batch(batch(vec![request.message.clone()]))
+        .await
+        .unwrap();
+    let mut player = f.player();
+    player.set(Some(request));
+    let status = observed(&mut player, |p| {
+        p.phase == Phase::Playing || p.phase == Phase::Failed
+    })
+    .await;
+    assert_eq!(status.phase, Phase::Playing, "{:?}", status.error);
+    let args: Vec<String> =
+        serde_json::from_str(&std::fs::read_to_string(f.exe.with_extension("args")).unwrap())
+            .unwrap();
+    assert!(!args.iter().any(|a| a == "--no-video"));
+    assert!(args.iter().any(|a| a == "--vo=gpu-next,gpu,wlshm,x11"));
+    assert!(args.iter().any(|a| a == "--terminal=no"));
+    f.window(r#"{"event":"end-file","reason":"quit"}"#);
+    let ended = observed(&mut player, |p| {
+        matches!(p.phase, Phase::Finished | Phase::Failed)
+    })
+    .await;
+    assert_eq!(ended.phase, Phase::Finished, "{:?}", ended.error);
+    f.reaped().await;
+    let snapshot = std::fs::read_to_string(f.exe.with_extension("snapshot")).unwrap();
+    assert!(!Path::new(&snapshot).exists());
+}
+#[tokio::test]
+async fn native_window_speed_changes_are_reported_as_observed_values() {
+    let f = Fixture::new().await;
+    let mut player = f.player();
+    player.set(Some(f.request(1, "normal").await));
+    observed(&mut player, |p| p.phase == Phase::Playing).await;
+    f.window(r#"{"event":"property-change","name":"speed","data":1.25}"#);
+    let changed = observed(&mut player, |p| p.speed_milli == 1250).await;
+    assert_eq!(changed.speed_label(), "1.25x");
+    assert_eq!(changed.request.speed, Speed::Normal); // observation is separate from intent
+    player.set(None);
+    f.reaped().await;
+}
+#[tokio::test]
 async fn pause_speed_and_progress_follow_player_observations_and_stop_reaps_it() {
     let f = Fixture::new().await;
     let mut player = f.player();
@@ -124,6 +193,8 @@ async fn pause_speed_and_progress_follow_player_observations_and_stop_reaps_it()
     })
     .await;
     assert_eq!(p.duration_ms, Some(20_000));
+    let args = std::fs::read_to_string(f.exe.with_extension("args")).unwrap();
+    assert!(args.contains("--no-video"), "audio must remain windowless");
     request.paused = true;
     player.set(Some(request.clone()));
     let paused = observed(&mut player, |p| p.phase == Phase::Paused).await;
@@ -286,6 +357,70 @@ async fn installed_mpv_decodes_opus_and_observes_pause_speed_and_eof() {
     player.set(Some(request));
     observed(&mut player, |p| {
         p.phase == Phase::Playing && p.request.speed == Speed::Double
+    })
+    .await;
+    observed(&mut player, |p| p.phase == Phase::Finished).await;
+}
+
+#[tokio::test]
+#[ignore = "Requires installed mpv; uses null video and silent null audio output"]
+async fn installed_mpv_decodes_video_and_observes_pause_speed_and_eof() {
+    const VIDEO: &[u8] = include_bytes!("fixtures/video.mp4");
+    struct Video;
+    #[async_trait::async_trait]
+    impl Downloader for Video {
+        async fn download(
+            &self,
+            _: &Attachment,
+            path: &Path,
+            _: watch::Receiver<bool>,
+        ) -> Result<(), String> {
+            tokio::fs::write(path, VIDEO)
+                .await
+                .map_err(|e| e.to_string())
+        }
+    }
+    let f = Fixture::new().await;
+    // The production command is unchanged except for the output devices. This
+    // exercises decoding and IPC without requiring a display or making sound.
+    std::fs::write(&f.exe, "#!/usr/bin/python3\nimport os, sys\nargs = [a for a in sys.argv[1:] if not a.startswith(('--vo=', '--force-window='))]\nos.execvp('mpv', ['mpv', '--vo=null', '--ao=null', '--force-window=no'] + args)\n").unwrap();
+    let mut message = record("video-codec", "normal");
+    let MessageBody::Media(a) = &mut message.body else {
+        panic!()
+    };
+    a.kind = AttachmentKind::Video;
+    a.mime = Some("video/mp4".into());
+    a.size = VIDEO.len() as u64;
+    a.sha256 = Sha256::digest(VIDEO).into();
+    f.store
+        .apply_batch(batch(vec![message.clone()]))
+        .await
+        .unwrap();
+    let mut player = Player::start(f.store.clone(), Arc::new(Video), f.exe.clone());
+    let mut request = Request {
+        id: RequestId(1),
+        message,
+        paused: false,
+        speed: Speed::Normal,
+    };
+    player.set(Some(request.clone()));
+    let playing = observed(&mut player, |p| {
+        p.phase == Phase::Playing && p.position_ms > 0
+    })
+    .await;
+    assert!(
+        playing
+            .duration_ms
+            .is_some_and(|n| (2900..3100).contains(&n))
+    );
+    request.paused = true;
+    player.set(Some(request.clone()));
+    observed(&mut player, |p| p.phase == Phase::Paused).await;
+    request.paused = false;
+    request.speed = Speed::Double;
+    player.set(Some(request));
+    observed(&mut player, |p| {
+        p.phase == Phase::Playing && p.speed_milli == 2000
     })
     .await;
     observed(&mut player, |p| p.phase == Phase::Finished).await;

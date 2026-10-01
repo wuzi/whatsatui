@@ -7,7 +7,7 @@ impl App {
             .action_message()
             .filter(|m| crate::message_actions::can_play(m, chrono::Utc::now().timestamp_millis()))
         else {
-            self.view.notice = Some("Select a voice message or audio file to play".into());
+            self.view.notice = Some("Select a voice message, audio file or video to play".into());
             return;
         };
         if self
@@ -36,6 +36,7 @@ impl App {
         if !self.view.playback.as_ref().is_some_and(Playback::active) {
             return;
         }
+        self.sync_window_controls();
         if let Some(request) = &mut self.audio_request {
             request.paused = !request.paused;
             effects.push(Effect::Audio(Some(request.clone())));
@@ -45,10 +46,23 @@ impl App {
         if !self.view.playback.as_ref().is_some_and(Playback::active) {
             return;
         }
+        self.sync_window_controls();
         self.audio_speed = self.audio_speed.next();
         if let Some(request) = &mut self.audio_request {
             request.speed = self.audio_speed;
             effects.push(Effect::Audio(Some(request.clone())));
+        }
+    }
+    fn sync_window_controls(&mut self) {
+        if let (Some(request), Some(playback)) = (&mut self.audio_request, &self.view.playback)
+            && playback.request == *request
+            && matches!(playback.phase, Phase::Playing | Phase::Paused)
+        {
+            // Adopt native controls only after our latest desired state was
+            // observed. Older observations cannot undo rapid local keypresses.
+            request.paused = playback.phase == Phase::Paused;
+            request.speed = crate::audio::Speed::from_milli(playback.speed_milli);
+            self.audio_speed = request.speed;
         }
     }
     pub(super) fn stop_audio(&mut self, effects: &mut Vec<Effect>) {

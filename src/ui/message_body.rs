@@ -35,19 +35,22 @@ pub(super) fn rows(
         }
         MessageBody::Text(t) => Some(t.as_str()),
         MessageBody::Media(attachment) => {
-            if attachment.kind == crate::media::AttachmentKind::Audio {
+            if matches!(
+                attachment.kind,
+                crate::media::AttachmentKind::Audio | crate::media::AttachmentKind::Video
+            ) {
                 lines.extend(
                     wrap(&audio::label(message, view), width)
                         .into_iter()
                         .map(|s| Line::styled(s, style(config, view, ThemeRole::Accent))),
                 );
-                return (lines, None);
+            } else {
+                lines.extend(
+                    wrap(&single(&attachment.label()), width)
+                        .into_iter()
+                        .map(Line::from),
+                );
             }
-            lines.extend(
-                wrap(&single(&attachment.label()), width)
-                    .into_iter()
-                    .map(Line::from),
-            );
             if config.media.inline
                 && matches!(
                     attachment.kind,

@@ -48,6 +48,13 @@ fn edit(message: &MessageRecord, caption: &str, at: i64) -> MessageChange {
             }),
             ..Default::default()
         },
+        AttachmentKind::Video => wa::Message {
+            video_message: MessageField::some(wa::message::VideoMessage {
+                caption: Some(caption.into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
         AttachmentKind::Document => wa::Message {
             document_message: MessageField::some(wa::message::DocumentMessage {
                 caption: (!caption.is_empty()).then(|| caption.into()),
@@ -88,7 +95,11 @@ async fn apply(store: &Store, changes: Vec<MessageChange>) {
 
 #[tokio::test]
 async fn media_caption_edit_envelopes_preserve_references_and_mutation_order() {
-    for kind in [AttachmentKind::Image, AttachmentKind::Document] {
+    for kind in [
+        AttachmentKind::Image,
+        AttachmentKind::Document,
+        AttachmentKind::Video,
+    ] {
         for before_original in [false, true] {
             let dir = tempfile::tempdir().unwrap();
             let store = Store::open(dir.path().join("db")).await.unwrap();

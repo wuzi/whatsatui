@@ -41,9 +41,9 @@
 
 **Interfaces:** `AttachmentKind::Video`; existing player Request/Playback accepts Audio or Video and reports observed playback controls. Existing PlayAudio action/config key remains compatible and presents playback wording.
 
-- [ ] Write failing live/history/download/quote tests for video, view-once exclusions, mpv window arguments, normal close, native pause/speed and rapid controls. Assert video caption rendering and mouse/play actions.
-- [ ] Implement video metadata normalization and decryption, verified snapshot playback with GUI output, observed control reconciliation and video rendering/actions. Preserve audio mode and safe player lifecycle.
-- [ ] Run `cargo test -j 2 --lib --test audio_flow --test audio_player --test audio_media --test media_files --test media_model --test media_replies -- --test-threads=2`; expect pass and commit.
+- [x] Write failing live/history/download/quote tests for video, view-once exclusions, mpv window arguments, normal close, native pause/speed and rapid controls. Assert video caption rendering and mouse/play actions.
+- [x] Implement video metadata normalization and decryption, verified snapshot playback with GUI output, observed control reconciliation and video rendering/actions. Preserve audio mode and safe player lifecycle.
+- [x] Run `cargo test -j 2 --lib --test audio_flow --test audio_player --test audio_media --test media_files --test media_model --test media_replies -- --test-threads=2`; expect pass and commit.
 
 ## Task 3: Validation and release
 
