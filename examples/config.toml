@@ -2,6 +2,11 @@
 [ui]
 mouse = true
 
+# Silent desktop popups while the app is running (requires notify-send).
+[notifications]
+enabled = true
+previews = true # false hides contact/group names and message content
+
 [theme]
 background = "default"
 text = "default"

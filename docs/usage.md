@@ -20,6 +20,26 @@ Arrows and j/k select whole messages, including long messages. J/K scroll wrappe
 
 Messages/Composer at the bottom mark the conversation read; selecting a chat while staying in Chats does not. Terminal foreground focus is also required when focus reporting is available. Read acknowledgements use the backend's account behavior. Synced unread information initializes the local baseline; it is not an ongoing mirror of every other device's unread counter.
 
+## Notifications
+
+While the TUI is running, new incoming messages show silent desktop popups through `notify-send`. Install `libnotify` on Fedora or `libnotify-bin` on Debian/Ubuntu if it is missing. Your desktop session's notification settings and Do Not Disturb control presentation; the app uses normal urgency and asks the daemon to suppress sounds.
+
+A popup shows the chat name and a short preview, including the sender in groups. Audio, images, stickers and other attachments use text labels. Arrivals within two seconds are combined; multiple chats get a compact summary. Very large bursts use a generic new-message alert. Old history, startup backlog, replayed records, your own messages, reactions and edits do not produce alerts.
+
+The current conversation stays quiet while the terminal is foreground, Messages or Composer is focused, and you are at the bottom with no overlay open. Other chats and arrivals while you are in the sidebar, browsing older messages, or using another window can notify. Opening a conversation during the short batching delay cancels its queued alert. Foreground detection uses terminal focus reporting and keyboard/mouse input; when focus is unknown, notifications are allowed.
+
+Add this to `~/.config/whatsapp-tui/config.toml` to change the defaults, then restart:
+
+```toml
+[notifications]
+enabled = true
+previews = false # hide names and message content; show only a new-message count
+```
+
+Set `enabled = false` to disable popups. With previews enabled, the desktop notification center may retain the displayed names/text. Deleted, expired and locally read messages are checked before delivery, but an already displayed popup is not retracted. Missing or failing helpers produce one notice in the TUI and a 60-second retry cooldown. Notification problems do not block messaging.
+
+This first version does not navigate to chats when clicking a popup or synchronize WhatsApp chat mute settings. It cannot notify after you close the app. Demo mode always disables desktop notifications.
+
 ## Sender blocks, photos, and mouse
 
 The sidebar shows a small profile photo beside each chat’s name and latest-message preview, with initials when no photo is available. Group rows use the group photo. Long names shorten to keep unread counts and draft indicators visible; clicking the photo selects the same chat as clicking its text.

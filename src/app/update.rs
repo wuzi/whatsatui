@@ -1042,7 +1042,9 @@ impl App {
     fn terminal(&mut self, event: Event, effects: &mut Vec<Effect>) {
         if matches!(&event, Event::Key(_) | Event::Paste(_) | Event::Mouse(_)) {
             self.original_request = None;
-            self.foreground = Some(true);
+            // Input establishes initial focus only. A buffered key must not
+            // override an explicit FocusLost before the matching FocusGained.
+            self.foreground.get_or_insert(true);
         }
 
         if self.quitting {

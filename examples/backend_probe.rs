@@ -48,6 +48,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 serial+=1;commands.send(BackendCommand::PrepareText{request:RequestId(serial),chat:chat.into(),draft:Draft{text:text.into(),attachment:None,reply,revision:serial,..Default::default()}}).await?;
             }
             event=events.recv()=>match event{
+                Some(BackendEvent::IncomingMessages(_))=>{},
                 Some(BackendEvent::AccountKnown(a))=>{store.recover_sends(a.clone()).await?;account=Some(a);println!("Account available");}
                 Some(BackendEvent::ConnectionChanged{state,reason})=>println!("{state:?}: {}",reason.unwrap_or_default()),
                 Some(BackendEvent::PairingQr{content,..})=>{let qr=qrcode::QrCode::new(content)?;println!("Link from WhatsApp > Linked devices:\n{}",qr.render::<qrcode::render::unicode::Dense1x2>().quiet_zone(true).build());}

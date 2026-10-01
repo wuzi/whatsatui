@@ -279,6 +279,24 @@ fn plain(text: &str, limit: usize) -> String {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+    #[tokio::test]
+    #[ignore = "requires the isolated synthetic notification D-Bus server"]
+    async fn installed_notify_send_private_bus_smoke() {
+        assert_eq!(
+            std::env::var("WHATSAPP_TUI_PRIVATE_NOTIFICATION_BUS").as_deref(),
+            Ok("1"),
+            "Run only with the private-bus smoke harness, never on the real desktop"
+        );
+        deliver(
+            &Popup {
+                title: "Synthetic notification".into(),
+                body: "<tag> & literal".into(),
+            },
+            &NativeNotifier,
+        )
+        .await
+        .unwrap();
+    }
     fn script(dir: &std::path::Path, body: &str) -> std::path::PathBuf {
         let path = dir.join("notify-test");
         std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();

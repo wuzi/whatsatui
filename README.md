@@ -42,6 +42,7 @@ whatsapp-tui
 - Sender blocks with cached profile photos, date separators, and distinct own-message styling.
 - Mouse selection, message actions, popup controls, and composer cursor placement.
 - Local history, unread counts, delivery states, and known group receipt counts.
+- Silent desktop notifications for new messages, with focus-aware suppression and optional private previews.
 - Durable outgoing attempts before transmission, with explicit confirmation for resending uncertain attempts.
 - Phone-number/LID reconciliation, edits, deletion/expiry placeholders, and bounded message pages.
 - Configurable colors and scoped bindings; layouts for ordinary and narrow terminals.
@@ -85,6 +86,8 @@ Images and stickers load previews within the conversation; animated WebP plays w
 | Ctrl-Q | Save drafts and quit |
 
 Printable keys remain ordinary text in the composer. Bracketed paste never submits a message. Shortcuts live in Help (F1 or the header button) and use your configured bindings. The footer is reserved for status and notices.
+
+Desktop notifications are enabled by default while the app runs. They use **notify-send** (`libnotify` on Fedora, `libnotify-bin` on Debian/Ubuntu), stay silent, and group rapid arrivals. The conversation you are actively reading does not alert. Set `[notifications] previews = false` to hide names and message text, or `enabled = false` to turn them off. See [notifications](docs/usage.md#notifications) for details.
 
 For voice messages and audio files, install **mpv** (`sudo dnf install mpv` on Fedora, `sudo apt install mpv` on Debian/Ubuntu). Click the audio row or select it and press `p`; the first play downloads and verifies it. Playback controls also appear in the header and remain available while changing chats. See [listening to audio](docs/usage.md#listening-to-audio), including the limitation for old `[audio]` placeholders.
 
