@@ -177,3 +177,9 @@ The test replay handles cursor positioning, text, styling sequences and virtual 
 Formatting and Clippy with warnings denied pass. The single independent review verified the cause against the pinned dependency code and found no issues; no findings were deferred.
 
 The optimized release was built from reviewed source b4a8d9f. Its SHA256 is `22d67a5a128191b06c01fbbde629be93e794c425e78dea7918f8a76f5af0afc7`. The fix and release record are integrated into local main; verification evidence is preserved under `.superpowers/sdd/2026-10-01-render-artifacts/`. Nothing was pushed.
+
+## Compact message timestamps
+
+The timestamp-grouping iteration passes **346 automated tests** (three native helper checks remain opt-in). Consecutive messages from the same sender in one minute share a displayed time. Empty timestamp-only rows are removed; delivery states, edit markers and group receipt counts remain visible. New minutes, sender changes, date boundaries and out-of-order timestamps retain their own times.
+
+Regression checks cover adjacent body rows, avatar-enabled/disabled layouts, per-message keyboard selection and mouse actions, and sender/time context while scrolling a compact group. The viewport preserves the latest body and reports only fully displayed messages. Synthetic Crossterm-output replay also checks compact emoji conversations for timestamp fragments. Existing quote, media, avatar and terminal-restoration tests pass. No live account or private messages were used.

@@ -313,6 +313,39 @@ fn selecting_first_message_keeps_following_context_visible() {
 }
 
 #[test]
+fn compact_messages_keep_keyboard_selection_and_mouse_actions_on_the_body() {
+    use crossterm::event::{MouseButton, MouseEventKind::Down};
+    let mut app = ready_app();
+    load(
+        &mut app,
+        vec![
+            message(key("chat", "alice", "one"), "First body"),
+            message(key("chat", "alice", "two"), "Second body"),
+            message(key("chat", "alice", "three"), "Third body"),
+        ],
+    );
+    press(&mut app, "tab");
+    press(&mut app, "k");
+    let screen = interactive(&mut app);
+    assert_eq!(app.view().selected_message.unwrap().id.0, "two");
+    let second = point(&screen, "Second body");
+    let area = ui::layout::calculate(screen.area, app.view().focus).messages;
+    assert_eq!(
+        screen[(area.x + 1, second.1)].symbol(),
+        "▸",
+        "compact messages select their first body row"
+    );
+    mouse(
+        &mut app,
+        point(&screen, "Third body"),
+        Down(MouseButton::Right),
+    );
+    assert!(
+        matches!(app.view().overlay, Some(Overlay::MessageActions(m)) if m.message.key.id.0 == "three")
+    );
+}
+
+#[test]
 fn selecting_past_the_cached_page_requests_next_history_page() {
     let mut app = ready_app();
     let effects = app.update(

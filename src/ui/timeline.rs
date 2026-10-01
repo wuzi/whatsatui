@@ -6,6 +6,7 @@ struct Run {
     start: usize,
     end: usize,
     avatar: bool,
+    header: bool,
     preview: Option<usize>,
     reactions: std::ops::Range<usize>,
     quote: std::ops::Range<usize>,
@@ -17,6 +18,7 @@ pub(super) struct Timeline {
     runs: Vec<Run>,
     visible: Vec<usize>,
     sticky: Option<usize>,
+    sticky_extra: bool,
     gutter: u16,
     anchor_end: usize,
 }
@@ -47,16 +49,20 @@ fn who(message: &MessageRecord, view: &ViewModel) -> String {
 fn header(
     message: &MessageRecord,
     show_name: bool,
+    show_time: bool,
     width: usize,
     view: &ViewModel,
     config: &Config,
 ) -> Line<'static> {
-    let mut details = timestamp(message.created_at_ms);
+    let mut details = Vec::new();
+    if show_time {
+        details.push(timestamp(message.created_at_ms));
+    }
     if let Some(state) = message.send_state {
-        details.push_str(&format!(" · {state:?}"));
+        details.push(format!("{state:?}"));
     }
     if message.edited_at_ms.is_some() {
-        details.push_str(" · edited");
+        details.push("edited".into());
     }
     if message.key.chat.0.ends_with("@g.us") {
         let receipts: Vec<_> = view
@@ -65,8 +71,8 @@ fn header(
             .filter(|r| r.key == message.key)
             .collect();
         if !receipts.is_empty() {
-            details.push_str(&format!(
-                " · delivered: {} / read: {}",
+            details.push(format!(
+                "delivered: {} / read: {}",
                 receipts.len(),
                 receipts
                     .iter()
@@ -75,6 +81,7 @@ fn header(
             ));
         }
     }
+    let details = details.join(" · ");
     let mut spans = vec![];
     if show_name {
         // Keep timing/status visible even when the contact has a long name.
@@ -162,6 +169,10 @@ pub(super) fn layout(area: Rect, view: &ViewModel, config: &Config) -> Timeline 
         let previous = index.checked_sub(1).map(|i| &view.messages[i]);
         let new_day = previous.is_none_or(|p| day(p.created_at_ms) != day(message.created_at_ms));
         let avatar = previous.is_none_or(|p| !grouped(p, message));
+        let same_minute = !avatar
+            && previous.is_some_and(|p| {
+                p.created_at_ms.div_euclid(60_000) == message.created_at_ms.div_euclid(60_000)
+            });
         if index > 0 && avatar {
             lines.push(Line::from(""));
         }
@@ -175,14 +186,11 @@ pub(super) fn layout(area: Rect, view: &ViewModel, config: &Config) -> Timeline 
             );
         }
         let start = lines.len();
-        lines.push(gutter(
-            header(message, avatar, width, view, config),
-            message,
-            true,
-            view,
-            config,
-            gutter_width,
-        ));
+        let heading = header(message, avatar, !same_minute, width, view, config);
+        let has_header = heading.width() > 0;
+        if has_header {
+            lines.push(gutter(heading, message, true, view, config, gutter_width));
+        }
         let quote_start = lines.len();
         let quote_count = message.quote.as_ref().map_or(0, |q| {
             message_body::quote_rows(q, view, config, width).len()
@@ -197,13 +205,20 @@ pub(super) fn layout(area: Rect, view: &ViewModel, config: &Config) -> Timeline 
             };
         let preview = preview.map(|offset| lines.len() + offset);
         for line in body {
-            lines.push(gutter(line, message, false, view, config, gutter_width));
+            lines.push(gutter(
+                line,
+                message,
+                lines.len() == start,
+                view,
+                config,
+                gutter_width,
+            ));
         }
-        if lines.len() == start + 1 {
+        if lines.len() == quote_start {
             lines.push(gutter(
                 Line::from(""),
                 message,
-                false,
+                lines.len() == start,
                 view,
                 config,
                 gutter_width,
@@ -249,6 +264,7 @@ pub(super) fn layout(area: Rect, view: &ViewModel, config: &Config) -> Timeline 
             start,
             end: lines.len(),
             avatar,
+            header: has_header,
             preview,
         });
     }
@@ -263,17 +279,24 @@ pub(super) fn layout(area: Rect, view: &ViewModel, config: &Config) -> Timeline 
     let end = anchor_end.saturating_sub(view.message_scroll.min(max_scroll));
     let start = end.saturating_sub(height);
     let mut visible: Vec<_> = (start..end).collect();
-    let sticky = if height > 1 {
+    let context_at = |row| {
         runs.iter()
-            .find(|r| r.start <= start && start < r.end && (r.start < start || !r.avatar))
+            .find(|r| r.start <= row && row < r.end && (r.start < row || !r.avatar))
             .map(|r| r.index)
-    } else {
-        None
     };
-    if let Some(index) = sticky
-        && let Some(row) = visible.first_mut()
-    {
-        *row = runs[index].start;
+    let mut sticky = if height > 1 { context_at(start) } else { None };
+    let mut sticky_extra = false;
+    if let Some(index) = sticky {
+        let run = &runs[index];
+        if !run.header || run.start < start {
+            // Reserve a separate context row while keeping the bottom anchor.
+            // A compact message starts with its body: replacing that row with
+            // a header would hide text yet report the message as fully visible.
+            visible.remove(0);
+            sticky = visible.first().and_then(|row| context_at(*row));
+            sticky_extra =
+                sticky.is_some_and(|index| !runs[index].header || runs[index].start < visible[0]);
+        }
     }
     Timeline {
         area,
@@ -281,6 +304,7 @@ pub(super) fn layout(area: Rect, view: &ViewModel, config: &Config) -> Timeline 
         runs,
         visible,
         sticky,
+        sticky_extra,
         gutter: gutter_width,
         anchor_end,
     }
@@ -297,7 +321,7 @@ impl Timeline {
         Some((
             Rect::new(
                 self.area.x,
-                self.area.y + first as u16,
+                self.area.y + u16::from(self.sticky_extra) + first as u16,
                 self.area.width,
                 count as u16,
             ),
@@ -336,12 +360,20 @@ pub(super) fn render(
     let border_inner = border.inner(area);
     frame.render_widget(border, area);
     let layout = layout(area, view, config);
+    if layout.sticky_extra
+        && let Some(index) = layout.sticky
+    {
+        hits.push(
+            Rect::new(layout.area.x, layout.area.y, layout.area.width, 1),
+            Target::Message(view.messages[index].key.clone()),
+        );
+    }
     for (y, row) in layout.visible.iter().enumerate() {
         if let Some(run) = layout.runs.iter().find(|r| r.start <= *row && *row < r.end) {
             hits.push(
                 Rect::new(
                     layout.area.x,
-                    layout.area.y + y as u16,
+                    layout.area.y + u16::from(layout.sticky_extra) + y as u16,
                     layout.area.width,
                     1,
                 ),
@@ -413,12 +445,11 @@ pub(super) fn render(
         .iter()
         .map(|row| layout.lines[*row].clone())
         .collect::<Vec<_>>();
-    if let Some(index) = layout.sticky
-        && let Some(first) = visible.first_mut()
-    {
-        *first = gutter(
+    if let Some(index) = layout.sticky {
+        let context = gutter(
             header(
                 &view.messages[index],
+                true,
                 true,
                 layout.area.width.saturating_sub(layout.gutter) as usize,
                 view,
@@ -430,6 +461,11 @@ pub(super) fn render(
             config,
             layout.gutter,
         );
+        if layout.sticky_extra {
+            visible.insert(0, context);
+        } else if let Some(first) = visible.first_mut() {
+            *first = context;
+        }
     }
     frame.render_widget(Paragraph::new(visible), layout.area);
     if !graphics {

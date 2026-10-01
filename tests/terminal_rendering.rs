@@ -185,6 +185,24 @@ fn scrolling_and_clearing_emoji_headers_leaves_no_stray_digits() {
 }
 
 #[test]
+fn compact_emoji_conversations_redraw_without_timestamp_fragments() {
+    let mut replay = Replay::new(100, 24);
+    let (mut view, mut messages) = conversation();
+    let base = messages[0].created_at_ms;
+    for (index, message) in messages.iter_mut().enumerate() {
+        message.created_at_ms = base + index as i64 * 1_000;
+    }
+    for count in 1..=messages.len() {
+        view.messages = messages[..count].to_vec();
+        for scroll in [0, 1, 2, 5, 0] {
+            view.message_scroll = scroll;
+            replay.draw(|frame| ui::render(frame, &view, &Config::default()));
+            replay.assert_matches(&format!("compact: {count} messages, scroll {scroll}"));
+        }
+    }
+}
+
+#[test]
 fn emoji_text_survives_overlays_and_narrow_conversation_transitions() {
     let config = Config::default();
     for (width, height) in [(40, 12), (60, 20), (100, 30)] {
