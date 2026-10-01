@@ -4,10 +4,18 @@ use tokio::time::{Duration, Instant};
 use unicode_segmentation::UnicodeSegmentation;
 
 pub(crate) const CAPACITY: usize = 128;
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Context {
+    pub account: Option<AccountId>,
+    pub reading: Option<ChatId>,
+    pub enabled: bool,
+    pub previews: bool,
+}
 pub(crate) struct Inbox {
+    context: tokio::sync::watch::Sender<Context>,
     started_ms: i64,
     keys: Vec<MessageKey>,
-    overflow: bool,
+    overflow: Option<Overflow>,
     due: Option<Instant>,
     retry_at: Option<Instant>,
     in_flight: bool,
@@ -16,14 +24,28 @@ pub(crate) struct Inbox {
 impl Inbox {
     pub fn new(now_ms: i64) -> Self {
         Self {
+            context: tokio::sync::watch::channel(Context::default()).0,
             started_ms: now_ms / 1000 * 1000,
             keys: vec![],
-            overflow: false,
+            overflow: None,
             due: None,
             retry_at: None,
             in_flight: false,
             failure_reported: false,
         }
+    }
+    pub fn context(&self) -> tokio::sync::watch::Receiver<Context> {
+        self.context.subscribe()
+    }
+    pub fn update_context(&self, next: Context) {
+        self.context.send_if_modified(|current| {
+            if *current == next {
+                false
+            } else {
+                *current = next;
+                true
+            }
+        });
     }
     pub fn push(&mut self, messages: Vec<MessageRecord>, now: Instant) {
         for m in messages {
@@ -40,27 +62,40 @@ impl Inbox {
             if self.keys.len() < CAPACITY {
                 self.keys.push(m.key);
             } else {
-                self.overflow = true;
+                let overflow = self.overflow.get_or_insert(Overflow {
+                    account: m.key.account.clone(),
+                    since_ms: m.created_at_ms,
+                    until_ms: m.created_at_ms,
+                });
+                overflow.since_ms = overflow.since_ms.min(m.created_at_ms);
+                overflow.until_ms = overflow.until_ms.max(m.created_at_ms);
             }
         }
     }
     pub fn retain(&mut self, account: Option<&AccountId>, reading: Option<&ChatId>) {
         self.keys
             .retain(|k| account.is_none_or(|a| a == &k.account) && reading != Some(&k.chat));
-        if self.keys.is_empty() {
+        if self
+            .overflow
+            .as_ref()
+            .is_some_and(|o| account.is_some_and(|a| a != &o.account))
+        {
+            self.overflow = None;
+        }
+        if self.keys.is_empty() && self.overflow.is_none() {
             self.clear();
         }
     }
     pub fn clear(&mut self) {
         self.keys.clear();
         self.due = None;
-        self.overflow = false;
+        self.overflow = None;
     }
     pub fn take(&mut self, now: Instant, previews: bool) -> Option<Request> {
         if self.in_flight
             || self.retry_at.is_some_and(|at| now < at)
             || self.due.is_none_or(|at| now < at)
-            || self.keys.is_empty()
+            || (self.keys.is_empty() && self.overflow.is_none())
         {
             return None;
         }
@@ -85,10 +120,24 @@ impl Inbox {
 }
 
 #[derive(Clone, Debug)]
+pub struct Overflow {
+    pub account: AccountId,
+    pub since_ms: i64,
+    pub until_ms: i64,
+}
+#[derive(Clone, Debug)]
 pub struct Request {
     pub keys: Vec<MessageKey>,
-    pub overflow: bool,
+    pub overflow: Option<Overflow>,
     pub previews: bool,
+}
+impl Request {
+    pub(crate) fn account(&self) -> Option<&AccountId> {
+        self.keys
+            .first()
+            .map(|key| &key.account)
+            .or_else(|| self.overflow.as_ref().map(|o| &o.account))
+    }
 }
 #[derive(Clone, Debug)]
 pub struct Popup {
@@ -162,18 +211,34 @@ pub async fn prepare(
     store: &Store,
     now_ms: i64,
 ) -> Result<Option<Popup>, String> {
-    let messages = store
-        .notification_messages(request.keys, now_ms)
-        .await
-        .map_err(|e| e.to_string())?;
-    if messages.is_empty() {
-        return Ok(None);
-    }
-    if request.overflow {
+    prepare_scoped(request, store, now_ms, None).await
+}
+pub(crate) async fn prepare_scoped(
+    mut request: Request,
+    store: &Store,
+    now_ms: i64,
+    reading: Option<ChatId>,
+) -> Result<Option<Popup>, String> {
+    request
+        .keys
+        .retain(|key| reading.as_ref() != Some(&key.chat));
+    if let Some(overflow) = request.overflow
+        && store
+            .notification_overflow(overflow, reading.clone(), now_ms)
+            .await
+            .map_err(|e| e.to_string())?
+    {
         return Ok(Some(Popup {
             title: "whatsapp-tui".into(),
             body: "You have new messages".into(),
         }));
+    }
+    let messages = store
+        .notification_messages(request.keys, now_ms, reading)
+        .await
+        .map_err(|e| e.to_string())?;
+    if messages.is_empty() {
+        return Ok(None);
     }
     let count = messages.len();
     if !request.previews {

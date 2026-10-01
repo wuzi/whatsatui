@@ -52,5 +52,5 @@
 **Interfaces:** Tasks 1–2 preserve existing send/read/desktop effect behavior; no external account or desktop dependencies in ordinary tests.
 
 - [x] Document behavior, config, notify-send dependency and version-one limitations. Run fmt, full `cargo test -j 2 -- --test-threads=2`, and Clippy; expect pass.
-- [ ] Commit and request one fresh whole-branch review. Resolve important findings with RED→GREEN regressions; verify affected code and full suite after fixes.
+- [x] Commit and request one fresh whole-branch review. Resolve important findings with RED→GREEN regressions; verify affected code and full suite after fixes.
 - [ ] Build the release, preserve evidence, merge into local main, verify source/release correspondence and remove the owned worktree/branch. No push.

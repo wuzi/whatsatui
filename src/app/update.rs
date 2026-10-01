@@ -12,7 +12,10 @@ mod search;
 mod stickers;
 #[derive(Clone, Debug)]
 pub enum Effect {
-    Notify(crate::notifications::Request),
+    Notify(
+        crate::notifications::Request,
+        tokio::sync::watch::Receiver<crate::notifications::Context>,
+    ),
     Audio(Option<crate::audio::Request>),
     LoadOriginal {
         request: RequestId,
@@ -1773,6 +1776,8 @@ impl App {
     }
     pub fn request_shutdown(&mut self) -> Vec<Effect> {
         self.quitting = true;
+        self.notifications
+            .update_context(crate::notifications::Context::default());
         let mut effects = self.flush_drafts();
         self.stop_audio(&mut effects);
         for (account, chat) in self.buffered.keys().cloned().collect::<Vec<_>>() {

@@ -24,7 +24,7 @@ Messages/Composer at the bottom mark the conversation read; selecting a chat whi
 
 While the TUI is running, new incoming messages show silent desktop popups through `notify-send`. Install `libnotify` on Fedora or `libnotify-bin` on Debian/Ubuntu if it is missing. Your desktop session's notification settings and Do Not Disturb control presentation; the app uses normal urgency and asks the daemon to suppress sounds.
 
-A popup shows the chat name and a short preview, including the sender in groups. Audio, images, stickers and other attachments use text labels. Arrivals within two seconds are combined; multiple chats get a compact summary. Very large bursts use a generic new-message alert. Old history, startup backlog, replayed records, your own messages, reactions and edits do not produce alerts.
+A popup shows the chat name and a short preview, including the sender in groups. Audio, images, stickers and other attachments use text labels. Arrivals within two seconds are combined; multiple chats get a compact summary. Very large bursts use a generic new-message alert; this fallback may include already-notified messages still unread within the same timestamp window. Old history, startup backlog, replayed records, your own messages, reactions and edits do not produce alerts.
 
 The current conversation stays quiet while the terminal is foreground, Messages or Composer is focused, and you are at the bottom with no overlay open. Other chats and arrivals while you are in the sidebar, browsing older messages, or using another window can notify. Opening a conversation during the short batching delay cancels its queued alert. Foreground detection uses terminal focus reporting and keyboard/mouse input; when focus is unknown, notifications are allowed.
 

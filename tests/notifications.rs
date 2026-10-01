@@ -26,7 +26,7 @@ fn pop(a: &mut App, now: Instant) -> Vec<Request> {
     a.update(Input::Tick(chrono::Utc::now().timestamp_millis()), now)
         .into_iter()
         .filter_map(|e| {
-            if let Effect::Notify(n) = e {
+            if let Effect::Notify(n, _) = e {
                 Some(n)
             } else {
                 None
@@ -66,6 +66,39 @@ fn foreground_suppresses_only_the_conversation_being_read() {
             "background={background}, composer={focus_composer}, other={other_chat}"
         );
     }
+}
+#[test]
+fn emitted_effect_observes_live_reducer_context() {
+    let mut a = ready_app();
+    let now = Instant::now();
+    push(&mut a, vec![incoming("chat", "queued")], now);
+    let effects = a.update(
+        Input::Tick(chrono::Utc::now().timestamp_millis()),
+        now + Duration::from_secs(3),
+    );
+    let mut context = effects
+        .into_iter()
+        .find_map(|e| {
+            if let Effect::Notify(_, c) = e {
+                Some(c)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    assert_eq!(context.borrow_and_update().account, Some(account("test")));
+    press(&mut a, "i");
+    assert_eq!(context.borrow_and_update().reading, Some("chat".into()));
+    a.update(
+        Input::Backend(BackendEvent::AccountKnown("different".into())),
+        now + Duration::from_secs(4),
+    );
+    assert_eq!(
+        context.borrow_and_update().account,
+        Some(account("different"))
+    );
+    a.request_shutdown();
+    assert!(!context.borrow().enabled);
 }
 #[test]
 fn unknown_focus_and_scrollback_alert_but_opening_pending_chat_cancels() {
@@ -147,8 +180,57 @@ fn bursts_are_bounded_coalesced_and_do_not_reset_the_deadline() {
     let n = pop(&mut a, now + Duration::from_secs(2));
     assert_eq!(n.len(), 1);
     assert!(n[0].keys.len() <= 128);
-    assert!(n[0].overflow);
+    assert!(n[0].overflow.is_some());
     assert!(pop(&mut a, now + Duration::from_secs(4)).is_empty());
+}
+#[test]
+fn overflow_survives_opening_the_first_128_messages_chat() {
+    let now = Instant::now();
+    let mut a = ready_app();
+    let mut messages = (0..128)
+        .map(|i| incoming("chat", &format!("a-{i}")))
+        .collect::<Vec<_>>();
+    messages.push(incoming("other", "unseen"));
+    push(&mut a, messages, now);
+    press(&mut a, "i");
+    assert_eq!(
+        pop(&mut a, now + Duration::from_secs(3)).len(),
+        1,
+        "the untracked chat still needs its generic alert"
+    );
+}
+#[tokio::test]
+async fn overflow_survives_deleted_tracked_candidates() {
+    let d = tempfile::tempdir().unwrap();
+    let store = Store::open(d.path().join("db")).await.unwrap();
+    let now = Instant::now();
+    let mut a = ready_app();
+    let mut messages = (0..128)
+        .map(|i| incoming("chat", &format!("a-{i}")))
+        .collect::<Vec<_>>();
+    let deleted = messages
+        .iter()
+        .map(|m| MessageChange::Delete { key: m.key.clone() })
+        .collect();
+    messages.push(incoming("other", "unseen"));
+    store.apply_batch(batch(messages.clone())).await.unwrap();
+    push(&mut a, messages, now);
+    store
+        .apply_batch(MessageBatch {
+            account: account("test"),
+            source: MessageSource::Live,
+            changes: deleted,
+        })
+        .await
+        .unwrap();
+    let request = pop(&mut a, now + Duration::from_secs(3)).pop().unwrap();
+    assert!(
+        notifications::prepare(request, &store, chrono::Utc::now().timestamp_millis())
+            .await
+            .unwrap()
+            .is_some(),
+        "overflow must be revalidated independently of deleted tracked records"
+    );
 }
 #[test]
 fn old_own_inactive_account_and_quit_do_not_alert() {
@@ -217,7 +299,7 @@ async fn popup_uses_current_group_sender_content_and_hides_private_previews() {
     .unwrap();
     let request = Request {
         keys: vec![m.key],
-        overflow: false,
+        overflow: None,
         previews: true,
     };
     let n = notifications::prepare(request.clone(), &s, m.created_at_ms)
@@ -267,7 +349,7 @@ async fn media_and_multi_chat_bursts_have_useful_compact_summaries() {
     let request = Request {
         keys: vec![voice.key.clone()],
         previews: true,
-        overflow: false,
+        overflow: None,
     };
     let popup = notifications::prepare(request.clone(), &s, voice.created_at_ms)
         .await
@@ -321,7 +403,7 @@ async fn dispatch_revalidates_deleted_expired_read_and_aliased_messages() {
     let request = Request {
         keys: vec![expired.key, deleted.key, read.key],
         previews: true,
-        overflow: false,
+        overflow: None,
     };
     assert!(
         notifications::prepare(request, &s, expired.created_at_ms + 100)
@@ -342,7 +424,7 @@ async fn dispatch_revalidates_deleted_expired_read_and_aliased_messages() {
         Request {
             keys: vec![m.key],
             previews: true,
-            overflow: false,
+            overflow: None,
         },
         &s,
         m.created_at_ms,

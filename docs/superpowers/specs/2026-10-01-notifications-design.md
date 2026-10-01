@@ -23,3 +23,7 @@ Protocol reference: [Freedesktop notification hints](https://specifications.free
 ## Validation and delivery
 
 Synthetic stores, injected/fake helpers and offline reducer/runtime checks cover persistence replay, history, failed commits, privacy, focus, bursts and process failure. Do not access the live WhatsApp store or send test popups to the real desktop. Keep one Cargo process, `-j 2`, test threads 2. Implement inline, request one independent final review, preserve evidence, merge locally and rebuild the release; do not push.
+
+## Review refinements
+
+Overflow keeps a bounded account/timestamp range and rechecks unread storage independently, so canceling the retained keys cannot silence an omitted chat. This conservative generic fallback may include already-notified unread messages sharing that range. Pending effects observe current account, focus, pairing and privacy through a watch channel; context changes restart preparation or cancel an already submitted helper without resubmission. Storage resolves active-chat aliases before filtering.

@@ -251,13 +251,14 @@ async fn execute_with_media(
     cancel: tokio::sync::watch::Receiver<bool>,
 ) -> Option<Input> {
     let event = match effect {
-        Effect::Notify(request) => {
+        Effect::Notify(request, context) => {
             return Some(Input::NotificationResult(
-                notification(
+                notification_scoped(
                     request,
                     &store,
                     cancel,
                     &crate::notifications::NativeNotifier,
+                    context,
                 )
                 .await,
             ));
@@ -592,24 +593,41 @@ async fn execute_with_media(
     Some(Input::Store(event))
 }
 
-async fn notification(
+async fn notification_scoped(
     request: crate::notifications::Request,
     store: &Store,
     mut cancel: tokio::sync::watch::Receiver<bool>,
     notifier: &impl crate::notifications::Notifier,
+    mut context: tokio::sync::watch::Receiver<crate::notifications::Context>,
 ) -> Result<(), String> {
-    if *cancel.borrow() {
-        return Ok(());
-    }
-    tokio::select! {
-        biased;
-        _ = cancel.changed() => Ok(()),
-        result = async {
-            if let Some(popup) = crate::notifications::prepare(request, store, chrono::Utc::now().timestamp_millis()).await? {
-                crate::notifications::deliver(&popup, notifier).await?;
-            }
-            Ok(())
-        } => result,
+    loop {
+        let state = context.borrow_and_update().clone();
+        if *cancel.borrow() || !state.enabled || request.account() != state.account.as_ref() {
+            return Ok(());
+        }
+        let mut scoped = request.clone();
+        scoped.previews &= state.previews;
+        // Reprepare if context changes while waiting on storage.
+        let popup = tokio::select! {
+            biased;
+            _ = cancel.changed() => return Ok(()),
+            change = context.changed() => { if change.is_err() { return Ok(()); } else { continue; } },
+            result = crate::notifications::prepare_scoped(scoped, store, chrono::Utc::now().timestamp_millis(), state.reading.clone()) => result?,
+        };
+        if *context.borrow() != state {
+            continue;
+        }
+        let Some(popup) = popup else {
+            return Ok(());
+        };
+        // Submission may already have reached the desktop. Cancel a stale
+        // helper, but never resubmit the same popup after a context change.
+        return tokio::select! {
+            biased;
+            _ = cancel.changed() => Ok(()),
+            _ = context.changed() => Ok(()),
+            result = crate::notifications::deliver(&popup, notifier) => result,
+        };
     }
 }
 pub async fn run_with_screen<S, I>(

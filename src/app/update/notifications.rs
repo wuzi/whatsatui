@@ -21,10 +21,17 @@ impl App {
         self.notifications.push(messages, self.view.now);
     }
     pub(super) fn reconcile_notifications(&mut self, effects: &mut Vec<Effect>) {
-        if self.quitting
+        let enabled = !(self.quitting
             || !self.config.notifications.enabled
-            || self.view.connection == ConnectionState::PairingRequired
-        {
+            || self.view.connection == ConnectionState::PairingRequired);
+        self.notifications
+            .update_context(crate::notifications::Context {
+                account: self.view.account.clone(),
+                reading: self.notification_reading_chat(),
+                enabled,
+                previews: self.config.notifications.previews,
+            });
+        if !enabled {
             self.notifications.clear();
             return;
         }
@@ -37,7 +44,7 @@ impl App {
                 .notifications
                 .take(self.view.now, self.config.notifications.previews)
         {
-            effects.push(Effect::Notify(request));
+            effects.push(Effect::Notify(request, self.notifications.context()));
         }
     }
     pub(super) fn notification_result(&mut self, result: Result<(), String>) {
