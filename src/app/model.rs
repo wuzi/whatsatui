@@ -176,6 +176,20 @@ pub struct ChatSummary {
     pub latest_at_ms: i64,
     pub unread: u32,
     pub has_draft: bool,
+    #[serde(default)]
+    pub mute: Option<ChatMute>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChatMute {
+    /// -1 means indefinitely, 0 means unmuted, otherwise a Unix time in ms.
+    pub until_ms: i64,
+    /// App-state action time; 0 for a history seed with no action timestamp.
+    pub updated_at_ms: i64,
+}
+impl ChatMute {
+    pub fn is_muted(self, now_ms: i64) -> bool {
+        self.until_ms == -1 || self.until_ms > now_ms
+    }
 }
 #[derive(Clone, Debug)]
 pub struct ChatSnapshot {

@@ -18,8 +18,8 @@ impl Store {
             // or unbounded list of omitted identities are retained in memory.
             let reading = reading.map(|chat| merge::canonical(c, &overflow.account, &chat.0)).transpose()?;
             let found: Vec<bool> = super::records::rows(c,
-                "SELECT 'true' AS data FROM messages WHERE account=? AND unread=1 AND from_me=0 AND created_at_ms BETWEEN ? AND ? AND chat != ? AND (json_extract(data,'$.expires_at_ms') IS NULL OR json_extract(data,'$.expires_at_ms') > CAST(? AS INTEGER)) AND json_extract(data,'$.body') NOT IN ('Deleted','Expired') LIMIT 1",
-                &[&overflow.account.0, &overflow.since_ms.to_string(), &overflow.until_ms.to_string(), reading.as_deref().unwrap_or(""), &now_ms.to_string()])?;
+                "SELECT 'true' AS data FROM messages m LEFT JOIN chats c ON c.account=m.account AND c.chat=m.chat WHERE m.account=? AND m.unread=1 AND m.from_me=0 AND m.created_at_ms BETWEEN ? AND ? AND m.chat != ? AND (json_extract(m.data,'$.expires_at_ms') IS NULL OR json_extract(m.data,'$.expires_at_ms') > CAST(? AS INTEGER)) AND json_extract(m.data,'$.body') NOT IN ('Deleted','Expired') AND COALESCE(json_extract(c.data,'$.mute.until_ms'),0) != -1 AND COALESCE(json_extract(c.data,'$.mute.until_ms'),0) <= CAST(? AS INTEGER) LIMIT 1",
+                &[&overflow.account.0, &overflow.since_ms.to_string(), &overflow.until_ms.to_string(), reading.as_deref().unwrap_or(""), &now_ms.to_string(), &now_ms.to_string()])?;
             Ok(!found.is_empty())
         }).await
     }
@@ -47,7 +47,11 @@ impl Store {
                     {
                         continue;
                     }
-                    let chat_name = worker::summary(c, &record.key.account, &record.key.chat)?.name;
+                    let chat = worker::summary(c, &record.key.account, &record.key.chat)?;
+                    if chat.mute.is_some_and(|mute| mute.is_muted(now_ms)) {
+                        continue;
+                    }
+                    let chat_name = chat.name;
                     let sender_name = worker::summary(
                         c,
                         &record.key.account,

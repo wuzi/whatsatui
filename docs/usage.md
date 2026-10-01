@@ -28,6 +28,8 @@ A popup shows the chat name and a short preview, including the sender in groups.
 
 The current conversation stays quiet while the terminal is foreground, Messages or Composer is focused, and you are at the bottom with no overlay open. Other chats and arrivals while you are in the sidebar, browsing older messages, or using another window can notify. Opening a conversation during the short batching delay cancels its queued alert. Foreground detection uses terminal focus reporting and keyboard/mouse input; when focus is unknown, notifications are allowed.
 
+Muted groups and direct chats stay quiet, including in combined and generic alerts. Change mute settings in WhatsApp; the TUI follows synced mute/unmute changes and temporary mute expiry. Saved settings survive restarts, and the app requests existing settings again on its first connection each launch. On the first launch after upgrading, allow WhatsApp's settings sync to arrive before expecting existing mutes to take effect. Muting a chat also cancels a pending notification; a popup already displayed by the desktop cannot be withdrawn.
+
 Add this to `~/.config/whatsapp-tui/config.toml` to change the defaults, then restart:
 
 ```toml
@@ -38,7 +40,7 @@ previews = false # hide names and message content; show only a new-message count
 
 Set `enabled = false` to disable popups. With previews enabled, the desktop notification center may retain the displayed names/text. Deleted, expired and locally read messages are checked before delivery, but an already displayed popup is not retracted. Missing or failing helpers produce one notice in the TUI and a 60-second retry cooldown. Notification problems do not block messaging.
 
-This first version does not navigate to chats when clicking a popup or synchronize WhatsApp chat mute settings. It cannot notify after you close the app. Demo mode always disables desktop notifications.
+This version does not navigate to chats when clicking a popup or provide mute controls inside the TUI. It cannot notify after you close the app. Demo mode always disables desktop notifications.
 
 ## Sender blocks, photos, and mouse
 

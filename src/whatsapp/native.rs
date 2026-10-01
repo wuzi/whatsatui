@@ -14,6 +14,9 @@ use whatsapp_rust::{
     types::presence::ReceiptType,
 };
 
+#[cfg(test)]
+mod notification_tests;
+
 pub(super) fn account(client: &Client) -> Option<AccountId> {
     client.pn().map(|j| AccountId(normalize::jid(&j)))
 }
@@ -38,6 +41,7 @@ impl EventHandler for RawHandler {
             EventKind::ContactNumberChanged,
             EventKind::PushNameUpdate,
             EventKind::GroupUpdate,
+            EventKind::MuteUpdate,
             EventKind::OfflineSyncCompleted,
             EventKind::StreamReplaced,
             EventKind::ClientOutdated,
@@ -100,11 +104,26 @@ pub(super) async fn start(
     let event_store = store.clone();
     let event_tx = events.clone();
     let ingest = tokio::spawn(async move {
+        let mut mute_sync_started = false;
+        let mut mute_sync = tokio::task::JoinSet::new();
         if let Some(a) = account(&event_client) {
             emit(&event_tx, BackendEvent::AccountKnown(a)).await?;
         }
         while let Some(event) = raw_rx.recv().await {
-            handle_event(&event_client, &event_store, &event_tx, &event).await?;
+            if !mute_sync_started && matches!(&*event, Event::Connected(_)) {
+                mute_sync_started = true;
+                let client = event_client.clone();
+                // Existing linked sessions have already consumed these settings
+                // in older versions. Request their snapshot once per launch.
+                // Run separately: sync emits events through this bounded queue.
+                mute_sync.spawn(async move {
+                    client.process_sync_task(whatsapp_rust::sync_task::MajorSyncTask::AppStateSync {
+                        name: whatsapp_rust::wacore::appstate::patch_decode::WAPatchName::RegularHigh,
+                        full_sync: true,
+                    }).await;
+                });
+            }
+            handle_event(account(&event_client), &event_store, &event_tx, &event).await?;
         }
         Ok::<_, BackendError>(())
     });
@@ -323,6 +342,30 @@ fn chat(a: &AccountId, id: String, name: String) -> ChatSummary {
         ..Default::default()
     }
 }
+fn history_chat(a: &AccountId, c: &whatsapp_rust::waproto::whatsapp::Conversation) -> ChatSummary {
+    let mut summary = chat(
+        a,
+        c.id.clone(),
+        c.name
+            .clone()
+            .or(c.display_name.clone())
+            .unwrap_or_default(),
+    );
+    summary.unread = c.unread_count.unwrap_or(0);
+    summary.latest_at_ms = c
+        .last_msg_timestamp
+        .or(c.conversation_timestamp)
+        .unwrap_or(0)
+        .saturating_mul(1000)
+        .min(i64::MAX as u64) as i64;
+    summary.name_priority = 2;
+    summary.mute = c.mute_end_time.map(|until| ChatMute {
+        until_ms: i64::try_from(until).unwrap_or(-1),
+        updated_at_ms: 0,
+    });
+    summary
+}
+
 async fn names(
     store: &Store,
     tx: &mpsc::Sender<BackendEvent>,
@@ -336,7 +379,7 @@ async fn names(
     emit(tx, BackendEvent::StoreChanged(change)).await
 }
 async fn handle_event(
-    client: &Client,
+    a: Option<AccountId>,
     store: &Store,
     tx: &mpsc::Sender<BackendEvent>,
     event: &Event,
@@ -353,7 +396,7 @@ async fn handle_event(
             .await;
         }
         Event::Connected(_) | Event::PairSuccess(_) => {
-            if let Some(a) = account(client) {
+            if let Some(a) = a {
                 emit(tx, BackendEvent::AccountKnown(a)).await?;
             }
             return emit(
@@ -401,10 +444,28 @@ async fn handle_event(
         }
         _ => {}
     }
-    let Some(a) = account(client) else {
+    let Some(a) = a else {
         return Ok(());
     };
     match event {
+        Event::MuteUpdate(update) => {
+            if let Some(muted) = update.action.muted {
+                let mut summary = chat(&a, normalize::jid(&update.jid), String::new());
+                summary.mute = Some(ChatMute {
+                    until_ms: if muted {
+                        update
+                            .action
+                            .mute_end_timestamp
+                            .filter(|at| *at > 0)
+                            .unwrap_or(-1)
+                    } else {
+                        0
+                    },
+                    updated_at_ms: update.timestamp.timestamp_millis().max(1),
+                });
+                names(store, tx, &a, vec![summary]).await?;
+            }
+        }
         Event::Messages(batch) => {
             for chunk in batch.messages.chunks(100) {
                 let change = super::durability::persist_inbound(store, a.clone(), chunk, tx)
@@ -551,22 +612,7 @@ async fn handle_event(
                     if c.id.ends_with("@broadcast") || c.id.ends_with("@newsletter") {
                         continue;
                     }
-                    let mut summary = chat(
-                        &a,
-                        c.id.clone(),
-                        c.name
-                            .clone()
-                            .or(c.display_name.clone())
-                            .unwrap_or_default(),
-                    );
-                    summary.unread = c.unread_count.unwrap_or(0);
-                    summary.latest_at_ms = c
-                        .last_msg_timestamp
-                        .or(c.conversation_timestamp)
-                        .unwrap_or(0)
-                        .saturating_mul(1000)
-                        .min(i64::MAX as u64) as i64;
-                    summary.name_priority = 2;
+                    let summary = history_chat(&a, c);
                     names(store, tx, &a, vec![summary.clone()]).await?;
                     for chunk in c.messages.chunks(100) {
                         let changes = chunk

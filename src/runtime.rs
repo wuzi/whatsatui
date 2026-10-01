@@ -600,7 +600,9 @@ async fn notification_scoped(
     notifier: &impl crate::notifications::Notifier,
     mut context: tokio::sync::watch::Receiver<crate::notifications::Context>,
 ) -> Result<(), String> {
+    let mut mute_changes = store.mute_changes();
     loop {
+        mute_changes.borrow_and_update();
         let state = context.borrow_and_update().clone();
         if *cancel.borrow() || !state.enabled || request.account() != state.account.as_ref() {
             return Ok(());
@@ -611,10 +613,11 @@ async fn notification_scoped(
         let popup = tokio::select! {
             biased;
             _ = cancel.changed() => return Ok(()),
+            _ = mute_changes.changed() => continue,
             change = context.changed() => { if change.is_err() { return Ok(()); } else { continue; } },
             result = crate::notifications::prepare_scoped(scoped, store, chrono::Utc::now().timestamp_millis(), state.reading.clone()) => result?,
         };
-        if *context.borrow() != state {
+        if *context.borrow() != state || mute_changes.has_changed().unwrap_or(true) {
             continue;
         }
         let Some(popup) = popup else {
@@ -625,6 +628,7 @@ async fn notification_scoped(
         return tokio::select! {
             biased;
             _ = cancel.changed() => Ok(()),
+            _ = mute_changes.changed() => Ok(()),
             _ = context.changed() => Ok(()),
             result = crate::notifications::deliver(&popup, notifier) => result,
         };

@@ -275,6 +275,15 @@ async fn shutdown_cancels_a_notification_already_in_progress() {
 
 #[tokio::test]
 async fn context_change_after_submission_does_not_resubmit() {
+    change_after_submission_does_not_resubmit(false).await;
+}
+
+#[tokio::test]
+async fn mute_change_cancels_a_notification_already_in_progress() {
+    change_after_submission_does_not_resubmit(true).await;
+}
+
+async fn change_after_submission_does_not_resubmit(mute: bool) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path().join("db")).await.unwrap();
     let key = MessageKey {
@@ -321,7 +330,25 @@ async fn context_change_after_submission_does_not_resubmit() {
     );
     let interrupt = async {
         notifier.0.notified().await;
-        scope.send_modify(|state| state.reading = Some("another-chat".into()));
+        if mute {
+            store
+                .upsert_chats(
+                    "self".into(),
+                    vec![ChatSummary {
+                        account: "self".into(),
+                        chat: "friend".into(),
+                        mute: Some(ChatMute {
+                            until_ms: -1,
+                            updated_at_ms: 1,
+                        }),
+                        ..Default::default()
+                    }],
+                )
+                .await
+                .unwrap();
+        } else {
+            scope.send_modify(|state| state.reading = Some("another-chat".into()));
+        }
     };
     let (result, ()) = tokio::time::timeout(Duration::from_secs(1), async {
         tokio::join!(run, interrupt)

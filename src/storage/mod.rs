@@ -35,6 +35,7 @@ type Job = Box<dyn FnOnce(&mut SqliteConnection) + Send>;
 pub struct Store {
     tx: mpsc::Sender<Job>,
     data_dir: std::sync::Arc<PathBuf>,
+    mute_changes: tokio::sync::watch::Sender<()>,
 }
 impl Store {
     pub async fn open(path: PathBuf) -> Result<Self, StoreError> {
@@ -60,7 +61,14 @@ impl Store {
         let location = std::fs::canonicalize(location)?;
         let data_dir =
             std::sync::Arc::new(location.parent().ok_or(StoreError::InvalidData)?.to_owned());
-        Ok(Self { tx, data_dir })
+        Ok(Self {
+            tx,
+            data_dir,
+            mute_changes: tokio::sync::watch::channel(()).0,
+        })
+    }
+    pub(crate) fn mute_changes(&self) -> tokio::sync::watch::Receiver<()> {
+        self.mute_changes.subscribe()
     }
     pub fn data_dir(&self) -> &std::path::Path {
         &self.data_dir
@@ -172,8 +180,15 @@ impl Store {
         account: AccountId,
         chats: Vec<ChatSummary>,
     ) -> Result<StoreChange, StoreError> {
-        self.call(move |c| worker::upsert_chats(c, &account, chats))
-            .await
+        let mute_changes = self.mute_changes.clone();
+        self.call(move |c| {
+            let (change, mute_changed) = worker::upsert_chats(c, &account, chats)?;
+            if mute_changed {
+                mute_changes.send_replace(());
+            }
+            Ok(change)
+        })
+        .await
     }
     pub async fn merge_alias(
         &self,
@@ -181,8 +196,15 @@ impl Store {
         alias: ParticipantId,
         canonical: ParticipantId,
     ) -> Result<StoreChange, StoreError> {
-        self.call(move |c| merge::merge_alias(c, &account, &alias, &canonical))
-            .await
+        let mute_changes = self.mute_changes.clone();
+        self.call(move |c| {
+            let change = merge::merge_alias(c, &account, &alias, &canonical)?;
+            if !change.chats.is_empty() {
+                mute_changes.send_replace(());
+            }
+            Ok(change)
+        })
+        .await
     }
     pub async fn mark_read(
         &self,

@@ -567,7 +567,7 @@ pub(super) fn upsert_chats(
     c: &mut SqliteConnection,
     a: &AccountId,
     chats: Vec<ChatSummary>,
-) -> Result<StoreChange, StoreError> {
+) -> Result<(StoreChange, bool), StoreError> {
     c.transaction::<_, StoreError, _>(|c| upsert_chats_in_transaction(c, a, chats))
 }
 
@@ -575,8 +575,9 @@ fn upsert_chats_in_transaction(
     c: &mut SqliteConnection,
     a: &AccountId,
     chats: Vec<ChatSummary>,
-) -> Result<StoreChange, StoreError> {
+) -> Result<(StoreChange, bool), StoreError> {
     let mut ids = Vec::new();
+    let mut mute_changed = false;
     for mut chat in chats {
         if chat.account != *a {
             return Err(StoreError::InvalidData);
@@ -584,13 +585,14 @@ fn upsert_chats_in_transaction(
         let original = chat.chat.clone();
         chat.chat = merge::canonical(c, a, &chat.chat.0)?.into();
 
-        if let Some(old) = rows::<ChatSummary>(
+        let old = rows::<ChatSummary>(
             c,
             "SELECT data FROM chats WHERE account=? AND chat=?",
             &[&a.0, &chat.chat.0],
         )?
-        .pop()
-        {
+        .pop();
+        let old_mute = old.as_ref().and_then(|chat| chat.mute);
+        if let Some(old) = old {
             if chat.name.is_empty()
                 || chat.name == original.0
                 || chat.name_priority < old.name_priority
@@ -599,7 +601,16 @@ fn upsert_chats_in_transaction(
                 chat.name_priority = old.name_priority;
             }
             chat.phone = chat.phone.or(old.phone);
+            if let Some(mute) = old.mute
+                && chat
+                    .mute
+                    .is_none_or(|incoming| incoming.updated_at_ms <= mute.updated_at_ms)
+            {
+                chat.mute = Some(mute);
+            }
         }
+        mute_changed |=
+            old_mute.map_or(0, |mute| mute.until_ms) != chat.mute.map_or(0, |mute| mute.until_ms);
 
         merge::baseline(c, &chat)?;
         chat.unread = 0;
@@ -610,10 +621,13 @@ fn upsert_chats_in_transaction(
         )?;
         ids.push(chat.chat);
     }
-    Ok(StoreChange {
-        account: a.clone(),
-        chats: ids,
-    })
+    Ok((
+        StoreChange {
+            account: a.clone(),
+            chats: ids,
+        },
+        mute_changed,
+    ))
 }
 
 pub(super) fn preview(body: &MessageBody) -> String {
