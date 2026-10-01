@@ -31,6 +31,11 @@ impl Downloader for NativeDownloader {
             attachment,
             destination: destination.to_owned(),
         };
+        // Keep the proc link unresolved: current_exe() resolves it to a
+        // nonexistent "... (deleted)" path after an in-place app update.
+        #[cfg(target_os = "linux")]
+        let executable = PathBuf::from("/proc/self/exe");
+        #[cfg(not(target_os = "linux"))]
         let executable =
             std::env::current_exe().map_err(|_| "Cannot locate the download worker")?;
         run_worker(&executable, &input, cancel, Duration::from_secs(60)).await
@@ -55,7 +60,11 @@ async fn run_worker(
         .stderr(Stdio::null())
         .kill_on_drop(true)
         .spawn()
-        .map_err(|_| "Could not start the download worker")?;
+        .map_err(|error| {
+            format!(
+                "Could not start the download worker: {error}. Restart WhatsAppTUI and try again."
+            )
+        })?;
     let result = tokio::select! {
         _ = cancel.changed() => Err("Attachment download canceled".to_owned()),
         result = tokio::time::timeout(deadline, async {
@@ -126,6 +135,123 @@ mod tests {
         assert_eq!(received.destination, input.destination);
         assert_eq!(received.attachment, input.attachment);
     }
+    #[tokio::test]
+    async fn spawn_errors_explain_the_failure_without_private_parameters() {
+        let dir = tempfile::tempdir().unwrap();
+        let input = input(dir.path());
+        let blocked = dir.path().join("private-worker-name");
+        fs::write(&blocked, "not executable").unwrap();
+        fs::set_permissions(&blocked, fs::Permissions::from_mode(0o600)).unwrap();
+        for (path, code) in [(dir.path().join("missing"), 2), (blocked, 13)] {
+            let (_stop, cancel) = watch::channel(false);
+            let error = run_worker(&path, &input, cancel, Duration::from_secs(1))
+                .await
+                .unwrap_err();
+            assert!(error.contains(&format!("os error {code}")), "{error}");
+            assert!(error.contains("Restart WhatsAppTUI"), "{error}");
+            for private in [
+                "secret=fake",
+                "private-worker-name",
+                "received file",
+                "$(noop)",
+            ] {
+                assert!(!error.contains(private), "private input leaked: {error}");
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn native_worker_starts_after_its_running_executable_is_replaced_or_removed() {
+        for change in ["unchanged", "replaced", "removed"] {
+            let dir = tempfile::tempdir().unwrap();
+            let executable = dir.path().join("running-client");
+            let original = std::env::current_exe().unwrap();
+            // Unlinking this extra name cannot alter Cargo's own executable.
+            if fs::hard_link(&original, &executable).is_err() {
+                fs::copy(&original, &executable).unwrap();
+            }
+            let child = Command::new(&executable)
+                .args([
+                    "--exact",
+                    "media::download::tests::reexec_download_child",
+                    "--nocapture",
+                    "--test-threads=1",
+                ])
+                .env("WHATSAPP_TUI_TEST_WORKER_REEXEC_DIR", dir.path())
+                .env("WHATSAPP_TUI_TEST_WORKER_REEXEC_CHANGE", change)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .kill_on_drop(true)
+                .spawn()
+                .unwrap();
+            tokio::time::timeout(Duration::from_secs(10), async {
+                while !dir.path().join("ready").exists() {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await
+            .expect("child did not become ready");
+            match change {
+                "replaced" => {
+                    let replacement = dir.path().join("replacement");
+                    fs::write(&replacement, "new release: deliberately not executable").unwrap();
+                    fs::rename(replacement, &executable).unwrap();
+                }
+                "removed" => fs::remove_file(&executable).unwrap(),
+                _ => {}
+            }
+            fs::write(dir.path().join("go"), "continue").unwrap();
+            let result = tokio::time::timeout(Duration::from_secs(10), child.wait_with_output())
+                .await
+                .expect("child did not finish")
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{change}: {}{}",
+                String::from_utf8_lossy(&result.stdout),
+                String::from_utf8_lossy(&result.stderr)
+            );
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn reexec_download_child() {
+        let Some(directory) = std::env::var_os("WHATSAPP_TUI_TEST_WORKER_REEXEC_DIR") else {
+            return;
+        };
+        let directory = PathBuf::from(directory);
+        fs::write(directory.join("ready"), "ready").unwrap();
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while !directory.join("go").exists() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("parent did not release child");
+        if std::env::var("WHATSAPP_TUI_TEST_WORKER_REEXEC_CHANGE").unwrap() != "unchanged" {
+            assert!(
+                !std::env::current_exe().unwrap().exists(),
+                "fixture must reproduce the deleted executable path"
+            );
+        }
+        let input = input(&directory);
+        let (_stop, cancel) = watch::channel(false);
+        let error = NativeDownloader
+            .download(&input.attachment, &input.destination, cancel)
+            .await
+            .unwrap_err();
+        // The reexecuted libtest binary rejects --media-worker, proving it
+        // started without allowing any real network or account-store access.
+        // A stale pathname instead fails earlier with a worker-spawn error.
+        assert_eq!(
+            error,
+            "Download failed; the attachment may no longer be available"
+        );
+    }
+
     #[tokio::test]
     async fn stalled_and_canceled_workers_are_killed_and_reaped() {
         let dir = tempfile::tempdir().unwrap();
