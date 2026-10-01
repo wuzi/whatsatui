@@ -1,6 +1,8 @@
 use super::*;
 use crate::app::model::*;
 
+const GROUP_GAP_MS: i64 = 10 * 60 * 1_000;
+
 struct Run {
     index: usize,
     start: usize,
@@ -37,7 +39,7 @@ fn grouped(previous: &MessageRecord, current: &MessageRecord) -> bool {
         && previous.key.from_me == current.key.from_me
         && previous.key.chat == current.key.chat
         && current.created_at_ms >= previous.created_at_ms
-        && current.created_at_ms.saturating_sub(previous.created_at_ms) < 300_000
+        && current.created_at_ms.saturating_sub(previous.created_at_ms) < GROUP_GAP_MS
         && day(previous.created_at_ms) == day(current.created_at_ms)
 }
 fn who(message: &MessageRecord, view: &ViewModel) -> String {
@@ -170,10 +172,6 @@ pub(super) fn layout(area: Rect, view: &ViewModel, config: &Config) -> Timeline 
         let previous = index.checked_sub(1).map(|i| &view.messages[i]);
         let new_day = previous.is_none_or(|p| day(p.created_at_ms) != day(message.created_at_ms));
         let avatar = previous.is_none_or(|p| !grouped(p, message));
-        let same_minute = !avatar
-            && previous.is_some_and(|p| {
-                p.created_at_ms.div_euclid(60_000) == message.created_at_ms.div_euclid(60_000)
-            });
         if index > 0 && avatar {
             lines.push(Line::from(""));
         }
@@ -187,7 +185,7 @@ pub(super) fn layout(area: Rect, view: &ViewModel, config: &Config) -> Timeline 
             );
         }
         let start = lines.len();
-        let heading = header(message, avatar, !same_minute, width, view, config);
+        let heading = header(message, avatar, avatar, width, view, config);
         let has_header = heading.width() > 0;
         if has_header {
             lines.push(gutter(heading, message, true, view, config, gutter_width));

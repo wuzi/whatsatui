@@ -189,3 +189,9 @@ The single independent review identified one Important issue: scrolling from com
 Formatting, Clippy with warnings denied, and whitespace checks pass after the review fix. Physical Ghostty appearance remains user-operated acceptance; automated checks use synthetic buffers and emitted terminal commands.
 
 The optimized release was built from corrected source 2117153 and reports whatsapp-tui 0.1.0. Its SHA256 is `b9a61eac3134adbe33b4db2e1a821edd211f7c8a63b37432c4fc33a049e84cf1`. Verification evidence is preserved under `.superpowers/sdd/2026-10-01-compact-timestamps/` during local integration; nothing is pushed.
+
+## Ten-minute sender blocks
+
+The grouping follow-up passes **347 automated tests** (three native helper checks remain opt-in). Both sender blocks and timestamp suppression now use a gap of less than ten minutes between consecutive messages. Exact ten-minute gaps, sender changes, local midnight and out-of-order messages start new headers. Continuous runs can span more than ten minutes, with context restored while scrolling.
+
+Existing timestamp regressions now cover gaps across minutes, the previous five-minute limit, just under/exactly ten minutes, metadata, and longer scrolled runs. Three cases failed against the old behavior before the implementation changed. The full suite retains keyboard/mouse, media, avatar and emitted-terminal-output coverage. Verification used only synthetic/offline data.

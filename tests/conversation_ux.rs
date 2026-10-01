@@ -65,7 +65,7 @@ fn metrics(app: &mut App) {
 }
 
 #[test]
-fn consecutive_senders_are_grouped_without_hiding_message_times() {
+fn consecutive_senders_share_a_header_until_the_sender_changes() {
     let mut view = ready_app().view();
     view.chats[0].name = "Friends".into();
     view.chats[0].is_group = true;
