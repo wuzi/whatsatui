@@ -35,9 +35,27 @@ struct Request {
     size: Size,
 }
 struct Ready {
-    protocol: Result<SlicedProtocol, String>,
-    kitty_id: u32,
+    protocol: Result<Prepared, String>,
     retry_at: Instant,
+}
+struct Prepared {
+    frames: Vec<SlicedProtocol>,
+    timeline: media::animation::Timeline,
+    current: usize,
+    started: Instant,
+    kitty_ids: Vec<u32>,
+}
+impl Prepared {
+    fn advance(&mut self, now: Instant) -> bool {
+        let next = self.timeline.frame_at(
+            now.saturating_duration_since(self.started)
+                .as_millis()
+                .min(u128::from(u64::MAX)) as u64,
+        );
+        let changed = next != self.current;
+        self.current = next;
+        changed
+    }
 }
 struct Job {
     id: String,
@@ -185,9 +203,13 @@ impl Images {
             });
         }
         match self.cache.get(&id).map(|r| &r.protocol) {
-            Some(Ok(protocol)) => {
-                frame.render_widget(SlicedImage::new(protocol, (0, -(skip as i16)).into()), area)
-            }
+            Some(Ok(protocol)) => frame.render_widget(
+                SlicedImage::new(
+                    &protocol.frames[protocol.current],
+                    (0, -(skip as i16)).into(),
+                ),
+                area,
+            ),
             state if skip == 0 => {
                 let label = match state {
                     Some(Err(error)) => format!("[{}]", super::single(error)),
@@ -218,10 +240,12 @@ impl Images {
     fn remove(&mut self, id: &str) {
         if let Some(ready) = self.cache.remove(id)
             && self.kitty
-            && ready.protocol.is_ok()
+            && let Ok(prepared) = ready.protocol
         {
-            self.cleanup
-                .push_str(&format!("\x1b_Ga=d,d=I,i={},q=2;\x1b\\", ready.kitty_id));
+            for kitty_id in prepared.kitty_ids {
+                self.cleanup
+                    .push_str(&format!("\x1b_Ga=d,d=I,i={kitty_id},q=2;\x1b\\"));
+            }
         }
     }
     pub fn take_cleanup(&mut self) -> String {
@@ -239,11 +263,14 @@ impl Images {
         let mut changed = false;
         if let Some(result) = result {
             let job = self.active.take().expect("completed preview");
-            if let Some(ready) = result
+            if let Some(mut ready) = result
                 && self.wanted.iter().any(|r| r.id == job.id)
                 && !self.stopped
                 && !*job.stop.borrow()
             {
+                if let Ok(prepared) = &mut ready.protocol {
+                    prepared.started = Instant::now();
+                }
                 self.cache.insert(job.id, ready);
             }
             changed = true;
@@ -257,6 +284,12 @@ impl Images {
         for id in retry {
             self.remove(&id);
             changed = true;
+        }
+        let now = Instant::now();
+        for ready in self.cache.values_mut() {
+            if let Ok(prepared) = &mut ready.protocol {
+                changed |= prepared.advance(now);
+            }
         }
         self.start_next();
         changed
@@ -280,8 +313,9 @@ impl Images {
         let downloader = downloader.clone();
         let kitty = self.kitty;
         let font = self.font;
-        self.serial = self.serial.wrapping_add(1).max(1);
-        let kitty_id = 0x7700_0000 | (self.serial & 0x00ff_ffff);
+        // Reserve 128 IDs per preview; at most 96 prepared animation frames.
+        self.serial = self.serial.wrapping_add(128) & 0x00ff_ff80;
+        let kitty_id = 0x7700_0000 | self.serial;
         let (stop, cancel) = watch::channel(false);
         let (send, receive) = oneshot::channel();
         self.active = Some(Job {
@@ -292,16 +326,24 @@ impl Images {
         tokio::spawn(async move {
             let result = if request.draft {
                 if let MessageBody::LocalImage { image, .. } = request.message.body {
-                    media::preview::load_local(*image, store.data_dir().to_owned()).await
+                    media::preview::load_local(*image, store.data_dir().to_owned(), cancel.clone())
+                        .await
                 } else {
                     Err("No attached image".into())
                 }
             } else {
-                media::preview::load(request.message, store, downloader.as_ref(), cancel).await
+                media::preview::load(request.message, store, downloader.as_ref(), cancel.clone())
+                    .await
             };
             let protocol = match result {
                 Ok(image) => tokio::task::spawn_blocking(move || {
-                    prepare(image, request.size, font, kitty.then_some(kitty_id))
+                    prepare_preview(
+                        image,
+                        request.size,
+                        font,
+                        kitty.then_some(kitty_id),
+                        &cancel,
+                    )
                 })
                 .await
                 .unwrap_or_else(|_| Err("Preview preparation failed".into())),
@@ -314,7 +356,6 @@ impl Images {
             };
             let _ = send.send(Ready {
                 protocol,
-                kitty_id,
                 retry_at: Instant::now() + Duration::from_secs(delay),
             });
         });
@@ -344,6 +385,54 @@ pub(super) fn prepare(
     kitty_id: Option<u32>,
 ) -> Result<SlicedProtocol, String> {
     let resize = Resize::Scale(Some(image::imageops::FilterType::Triangle));
+    prepare_with_resize(image, size, font, kitty_id, resize)
+}
+
+fn prepare_preview(
+    preview: media::animation::Preview,
+    size: Size,
+    font: FontSize,
+    kitty_id: Option<u32>,
+    cancel: &watch::Receiver<bool>,
+) -> Result<Prepared, String> {
+    let animated = preview.frames.len() > 1;
+    let timeline = media::animation::Timeline::new(
+        preview.frames.iter().map(|f| f.duration_ms),
+        preview.loops,
+    );
+    let mut frames = Vec::with_capacity(preview.frames.len());
+    let mut kitty_ids = vec![];
+    for (index, frame) in preview.frames.into_iter().enumerate() {
+        if *cancel.borrow() || cancel.has_changed().is_err() {
+            return Err("Preview canceled".into());
+        }
+        let id = kitty_id.map(|base| base + index as u32);
+        if let Some(id) = id {
+            kitty_ids.push(id);
+        }
+        let resize = if animated {
+            Resize::Fit(Some(image::imageops::FilterType::Triangle))
+        } else {
+            Resize::Scale(Some(image::imageops::FilterType::Triangle))
+        };
+        frames.push(prepare_with_resize(frame.image, size, font, id, resize)?);
+    }
+    Ok(Prepared {
+        frames,
+        timeline,
+        kitty_ids,
+        current: 0,
+        started: Instant::now(),
+    })
+}
+
+fn prepare_with_resize(
+    image: image::DynamicImage,
+    size: Size,
+    font: FontSize,
+    kitty_id: Option<u32>,
+    resize: Resize,
+) -> Result<SlicedProtocol, String> {
     if let Some(id) = kitty_id {
         let actual = resize.size_for(&image, font, size);
         let image = resize.resize(&image, font, actual, None);
@@ -359,6 +448,52 @@ pub(super) fn prepare(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn animated_kitty_frames_keep_ids_and_release_every_resource() {
+        let (_stop, cancel) = watch::channel(false);
+        let preview = media::animation::decode(
+            include_bytes!("../../tests/fixtures/moving-sticker.webp"),
+            &cancel,
+        )
+        .unwrap();
+        let mut images = Images::default();
+        images.kitty = true;
+        let mut prepared = prepare_preview(
+            preview,
+            Size::new(20, 8),
+            images.font,
+            Some(0x7700_0080),
+            &cancel,
+        )
+        .unwrap();
+        let start = prepared.started;
+        assert!(!prepared.advance(start + Duration::from_millis(99)));
+        assert!(prepared.advance(start + Duration::from_millis(100)));
+        assert_eq!(prepared.current, 1);
+        assert!(prepared.advance(start + Duration::from_millis(300)));
+        assert_eq!(prepared.current, 0);
+        let ids = prepared.kitty_ids.clone();
+        assert_eq!(ids.len(), 2);
+        assert_ne!(ids[0], ids[1]);
+        images.cache.insert(
+            "moving".into(),
+            Ready {
+                protocol: Ok(prepared),
+                retry_at: start,
+            },
+        );
+        // Hiding, resizing or changing the message removes its previous cache identity.
+        images.begin_frame();
+        images.end_frame();
+        let cleanup = images.take_cleanup();
+        for id in ids {
+            assert!(cleanup.contains(&format!("i={id},")));
+        }
+        assert_eq!(cleanup.matches("a=d").count(), 2);
+        assert!(!images.poll());
+        images.stop();
+        assert!(images.take_cleanup().is_empty());
+    }
     #[test]
     fn ghostty_is_automatic_without_terminal_queries() {
         assert!(use_kitty(

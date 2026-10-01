@@ -1,4 +1,5 @@
 //! Bounded, verified image loading, independent of the terminal renderer.
+use super::animation::Preview;
 use super::{AttachmentKind, Downloader, cache, check_cancel, current};
 use crate::{app::model::MessageRecord, storage::Store};
 use image::{DynamicImage, ImageDecoder, ImageReader};
@@ -57,7 +58,7 @@ pub async fn load(
     store: Store,
     downloader: &dyn Downloader,
     cancel: watch::Receiver<bool>,
-) -> Result<DynamicImage, String> {
+) -> Result<Preview, String> {
     check_cancel(&cancel)?;
     if let crate::app::model::MessageBody::LocalImage { image, .. } = &message.body {
         let stored = store
@@ -73,7 +74,8 @@ pub async fn load(
         {
             return Err("Image changed or expired".into());
         }
-        let result = load_local(*image.clone(), store.data_dir().to_owned()).await?;
+        let result =
+            load_local(*image.clone(), store.data_dir().to_owned(), cancel.clone()).await?;
         check_cancel(&cancel)?;
         if store
             .get_message(message.key.clone())
@@ -126,6 +128,7 @@ pub async fn load(
         .await
         .map_err(|_| "Image decoder stopped")?;
     check_cancel(&cancel)?;
+    let decode_cancel = cancel.clone();
     let result = tokio::task::spawn_blocking(move || {
         let _permit = permit;
         let bytes = read_bounded(&path)?;
@@ -135,7 +138,7 @@ pub async fn load(
         {
             return Err("Image changed during preview loading".into());
         }
-        let image = decode(&bytes)?.thumbnail(640, 640);
+        let image = super::animation::decode(&bytes, &decode_cancel)?;
         drop(cache);
         Ok(image)
     })
@@ -149,14 +152,15 @@ pub async fn load(
 pub async fn load_local(
     image: super::outgoing::LocalImage,
     data_dir: std::path::PathBuf,
-) -> Result<DynamicImage, String> {
+    cancel: watch::Receiver<bool>,
+) -> Result<Preview, String> {
     let permit = DECODERS
         .acquire()
         .await
         .map_err(|_| "Image decoder stopped")?;
     tokio::task::spawn_blocking(move || {
         let _permit = permit;
-        decode(&super::outgoing::read(&image, &data_dir)?).map(|i| i.thumbnail(640, 640))
+        super::animation::decode(&super::outgoing::read(&image, &data_dir)?, &cancel)
     })
     .await
     .map_err(|_| "Image decoder stopped")?

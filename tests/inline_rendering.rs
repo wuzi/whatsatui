@@ -53,6 +53,87 @@ fn graphics_configuration_is_explicit_and_validated() {
 }
 
 #[tokio::test]
+async fn visible_stickers_animate_and_stop_when_hidden() {
+    use sha2::{Digest, Sha256};
+    use std::sync::Arc;
+    use whatsapp_tui::{media::Downloader, storage::Store};
+    struct Source;
+    #[async_trait::async_trait]
+    impl Downloader for Source {
+        async fn download(
+            &self,
+            _: &Attachment,
+            path: &std::path::Path,
+            _: tokio::sync::watch::Receiver<bool>,
+        ) -> Result<(), String> {
+            std::fs::write(path, include_bytes!("fixtures/moving-sticker.webp")).unwrap();
+            Ok(())
+        }
+    }
+    let temp = tempfile::tempdir().unwrap();
+    let store = Store::open(temp.path().join("chat.sqlite3")).await.unwrap();
+    let mut message = support::message(support::key("chat", "alice", "moving"), "");
+    let bytes = include_bytes!("fixtures/moving-sticker.webp");
+    assert_eq!(
+        whatsapp_tui::media::preview::decode(bytes).unwrap().width(),
+        32
+    );
+    message.body = MessageBody::Media(Box::new(Attachment {
+        audio: None,
+        kind: AttachmentKind::Sticker,
+        filename: None,
+        caption: None,
+        mime: Some("image/webp".into()),
+        size: bytes.len() as u64,
+        direct_path: "/v/moving".into(),
+        media_key: [1; 32],
+        sha256: Sha256::digest(bytes).into(),
+        encrypted_sha256: [2; 32],
+    }));
+    store
+        .apply_batch(support::batch(vec![message.clone()]))
+        .await
+        .unwrap();
+    let mut images = ui::Images::new(
+        store,
+        Arc::new(Source),
+        whatsapp_tui::config::ImageProtocol::Halfblocks,
+    );
+    let mut terminal = Terminal::new(TestBackend::new(20, 8)).unwrap();
+    let mut colors = std::collections::HashSet::new();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    while std::time::Instant::now() < deadline && colors.len() < 2 {
+        images.poll();
+        terminal
+            .draw(|f| {
+                images.begin_frame();
+                images.draw(f, &message, f.area(), 0, f.area().as_size());
+                images.end_frame();
+            })
+            .unwrap();
+        for cell in &terminal.backend().buffer().content {
+            if let ratatui::style::Color::Rgb(r, _, b) = cell.fg
+                && r.abs_diff(b) > 100
+            {
+                colors.insert(if r > b { "red" } else { "blue" });
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    assert!(
+        colors.len() >= 2,
+        "animation stayed on its first color: {colors:?}"
+    );
+    images.begin_frame();
+    images.end_frame();
+    tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+    assert!(
+        !images.poll(),
+        "hidden animations must stop scheduling redraws"
+    );
+}
+
+#[tokio::test]
 async fn loaded_previews_clip_clear_on_delete_and_survive_resize() {
     use sha2::{Digest, Sha256};
     use std::sync::{

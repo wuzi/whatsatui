@@ -3,6 +3,7 @@ mod download;
 mod worker;
 pub use download::NativeDownloader;
 pub use worker::run as run_worker;
+pub mod animation;
 pub mod audio;
 mod model;
 pub mod outgoing;
