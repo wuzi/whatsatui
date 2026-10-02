@@ -130,7 +130,8 @@ next = ["down", "j"]
 previous = ["up", "k"]
 copy_text = ["y"]
 
-# Inline previews download visible images/stickers in the background.
+# Inline previews download visible images/stickers/GIFs in the background.
+# GIF previews use ffmpeg and ffprobe from PATH.
 [media]
 avatars = true
 inline = true

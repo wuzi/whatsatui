@@ -12,7 +12,7 @@ pub async fn prepare(
     cancel: watch::Receiver<bool>,
 ) -> Result<tempfile::NamedTempFile, String> {
     check_cancel(&cancel)?;
-    if !matches!(&message.body, MessageBody::Media(a) if matches!(a.kind, AttachmentKind::Audio | AttachmentKind::Video))
+    if !matches!(&message.body, MessageBody::Media(a) if matches!(a.kind, AttachmentKind::Audio | AttachmentKind::Video) || a.is_gif())
     {
         return Err("Select a voice message, audio file or video".into());
     }

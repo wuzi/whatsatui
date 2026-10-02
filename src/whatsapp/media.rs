@@ -22,7 +22,11 @@ pub(super) fn attachment(payload: &wa::Message) -> Option<Attachment> {
     } else if let Some(video) = base.video_message.as_option() {
         Attachment {
             audio: None,
-            kind: AttachmentKind::Video,
+            kind: if video.gif_playback == Some(true) {
+                AttachmentKind::Gif
+            } else {
+                AttachmentKind::Video
+            },
             filename: None,
             mime: video.mimetype.clone(),
             caption: video.caption.clone(),
@@ -87,69 +91,72 @@ mod tests {
     #[test]
     fn received_video_retains_caption_and_download_reference_in_live_and_history() {
         use crate::app::model::*;
-        let mut payload = wa::Message {
-            video_message: MessageField::some(wa::message::VideoMessage {
-                direct_path: Some("/o1/v/video".into()),
-                media_key: Some(vec![1; 32]),
-                file_sha256: Some(vec![2; 32]),
-                file_enc_sha256: Some(vec![3; 32]),
-                file_length: Some(1000),
-                mimetype: Some("video/mp4".into()),
-                caption: Some("A moving picture".into()),
-                seconds: Some(5),
+        for gif in [false, true] {
+            let mut payload = wa::Message {
+                video_message: MessageField::some(wa::message::VideoMessage {
+                    direct_path: Some("/o1/v/video".into()),
+                    media_key: Some(vec![1; 32]),
+                    file_sha256: Some(vec![2; 32]),
+                    file_enc_sha256: Some(vec![3; 32]),
+                    file_length: Some(1000),
+                    mimetype: Some("video/mp4".into()),
+                    caption: Some("A moving picture".into()),
+                    seconds: Some(5),
+                    gif_playback: Some(gif),
+                    ..Default::default()
+                }),
                 ..Default::default()
-            }),
-            ..Default::default()
-        };
-        let media = attachment(&payload).expect("received video must retain its reference");
-        assert_eq!(media.kind.label(), "video");
-        assert_eq!(media.extension(), Some("mp4"));
-        assert_eq!(media.caption.as_deref(), Some("A moving picture"));
-        let key = MessageKey {
-            account: "me".into(),
-            chat: "peer".into(),
-            sender: "peer".into(),
-            id: "video".into(),
-            from_me: false,
-        };
-        assert!(matches!(
-            super::super::normalize::normalize(key, &payload, 100, None),
-            MessageChange::Upsert(MessageRecord {
-                body: MessageBody::Media(_),
-                ..
-            })
-        ));
-        let web = wa::WebMessageInfo {
-            key: MessageField::some(wa::MessageKey {
-                id: Some("video".into()),
-                ..Default::default()
-            }),
-            message: MessageField::some(payload.clone()),
-            message_timestamp: Some(1),
-            ..Default::default()
-        };
-        assert!(matches!(
-            &super::super::normalize::history_changes(&"me".into(), &"peer".into(), &web)[0],
-            MessageChange::Upsert(MessageRecord {
-                body: MessageBody::Media(_),
-                ..
-            })
-        ));
-        let once = wa::Message {
-            view_once_message_v2: MessageField::some(wa::message::FutureProofMessage {
+            };
+            let media = attachment(&payload).expect("received video must retain its reference");
+            assert_eq!(media.kind.label(), if gif { "gif" } else { "video" });
+            assert_eq!(media.extension(), Some("mp4"));
+            assert_eq!(media.caption.as_deref(), Some("A moving picture"));
+            let key = MessageKey {
+                account: "me".into(),
+                chat: "peer".into(),
+                sender: "peer".into(),
+                id: "video".into(),
+                from_me: false,
+            };
+            assert!(matches!(
+                super::super::normalize::normalize(key, &payload, 100, None),
+                MessageChange::Upsert(MessageRecord {
+                    body: MessageBody::Media(a),
+                    ..
+                }) if a.kind == media.kind
+            ));
+            let web = wa::WebMessageInfo {
+                key: MessageField::some(wa::MessageKey {
+                    id: Some("video".into()),
+                    ..Default::default()
+                }),
                 message: MessageField::some(payload.clone()),
-            }),
-            ..Default::default()
-        };
-        assert!(attachment(&once).is_none());
-        let mut video = payload.video_message.as_option().unwrap().clone();
-        video.view_once = Some(true);
-        payload.video_message = MessageField::some(video.clone());
-        assert!(attachment(&payload).is_none());
-        video.view_once = None;
-        video.media_key = Some(vec![1; 31]);
-        payload.video_message = MessageField::some(video);
-        assert!(attachment(&payload).is_none());
+                message_timestamp: Some(1),
+                ..Default::default()
+            };
+            assert!(matches!(
+                &super::super::normalize::history_changes(&"me".into(), &"peer".into(), &web)[0],
+                MessageChange::Upsert(MessageRecord {
+                    body: MessageBody::Media(a),
+                    ..
+                }) if a.kind == media.kind
+            ));
+            let once = wa::Message {
+                view_once_message_v2: MessageField::some(wa::message::FutureProofMessage {
+                    message: MessageField::some(payload.clone()),
+                }),
+                ..Default::default()
+            };
+            assert!(attachment(&once).is_none());
+            let mut video = payload.video_message.as_option().unwrap().clone();
+            video.view_once = Some(true);
+            payload.video_message = MessageField::some(video.clone());
+            assert!(attachment(&payload).is_none());
+            video.view_once = None;
+            video.media_key = Some(vec![1; 31]);
+            payload.video_message = MessageField::some(video);
+            assert!(attachment(&payload).is_none());
+        }
     }
     #[test]
     fn voice_and_audio_payloads_keep_metadata_in_live_and_history_but_not_view_once() {

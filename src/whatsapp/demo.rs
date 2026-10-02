@@ -8,6 +8,18 @@ const STICKER: &[u8] = include_bytes!("../../tests/fixtures/send-sticker.webp");
 const IMAGE: &[u8] = include_bytes!("../../assets/demo/cafe.jpg");
 const AUDIO: &[u8] = include_bytes!("../../tests/fixtures/voice.ogg");
 const VIDEO: &[u8] = include_bytes!("../../tests/fixtures/video.mp4");
+const GIF: &[u8] = include_bytes!("../../tests/fixtures/loop.mp4");
+fn gif_attachment() -> Attachment {
+    Attachment {
+        kind: AttachmentKind::Gif,
+        filename: Some("demo-loop.mp4".into()),
+        caption: Some("GIF demo · loops inline".into()),
+        size: GIF.len() as u64,
+        direct_path: "/v/offline-gif".into(),
+        sha256: Sha256::digest(GIF).into(),
+        ..video_attachment()
+    }
+}
 fn video_attachment() -> Attachment {
     Attachment {
         kind: AttachmentKind::Video,
@@ -159,12 +171,15 @@ impl crate::media::Downloader for DemoDownloader {
             && attachment != &sticker_attachment()
             && attachment != &audio_attachment()
             && attachment != &video_attachment()
+            && attachment != &gif_attachment()
         {
             return Err("Attachment is not an offline demo fixture".into());
         }
         std::fs::write(
             destination,
-            if attachment.kind == AttachmentKind::Video {
+            if attachment.kind == AttachmentKind::Gif {
+                GIF
+            } else if attachment.kind == AttachmentKind::Video {
                 VIDEO
             } else if attachment.kind == AttachmentKind::Audio {
                 AUDIO

@@ -7,6 +7,8 @@ pub enum AttachmentKind {
     Document,
     Audio,
     Video,
+    /// WhatsApp's video message with gif_playback enabled; decrypt as video.
+    Gif,
 }
 
 impl AttachmentKind {
@@ -17,6 +19,7 @@ impl AttachmentKind {
             Self::Document => "document",
             Self::Audio => "audio",
             Self::Video => "video",
+            Self::Gif => "gif",
         }
     }
 }
@@ -54,6 +57,22 @@ impl std::fmt::Debug for Attachment {
 }
 
 impl Attachment {
+    pub fn is_gif(&self) -> bool {
+        self.kind == AttachmentKind::Gif
+            || (matches!(self.kind, AttachmentKind::Image | AttachmentKind::Document)
+                && self.mime.as_deref().is_some_and(|mime| {
+                    mime.split(';')
+                        .next()
+                        .unwrap_or_default()
+                        .trim()
+                        .eq_ignore_ascii_case("image/gif")
+                }))
+    }
+
+    pub fn has_inline_preview(&self) -> bool {
+        matches!(self.kind, AttachmentKind::Image | AttachmentKind::Sticker) || self.is_gif()
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         let path = self.direct_path.split('?').next().unwrap_or_default();
         if self.size == 0
@@ -126,7 +145,11 @@ impl Attachment {
         };
         format!(
             "[{}] {} · {size}",
-            self.kind.label(),
+            if self.is_gif() {
+                "gif"
+            } else {
+                self.kind.label()
+            },
             self.filename.as_deref().unwrap_or("Attachment")
         )
     }

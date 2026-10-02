@@ -805,7 +805,14 @@ fn quoted_summary(payload: &wa::Message) -> Option<(String, Option<crate::media:
     let (kind, caption) = if let Some(image) = base.image_message.as_option() {
         (K::Image, image.caption.as_deref())
     } else if let Some(video) = base.video_message.as_option() {
-        (K::Video, video.caption.as_deref())
+        (
+            if video.gif_playback == Some(true) {
+                K::Gif
+            } else {
+                K::Video
+            },
+            video.caption.as_deref(),
+        )
     } else if base.sticker_message.is_set() {
         (K::Sticker, None)
     } else if base.audio_message.is_set() {
@@ -834,6 +841,24 @@ fn quoted_summary(payload: &wa::Message) -> Option<(String, Option<crate::media:
 mod media_quote_tests {
     use super::*;
     use whatsapp_rust::prelude::{MessageBuilderExt, MessageField};
+    #[test]
+    fn gif_quote_retains_its_kind_without_full_media_references() {
+        let payload = wa::Message {
+            video_message: MessageField::some(wa::message::VideoMessage {
+                gif_playback: Some(true),
+                caption: Some("A loop".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(
+            quoted_summary(&payload),
+            Some((
+                "[gif] A loop".into(),
+                Some(crate::media::AttachmentKind::Gif)
+            ))
+        );
+    }
     #[test]
     fn incoming_captionless_sticker_quote_keeps_identity_and_kind() {
         let context = wa::ContextInfo {

@@ -30,7 +30,7 @@ pub(super) fn label(message: &MessageRecord, view: &ViewModel) -> String {
         return String::new();
     };
     let voice = a.audio.as_ref().is_some_and(|a| a.voice);
-    if a.kind == crate::media::AttachmentKind::Video {
+    if a.kind == crate::media::AttachmentKind::Video || a.is_gif() {
         return "[Play] Video · open in mpv".into();
     }
     format!(

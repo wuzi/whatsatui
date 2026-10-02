@@ -52,12 +52,7 @@ pub(super) fn rows(
                         .map(Line::from),
                 );
             }
-            if config.media.inline
-                && matches!(
-                    attachment.kind,
-                    crate::media::AttachmentKind::Image | crate::media::AttachmentKind::Sticker
-                )
-            {
+            if config.media.inline && attachment.has_inline_preview() {
                 preview_at = Some(lines.len());
                 lines.extend((0..super::images::PREVIEW_ROWS).map(|_| Line::from("")));
             }

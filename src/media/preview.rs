@@ -1,6 +1,6 @@
 //! Bounded, verified image loading, independent of the terminal renderer.
 use super::animation::Preview;
-use super::{AttachmentKind, Downloader, cache, check_cancel, current};
+use super::{Downloader, cache, check_cancel, current};
 use crate::{app::model::MessageRecord, storage::Store};
 use image::{DynamicImage, ImageDecoder, ImageReader};
 use std::io::{Cursor, Read};
@@ -97,10 +97,7 @@ pub async fn load(
         return Ok(result);
     }
     let attachment = current(&message, &store).await?;
-    if !matches!(
-        attachment.kind,
-        AttachmentKind::Image | AttachmentKind::Sticker
-    ) {
+    if !attachment.has_inline_preview() {
         return Err("No inline preview for this attachment".into());
     }
     attachment.validate()?;
@@ -132,9 +129,8 @@ pub async fn load(
         .await
         .map_err(|_| "Image decoder stopped")?;
     check_cancel(&cancel)?;
-    let decode_cancel = cancel.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        let _permit = permit;
+    let is_gif = attachment.is_gif();
+    let (bytes, permit) = tokio::task::spawn_blocking(move || -> Result<_, String> {
         let bytes = read_bounded(&path)?;
         use sha2::{Digest, Sha256};
         if bytes.len() as u64 != attachment.size
@@ -142,12 +138,24 @@ pub async fn load(
         {
             return Err("Image changed during preview loading".into());
         }
-        let image = super::animation::decode(&bytes, &decode_cancel)?;
         drop(cache);
-        Ok(image)
+        Ok((bytes, permit))
     })
     .await
-    .map_err(|_| "Image decoder stopped")?;
+    .map_err(|_| "Image decoder stopped")??;
+    check_cancel(&cancel)?;
+    let result = if is_gif {
+        let _permit = permit;
+        super::gif::decode(bytes, cancel.clone()).await
+    } else {
+        let decode_cancel = cancel.clone();
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            super::animation::decode(&bytes, &decode_cancel)
+        })
+        .await
+        .map_err(|_| "Image decoder stopped")?
+    };
     check_cancel(&cancel)?;
     current(&message, &store).await?;
     result

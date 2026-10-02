@@ -260,6 +260,13 @@ pub(super) async fn initialize(store: &Store) -> Result<StoreChange, BackendErro
         (
             "leo@demo",
             "leo@demo",
+            "l-gif",
+            gif_attachment(),
+            20 * 60_000,
+        ),
+        (
+            "leo@demo",
+            "leo@demo",
             "l-sticker",
             sticker_attachment(),
             21 * 60_000,

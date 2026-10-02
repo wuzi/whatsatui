@@ -48,7 +48,7 @@ fn edit(message: &MessageRecord, caption: &str, at: i64) -> MessageChange {
             }),
             ..Default::default()
         },
-        AttachmentKind::Video => wa::Message {
+        AttachmentKind::Video | AttachmentKind::Gif => wa::Message {
             video_message: MessageField::some(wa::message::VideoMessage {
                 caption: Some(caption.into()),
                 ..Default::default()
@@ -99,6 +99,7 @@ async fn media_caption_edit_envelopes_preserve_references_and_mutation_order() {
         AttachmentKind::Image,
         AttachmentKind::Document,
         AttachmentKind::Video,
+        AttachmentKind::Gif,
     ] {
         for before_original in [false, true] {
             let dir = tempfile::tempdir().unwrap();

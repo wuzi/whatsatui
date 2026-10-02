@@ -59,7 +59,7 @@ pub struct Request {
 }
 impl Request {
     pub(crate) fn is_video(&self) -> bool {
-        matches!(&self.message.body, crate::app::model::MessageBody::Media(a) if a.kind == crate::media::AttachmentKind::Video)
+        matches!(&self.message.body, crate::app::model::MessageBody::Media(a) if a.kind == crate::media::AttachmentKind::Video || a.is_gif())
     }
     pub(crate) fn same_source(&self, other: &Self) -> bool {
         self.id == other.id && self.message == other.message

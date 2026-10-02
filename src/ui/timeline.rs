@@ -194,7 +194,9 @@ pub(super) fn layout(area: Rect, view: &ViewModel, config: &Config) -> Timeline 
         let quote = quote_start..quote_start + quote_count;
         let (body, preview) = message_body::rows(message, view, config, width);
         let audio =
-            if crate::message_actions::can_play(message, chrono::Utc::now().timestamp_millis()) {
+            if crate::message_actions::can_play(message, chrono::Utc::now().timestamp_millis())
+                && !matches!(&message.body, MessageBody::Media(a) if a.is_gif())
+            {
                 quote.end..lines.len() + body.len()
             } else {
                 0..0

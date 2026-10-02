@@ -182,9 +182,10 @@ fn quoted_body(quote: &Quote, preview: &str) -> wa::Message {
         return wa::Message::text(preview);
     }
     match quote.media_kind {
-        Some(AttachmentKind::Video) => wa::Message {
+        Some(AttachmentKind::Video | AttachmentKind::Gif) => wa::Message {
             video_message: MessageField::some(wa::message::VideoMessage {
                 caption: Some(preview.into()),
+                gif_playback: (quote.media_kind == Some(AttachmentKind::Gif)).then_some(true),
                 ..Default::default()
             }),
             ..Default::default()

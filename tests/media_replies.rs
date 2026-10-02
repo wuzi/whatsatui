@@ -46,6 +46,7 @@ fn captionless_media_quotes_have_a_label_and_typed_wire_body() {
         (AttachmentKind::Sticker, "[sticker]"),
         (AttachmentKind::Document, "[document] notes.pdf"),
         (AttachmentKind::Video, "[video]"),
+        (AttachmentKind::Gif, "[gif]"),
     ] {
         let m = media(kind);
         let quote = message_actions::quote(&m, 1).unwrap();
@@ -77,7 +78,16 @@ fn captionless_media_quotes_have_a_label_and_typed_wire_body() {
         assert_eq!(ctx.participant.as_deref(), Some("222@s.whatsapp.net"));
         let quoted = ctx.quoted_message.as_option().unwrap();
         assert_eq!(quoted.image_message.is_set(), kind == AttachmentKind::Image);
-        assert_eq!(quoted.video_message.is_set(), kind == AttachmentKind::Video);
+        assert_eq!(
+            quoted.video_message.is_set(),
+            matches!(kind, AttachmentKind::Video | AttachmentKind::Gif)
+        );
+        if kind == AttachmentKind::Gif {
+            assert_eq!(
+                quoted.video_message.as_option().unwrap().gif_playback,
+                Some(true)
+            );
+        }
         assert_eq!(
             quoted.sticker_message.is_set(),
             kind == AttachmentKind::Sticker

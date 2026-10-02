@@ -11,7 +11,7 @@ A personal WhatsApp terminal client in Rust and Ratatui, with pane-based keyboar
 - Unicode composition, multiline paste, quoted replies, and persistent per-chat drafts.
 - Styled message text and captions: emphasis, code, quotes, and lists.
 - A message action menu, original-text copying, and an explicit web-link picker.
-- Inline images and animated stickers, with Ghostty/Kitty graphics and a half-block fallback.
+- Inline images, animated stickers, and silently looping GIFs, with Ghostty/Kitty graphics and a half-block fallback (GIFs require FFmpeg).
 - Clipboard image paste with captions, persistent drafts, a recent-sticker picker, and searchable Unicode emoji.
 - Verified downloads for received images, stickers, audio, videos, and documents, with a separate viewer action.
 - Video playback in an mpv window with sound, seeking, and fullscreen controls.

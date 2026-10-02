@@ -127,7 +127,7 @@ pub fn can_react(message: &MessageRecord, now_ms: i64) -> bool {
 }
 pub fn can_play(message: &MessageRecord, now_ms: i64) -> bool {
     !message.expires_at_ms.is_some_and(|at| at <= now_ms)
-        && matches!(&message.body,MessageBody::Media(a) if matches!(a.kind, crate::media::AttachmentKind::Audio | crate::media::AttachmentKind::Video) && a.validate().is_ok())
+        && matches!(&message.body,MessageBody::Media(a) if (matches!(a.kind, crate::media::AttachmentKind::Audio | crate::media::AttachmentKind::Video) || a.is_gif()) && a.validate().is_ok())
 }
 pub fn can_edit(message: &MessageRecord, now_ms: i64) -> bool {
     message.key.from_me

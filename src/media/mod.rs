@@ -1,5 +1,6 @@
 mod cache;
 mod download;
+mod gif;
 mod webp_bounds;
 mod worker;
 pub use download::NativeDownloader;
