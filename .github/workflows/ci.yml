@@ -16,12 +16,18 @@ env:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    name: Check and build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Install system dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential pkg-config
@@ -42,10 +48,32 @@ jobs:
         run: cargo +1.98.0 clean
 
       - name: Build release
+        if: runner.os == 'Linux'
         run: cargo +1.98.0 build --locked --release
+
+      - name: Build Windows release
+        if: runner.os == 'Windows'
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: cargo +1.98.0 build --locked --release --target x86_64-pc-windows-msvc
+
+      - name: Smoke-test Windows executable
+        if: runner.os == 'Windows'
+        run: |
+          ./target/x86_64-pc-windows-msvc/release/whatsapp-tui.exe --help
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload Windows executable
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: whatsapp-tui-windows-x86_64
+          path: target/x86_64-pc-windows-msvc/release/whatsapp-tui.exe
+          if-no-files-found: error
 
       - name: Show disk usage
         if: always()
+        shell: bash
         run: |
           df -h .
           du -sh target 2>/dev/null || true

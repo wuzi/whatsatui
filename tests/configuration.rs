@@ -82,20 +82,22 @@ fn defaults_match_spec() {
 }
 #[test]
 fn relative_xdg_uses_home() {
+    let home = tempfile::tempdir().unwrap();
+    let state = home.path().join("state");
     let p = Paths::resolve(
-        Path::new("/home/test"),
+        home.path(),
         &XdgDirs {
             config: Some("relative".into()),
             data: Some("".into()),
-            state: Some("/state".into()),
+            state: Some(state.clone()),
         },
     );
     assert_eq!(
         p.config,
-        Path::new("/home/test/.config/whatsapp-tui/config.toml")
+        home.path().join(".config/whatsapp-tui/config.toml")
     );
-    assert_eq!(p.data, Path::new("/home/test/.local/share/whatsapp-tui"));
-    assert_eq!(p.state, Path::new("/state/whatsapp-tui"));
+    assert_eq!(p.data, home.path().join(".local/share/whatsapp-tui"));
+    assert_eq!(p.state, state.join("whatsapp-tui"));
 }
 #[test]
 fn duplicate_context_binding_is_rejected() {
@@ -107,6 +109,35 @@ fn duplicate_context_binding_is_rejected() {
     assert!(Config::parse("typo=true").is_err());
     assert!(Config::parse("[theme]\nfocus='nope'").is_err());
     assert!(Config::parse("[bindings.composer]\nsend=['j']").is_err());
+}
+
+#[test]
+fn windows_paths_use_appdata_and_localappdata() {
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("profile");
+    let roaming = root.path().join("roaming");
+    let local = root.path().join("local");
+    let paths = Paths::resolve_windows(&home, Some(&roaming), Some(&local));
+    assert_eq!(paths.config, roaming.join("whatsapp-tui/config.toml"));
+    assert_eq!(paths.data, local.join("whatsapp-tui"));
+    assert_eq!(paths.state, local.join("whatsapp-tui"));
+}
+
+#[test]
+fn windows_paths_fall_back_to_the_user_profile_for_invalid_overrides() {
+    let root = tempfile::tempdir().unwrap();
+    for (roaming, local) in [
+        (None, None),
+        (Some(Path::new("relative")), Some(Path::new(""))),
+    ] {
+        let paths = Paths::resolve_windows(root.path(), roaming, local);
+        assert_eq!(
+            paths.config,
+            root.path().join("AppData/Roaming/whatsapp-tui/config.toml")
+        );
+        assert_eq!(paths.data, root.path().join("AppData/Local/whatsapp-tui"));
+        assert_eq!(paths.state, root.path().join("AppData/Local/whatsapp-tui"));
+    }
 }
 #[test]
 fn required_actions_remain_reachable() {

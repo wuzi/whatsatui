@@ -1,5 +1,7 @@
 use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
-use std::{io::Cursor, os::unix::fs::PermissionsExt};
+use std::io::Cursor;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use whatsapp_tui::media::{outgoing, preview};
 mod support;
 
@@ -127,6 +129,7 @@ fn imported_image_is_private_immutable_and_verifiable() {
     assert_eq!(image::guess_format(&bytes).unwrap(), ImageFormat::Jpeg);
     assert_eq!((image.width, image.height), (24, 16));
     let path = outgoing::path(&image, &data).unwrap();
+    #[cfg(unix)]
     assert_eq!(
         std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
         0o600

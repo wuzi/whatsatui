@@ -1,10 +1,11 @@
 use serde_json::{Value, json};
-use std::{os::fd::OwnedFd, path::Path, process::Stdio, time::Duration};
+use std::{path::Path, process::Stdio, time::Duration};
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    net::UnixStream,
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader, ReadHalf, WriteHalf},
     process::{Child, Command},
 };
+mod channel;
+use channel::ControlStream;
 
 #[derive(Default)]
 pub(super) struct State {
@@ -17,8 +18,8 @@ pub(super) struct State {
 }
 pub(super) struct Mpv {
     _child: Child,
-    reader: BufReader<tokio::net::unix::OwnedReadHalf>,
-    writer: tokio::net::unix::OwnedWriteHalf,
+    reader: BufReader<ReadHalf<ControlStream>>,
+    writer: WriteHalf<ControlStream>,
     pending: Vec<u8>,
     serial: u64,
     video: bool,
@@ -26,19 +27,20 @@ pub(super) struct Mpv {
 }
 impl Mpv {
     pub async fn start(executable: &Path, path: &Path, video: bool) -> Result<Self, String> {
-        let (parent, child) = std::os::unix::net::UnixStream::pair()
+        let (stream, input) = channel::open()
+            .await
             .map_err(|_| "Cannot create playback control channel")?;
-        parent
-            .set_nonblocking(true)
-            .map_err(|_| "Cannot configure playback control channel")?;
-        // FD 0 is a private duplex socket, not the terminal. mpv exits when its
+        // FD 0 is a private duplex socket/pipe. mpv exits when its
         // IPC client disconnects, including an unexpected parent process exit.
         let mut command = Command::new(executable);
         if video {
             // Restrict fallback to GUI outputs: a failed window must not write
             // video graphics into our terminal or fall back to a null output.
+            #[cfg(unix)]
+            command.arg("--vo=gpu-next,gpu,wlshm,x11");
+            #[cfg(windows)]
+            command.arg("--vo=gpu-next,gpu");
             command.args([
-                "--vo=gpu-next,gpu,wlshm,x11",
                 "--force-window=yes",
                 "--title=WhatsAppTUI video",
                 "--osc=yes",
@@ -67,7 +69,7 @@ impl Mpv {
                 "--",
             ])
             .arg(path)
-            .stdin(Stdio::from(OwnedFd::from(child)))
+            .stdin(input)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .kill_on_drop(true)
@@ -79,9 +81,7 @@ impl Mpv {
                     "Cannot start mpv media player"
                 }
             })?;
-        let (reader, writer) = UnixStream::from_std(parent)
-            .map_err(|_| "Cannot open playback control channel")?
-            .into_split();
+        let (reader, writer) = tokio::io::split(stream);
         let mut player = Self {
             _child: child,
             reader: BufReader::new(reader),

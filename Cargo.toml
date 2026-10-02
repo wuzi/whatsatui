@@ -33,9 +33,18 @@ ratatui-image = { version = "=11.1.0", default-features = false, features = ["cr
 emojis = "=0.9.0"
 webp = { version = "=0.3.1", default-features = false }
 reqwest = { version = "=0.12.28", default-features = false, features = ["rustls-tls"] }
+[target.'cfg(unix)'.dependencies]
 zbus = { version = "=5.19.0", default-features = false, features = ["tokio"] }
 
-[dev-dependencies]
+[target.'cfg(windows)'.dependencies]
+arboard = "=3.6.1"
+clipboard-win = "5.4"
+windows = { version = "=0.62.2", features = ["Data_Xml_Dom", "UI_Notifications", "Win32_System_WinRT"] }
+windows-registry = "=0.6.1"
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Console", "Win32_System_IO", "Win32_System_Pipes", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+libsqlite3-sys = { version = "0.37", features = ["bundled"] }
+
+[target.'cfg(unix)'.dev-dependencies]
 nix = { version = "0.30", features = ["term", "process", "poll", "fs"] }
 
 [profile.release]

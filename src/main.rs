@@ -1,7 +1,7 @@
 use clap::Parser;
 use std::path::PathBuf;
 use whatsapp_tui::{
-    config::{Paths, XdgDirs},
+    config::{self, Paths},
     runtime::{self, AppError, Options},
 };
 #[tokio::main]
@@ -19,21 +19,25 @@ async fn start() -> Result<(), AppError> {
             .map_err(|_| AppError::Arguments("Media worker failed"));
     }
     let options = Options::parse();
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .ok_or(AppError::Arguments("HOME must name an absolute directory"))?;
-    let xdg = XdgDirs {
+    let home = config::home_dir().ok_or(AppError::Arguments("Home directory is unavailable"))?;
+    #[cfg(unix)]
+    let xdg = config::XdgDirs {
         config: std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from),
         data: std::env::var_os("XDG_DATA_HOME").map(PathBuf::from),
         state: std::env::var_os("XDG_STATE_HOME").map(PathBuf::from),
     };
-    runtime::prepare_with(
-        options,
-        Paths::resolve(&home, &xdg),
-        whatsapp_tui::whatsapp::start,
-    )
-    .await?
-    .run()
-    .await
+    #[cfg(unix)]
+    let paths = Paths::resolve(&home, &xdg);
+    #[cfg(windows)]
+    let paths = Paths::resolve_windows(
+        &home,
+        std::env::var_os("APPDATA").map(PathBuf::from).as_deref(),
+        std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .as_deref(),
+    );
+    runtime::prepare_with(options, paths, whatsapp_tui::whatsapp::start)
+        .await?
+        .run()
+        .await
 }

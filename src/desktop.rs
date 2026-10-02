@@ -1,10 +1,14 @@
 pub mod clipboard;
+#[cfg(windows)]
+mod windows;
 use crate::{
     app::model::MessageRecord,
     message_actions::{self, DesktopAction},
     storage::Store,
 };
+#[cfg(unix)]
 use std::{io, process::Stdio, time::Duration};
+#[cfg(unix)]
 use tokio::{io::AsyncWriteExt, process::Command};
 
 #[async_trait::async_trait]
@@ -54,6 +58,7 @@ pub async fn execute(
 }
 
 pub struct NativeDesktop;
+#[cfg(unix)]
 #[async_trait::async_trait]
 impl Desktop for NativeDesktop {
     async fn open_file(&self, path: &std::path::Path) -> Result<(), String> {
@@ -117,6 +122,7 @@ fn check_copy_size(text: &str) -> Result<(), String> {
         Ok(())
     }
 }
+#[cfg(unix)]
 fn helper_error(name: &str, error: io::Error) -> String {
     format!(
         "{name} helper {}",
@@ -128,6 +134,7 @@ fn helper_error(name: &str, error: io::Error) -> String {
     )
 }
 
+#[cfg(unix)]
 pub(crate) async fn run(
     mut command: Command,
     input: Option<&[u8]>,
@@ -168,7 +175,7 @@ pub(crate) async fn run(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use std::{

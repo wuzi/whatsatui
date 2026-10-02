@@ -62,10 +62,51 @@ A personal WhatsApp terminal client in Rust and Ratatui, with pane-based keyboar
 
 ## Local configuration and data
 
-Defaults:
+Defaults on Linux:
 
 - Configuration: `~/.config/whatsapp-tui/config.toml`
 - History/drafts: `~/.local/share/whatsapp-tui/chat.sqlite3`
 - Linked-device credentials: `~/.local/share/whatsapp-tui/session.sqlite3`
 - Downloaded attachments: `~/.local/share/whatsapp-tui/media/`
 - Prepared image snapshots: `~/.local/share/whatsapp-tui/outgoing/`
+
+## Windows
+
+The Windows build targets 64-bit Windows 10/11. Run it in Windows Terminal.
+
+Download `whatsapp-tui-windows-x86_64` from a successful **Rust** workflow run's
+artifacts on GitHub Actions, extract the archive, then launch it in PowerShell:
+
+```powershell
+.\whatsapp-tui.exe
+```
+
+Try the interface without linking your account with `.\whatsapp-tui.exe --demo`.
+Inline images use the terminal's supported graphics protocol or the half-block
+fallback. Clipboard text, images and copied image files use the Windows clipboard;
+links and downloaded files open in their default Windows applications.
+
+Audio and video playback require `mpv.exe` on `PATH`, or an explicit player path
+in your configuration:
+
+```toml
+[audio]
+player = 'C:\Tools\mpv\mpv.exe'
+```
+
+Windows locations:
+
+- Configuration: `%APPDATA%\whatsapp-tui\config.toml`
+- History/drafts and linked-device credentials: `%LOCALAPPDATA%\whatsapp-tui\`
+- Downloaded attachments: `%LOCALAPPDATA%\whatsapp-tui\media\`
+- Prepared image snapshots: `%LOCALAPPDATA%\whatsapp-tui\outgoing\`
+
+If the AppData variables are unavailable, the same directories under
+`%USERPROFILE%\AppData\Roaming` and `%USERPROFILE%\AppData\Local` are used.
+Local data directories and files are restricted to your Windows user. Desktop
+notifications register WhatsAppTUI under the current user's `AppUserModelId`
+registry key and are silent; notification preferences work on both platforms.
+
+To build from source, install Rust 1.98.0 and the Visual Studio C++ build tools,
+then run `cargo build --locked --release` from the repository in PowerShell.
+The executable is written to `target\release\whatsapp-tui.exe`; SQLite is bundled.

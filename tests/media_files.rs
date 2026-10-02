@@ -112,6 +112,7 @@ fn payloads(dir: &Path) -> Vec<PathBuf> {
 
 #[tokio::test]
 async fn downloads_privately_without_opening_and_reuses_verified_bytes() {
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path().join("chat.sqlite3")).await.unwrap();
@@ -137,7 +138,7 @@ async fn downloads_privately_without_opening_and_reuses_verified_bytes() {
         .await
         .unwrap();
     let path = viewer.0.lock().unwrap()[0].clone();
-    assert_eq!(path.parent().unwrap(), dir.path().join("media"));
+    assert_eq!(path.parent().unwrap(), store.data_dir().join("media"));
     assert!(
         !path
             .file_name()
@@ -145,10 +146,12 @@ async fn downloads_privately_without_opening_and_reuses_verified_bytes() {
             .to_string_lossy()
             .contains("outside")
     );
+    #[cfg(unix)]
     assert_eq!(
         std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
         0o600
     );
+    #[cfg(unix)]
     assert_eq!(
         std::fs::metadata(path.parent().unwrap())
             .unwrap()
@@ -226,6 +229,7 @@ async fn stale_records_and_mid_transfer_changes_do_not_publish() {
 }
 
 #[tokio::test]
+#[cfg(unix)]
 async fn corrupt_and_symlinked_cached_files_are_never_opened() {
     use std::os::unix::fs::symlink;
     let dir = tempfile::tempdir().unwrap();

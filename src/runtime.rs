@@ -353,10 +353,9 @@ async fn execute_with_media(
             let result = tokio::task::spawn_blocking(move || {
                 let _permit = permit;
                 let path = if let Some(rest) = path.strip_prefix("~/") {
-                    std::path::PathBuf::from(
-                        std::env::var_os("HOME").ok_or("Home directory is unavailable")?,
-                    )
-                    .join(rest)
+                    crate::config::home_dir()
+                        .ok_or("Home directory is unavailable")?
+                        .join(rest)
                 } else {
                     std::path::PathBuf::from(path)
                 };
@@ -671,7 +670,10 @@ where
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut dirty = true;
     let mut last_second = chrono::Utc::now().timestamp();
+    #[cfg(unix)]
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    #[cfg(windows)]
+    let mut terminate = tokio::signal::windows::ctrl_close()?;
     loop {
         // Control is independent of effect slots. Reserve storage slots so a
         // full command channel can never prevent the pre-quit draft flush.

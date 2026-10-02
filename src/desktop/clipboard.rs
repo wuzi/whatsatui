@@ -1,5 +1,10 @@
 //! Explicit, bounded clipboard reads. Clipboard contents never pass through a shell.
-use std::{path::PathBuf, process::Stdio, time::Duration};
+#[cfg(windows)]
+pub use super::windows::read_clipboard as read;
+use std::path::PathBuf;
+#[cfg(unix)]
+use std::{process::Stdio, time::Duration};
+#[cfg(unix)]
 use tokio::{io::AsyncReadExt, process::Command, sync::watch};
 
 pub enum Content {
@@ -14,6 +19,7 @@ pub enum Paste {
     Text(String),
 }
 
+#[cfg(unix)]
 pub async fn read(cancel: watch::Receiver<bool>) -> Result<Content, String> {
     let (program, list, prefix): (&str, &[&str], &[&str]) =
         if std::env::var_os("WAYLAND_DISPLAY").is_some() {
@@ -65,6 +71,7 @@ pub async fn read(cancel: watch::Receiver<bool>) -> Result<Content, String> {
     Ok(Content::Text(text))
 }
 
+#[cfg(unix)]
 fn copied_file(text: &str) -> Result<PathBuf, String> {
     let mut lines = text.lines().map(str::trim).filter(|line| {
         !line.is_empty() && !line.starts_with('#') && !matches!(*line, "copy" | "cut")
@@ -79,6 +86,7 @@ fn copied_file(text: &str) -> Result<PathBuf, String> {
         .ok_or_else(|| "Clipboard file must be a local image".into())
 }
 
+#[cfg(unix)]
 async fn capture(
     mut command: Command,
     limit: usize,
@@ -123,7 +131,7 @@ async fn capture(
     result
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     #[test]

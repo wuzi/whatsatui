@@ -118,7 +118,31 @@ pub struct Paths {
     pub data: PathBuf,
     pub state: PathBuf,
 }
+pub fn home_dir() -> Option<PathBuf> {
+    #[cfg(windows)]
+    let variable = "USERPROFILE";
+    #[cfg(not(windows))]
+    let variable = "HOME";
+    std::env::var_os(variable)
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+}
 impl Paths {
+    pub fn resolve_windows(home: &Path, roaming: Option<&Path>, local: Option<&Path>) -> Self {
+        let base = |value: Option<&Path>, fallback: &str| {
+            value
+                .filter(|path| path.is_absolute())
+                .map(Path::to_owned)
+                .unwrap_or_else(|| home.join(fallback))
+                .join("whatsapp-tui")
+        };
+        let data = base(local, "AppData/Local");
+        Self {
+            config: base(roaming, "AppData/Roaming").join("config.toml"),
+            state: data.clone(),
+            data,
+        }
+    }
     pub fn resolve(home: &Path, xdg: &XdgDirs) -> Self {
         let base = |value: &Option<PathBuf>, fallback: &str| {
             value

@@ -1,10 +1,13 @@
 use crate::runtime::AppError;
+#[cfg(unix)]
+use crossterm::event::{
+    KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+};
 use crossterm::{
     cursor::{Hide, Show},
     event::{
         DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
-        EnableFocusChange, EnableMouseCapture, KeyboardEnhancementFlags,
-        PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+        EnableFocusChange, EnableMouseCapture,
     },
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
@@ -15,6 +18,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 static ACTIVE: AtomicBool = AtomicBool::new(false);
+static MOUSE_CAPTURE: AtomicBool = AtomicBool::new(false);
 static PANIC_HOOK: Once = Once::new();
 pub struct TerminalGuard {
     active: bool,
@@ -43,18 +47,20 @@ impl TerminalGuard {
         enable_raw_mode()?;
         ACTIVE.store(true, Ordering::SeqCst);
         let guard = Self { active: true };
+        execute!(io::stdout(), EnterAlternateScreen)?;
+        // Crossterm's native Windows input reader already reports modifiers;
+        // its enhanced-keyboard commands explicitly reject Windows execution.
+        #[cfg(unix)]
         execute!(
             io::stdout(),
-            EnterAlternateScreen,
             PushKeyboardEnhancementFlags(
                 KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
                     | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
-            ),
-            EnableBracketedPaste,
-            EnableFocusChange,
-            Hide
+            )
         )?;
+        execute!(io::stdout(), EnableBracketedPaste, EnableFocusChange, Hide)?;
         if mouse {
+            MOUSE_CAPTURE.store(true, Ordering::SeqCst);
             execute!(io::stdout(), EnableMouseCapture)?;
         }
         Ok(guard)
@@ -73,18 +79,27 @@ impl TerminalGuard {
 }
 fn restore() -> io::Result<()> {
     let mut out = io::stdout();
-    let result = execute!(
-        out,
-        DisableBracketedPaste,
-        DisableFocusChange,
-        DisableMouseCapture,
-        PopKeyboardEnhancementFlags,
-        Show,
-        LeaveAlternateScreen
-    );
+    let result = execute!(out, DisableBracketedPaste, DisableFocusChange);
+    // The native Windows disable command needs state saved by enable; calling
+    // it when [ui].mouse=false returns an error during otherwise normal exit.
+    let mouse = if MOUSE_CAPTURE.swap(false, Ordering::SeqCst) {
+        execute!(out, DisableMouseCapture)
+    } else {
+        Ok(())
+    };
+    #[cfg(unix)]
+    let keyboard = execute!(out, PopKeyboardEnhancementFlags);
+    #[cfg(windows)]
+    let keyboard = Ok(());
+    let screen = execute!(out, Show, LeaveAlternateScreen);
     let raw = disable_raw_mode();
     let flush = out.flush();
-    result.and(raw).and(flush)
+    result
+        .and(mouse)
+        .and(keyboard)
+        .and(screen)
+        .and(raw)
+        .and(flush)
 }
 impl Drop for TerminalGuard {
     fn drop(&mut self) {

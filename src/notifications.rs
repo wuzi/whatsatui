@@ -148,6 +148,10 @@ pub struct Popup {
 pub trait Notifier: Send + Sync {
     async fn show(&self, popup: &Popup) -> Result<(), String>;
 }
+#[cfg(unix)]
+mod native;
+#[cfg(windows)]
+#[path = "notifications/windows.rs"]
 mod native;
 pub use native::NativeNotifier;
 pub async fn deliver(popup: &Popup, notifier: &impl Notifier) -> Result<(), String> {

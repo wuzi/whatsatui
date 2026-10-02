@@ -146,6 +146,7 @@ async fn accounts_are_isolated() {
 }
 #[tokio::test]
 async fn second_instance_is_rejected() {
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     let d = tempfile::tempdir().unwrap();
     let path = d.path().join("account");
@@ -156,10 +157,12 @@ async fn second_instance_is_rejected() {
     ));
     let s = Store::open(path.join("db")).await.unwrap();
     s.flush().await.unwrap();
+    #[cfg(unix)]
     assert_eq!(
         std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
         0o700
     );
+    #[cfg(unix)]
     assert_eq!(
         std::fs::metadata(path.join("db"))
             .unwrap()

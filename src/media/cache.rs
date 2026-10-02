@@ -1,7 +1,7 @@
 use super::{Attachment, MAX_FILE_BYTES};
 use crate::{
     app::model::MessageKey,
-    storage::paths::{private_dir, private_file},
+    storage::paths::{lock_contended, private_dir, private_file},
 };
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
@@ -70,7 +70,7 @@ impl Cache {
         private_dir(&root).map_err(io_error)?;
         let lock = private_file(&root.join(".lock")).map_err(io_error)?;
         if let Err(e) = lock.try_lock_exclusive() {
-            return if e.kind() == std::io::ErrorKind::WouldBlock {
+            return if lock_contended(&e) {
                 Ok(None)
             } else {
                 Err(io_error(e))
