@@ -12,7 +12,7 @@ Linux, Rust **1.98.0** (selected by `rust-toolchain.toml`), and a C compiler are
 cargo run --locked -- --demo
 ```
 
-The demo uses synthetic conversations and a temporary database. It never connects to WhatsApp or reads your live session. Its messages and drafts disappear on exit.
+The demo opens a busy fictional group conversation, with 22 English chats, generated profile photos, a café photo, replies, and reactions. It is ready for public screenshots: all images are bundled, it never connects to WhatsApp or reads your live session, and its temporary messages, drafts, and caches disappear on exit. Desktop notifications are disabled. If you already built the app, run `./target/release/whatsapp-tui --demo`. See [demo screenshots](docs/usage.md#demo-screenshots) for tips.
 
 For your account:
 

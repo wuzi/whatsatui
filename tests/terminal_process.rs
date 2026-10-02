@@ -158,7 +158,7 @@ fn demo_negotiates_modified_enter_and_clears_text_without_quitting() {
     let mut command = binary();
     command.args(["--demo", "--config"]).arg(config);
     let mut p = Process::launch(command);
-    p.wait_for("corner");
+    p.wait_for("See you all Saturday");
     p.wait_for("\x1b[>5u");
     p.master
         .write_all(b"i\x1b[200~composer-first\x1b[201~\x1b[13;2u\x1b[200~composer-second\x1b[201~")
@@ -250,7 +250,7 @@ fn demo_pastes_copied_image_files_and_plain_text() {
             .env("WHATSAPP_TUI_TEST_MIME", mime)
             .env("WHATSAPP_TUI_TEST_CLIPBOARD", data);
         let mut p = Process::launch(command);
-        p.wait_for("corner");
+        p.wait_for("See you all Saturday");
         p.master.write_all(b"\r\x16").unwrap();
         p.wait_for(if mime == "text/uri-list" {
             "copied photo.webp"
@@ -279,7 +279,7 @@ fn demo_sends_received_and_pasted_stickers_and_preserves_the_composer() {
         .env_remove("DISPLAY")
         .env("WHATSAPP_TUI_TEST_CLIPBOARD", &source);
     let mut p = Process::launch(command);
-    p.wait_for("corner");
+    p.wait_for("See you all Saturday");
     p.master
         .write_all(b"\r\x1b[200~Keep this draft\x1b[201~\x13")
         .unwrap();
@@ -317,7 +317,7 @@ fn demo_pastes_clipboard_image_without_a_path_and_keeps_the_caption() {
         .env_remove("DISPLAY")
         .env("WHATSAPP_TUI_TEST_CLIPBOARD", &fixture);
     let mut p = Process::launch(command);
-    p.wait_for("corner");
+    p.wait_for("See you all Saturday");
     p.master
         .write_all(b"\r\x1b[200~Caption stays here\x1b[201~\x16")
         .unwrap();
@@ -343,7 +343,7 @@ fn demo_attaches_images_picks_emoji_renders_kitty_and_restores_tty() {
         .env_remove("SSH_CONNECTION");
     let mut p = Process::launch(command);
     p.wait_for("Alice");
-    p.wait_for("corner"); // Chat snapshot must finish before attachment import is enabled.
+    p.wait_for("See you all Saturday"); // Chat snapshot must finish before attachment import is enabled.
     p.master.write_all(b"\r\x0f").unwrap();
     p.wait_for("Attach image");
     p.master
@@ -392,8 +392,17 @@ fn demo_downloads_then_explicitly_opens_media_and_restores_tty() {
     p.master.write_all(b"\x10").unwrap();
     p.wait_for("Switch chat");
     p.master.write_all(b"\x1b[200~weekend\x1b[201~\r").unwrap();
-    p.wait_for("corner");
-    p.master.write_all(b"\x1b[Z\r").unwrap();
+    p.wait_for("See you all Saturday");
+    // Find the photo instead of assuming it is the newest message.
+    p.master.write_all(b"\x06").unwrap();
+    p.wait_for("search/open");
+    p.master
+        .write_all(b"\x1b[200~Saturday spot\x1b[201~\r")
+        .unwrap();
+    p.wait_for("matches");
+    p.master.write_all(b"\r").unwrap();
+    p.wait_for("Found our Saturday spot");
+    p.master.write_all(b"\r").unwrap();
     p.wait_for("Download attachment");
     assert!(!opened.exists());
     p.master.write_all(b"d").unwrap();
@@ -401,7 +410,7 @@ fn demo_downloads_then_explicitly_opens_media_and_restores_tty() {
     assert!(!opened.exists(), "download must not launch a viewer");
     p.master.write_all(b"v").unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
-    while !std::fs::read_to_string(&opened).is_ok_and(|s| s.ends_with(".png\n")) {
+    while !std::fs::read_to_string(&opened).is_ok_and(|s| s.ends_with(".jpg\n")) {
         p.drain();
         assert!(
             Instant::now() < deadline,
@@ -415,11 +424,10 @@ fn demo_downloads_then_explicitly_opens_media_and_restores_tty() {
     assert_eq!(args[0], "1");
     let path = std::path::Path::new(args[1]);
     assert!(path.is_absolute());
-    assert_eq!(path.extension().unwrap(), "png");
-    assert!(
-        std::fs::read(path)
-            .unwrap()
-            .starts_with(b"\x89PNG\r\n\x1a\n")
+    assert_eq!(path.extension().unwrap(), "jpg");
+    assert_eq!(
+        std::fs::read(path).unwrap(),
+        include_bytes!("../assets/demo/cafe.jpg")
     );
     p.master.write_all(b"\x11").unwrap();
     assert!(p.finish().success());

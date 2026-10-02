@@ -82,6 +82,56 @@ async fn demo_has_no_network_factory() {
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     s.backend.control.shutdown().await.unwrap();
 }
+
+#[tokio::test]
+async fn demo_photos_are_bundled_decodable_and_account_scoped() {
+    use whatsapp_tui::avatars::{Cache, Identity};
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path().join("chat.sqlite3")).await.unwrap();
+    let backend = whatsapp_tui::whatsapp::demo::start(store);
+    let cache = Cache::new(root.path().to_owned());
+    for jid in [
+        "you@demo",
+        "alice@demo",
+        "maya@demo",
+        "leo@demo",
+        "priya@demo",
+        "noah@demo",
+        "sofia@demo",
+        "oliver@demo",
+        "lena@demo",
+        "weekend@g.us",
+        "trail@g.us",
+    ] {
+        let identity = Identity {
+            account: "you@demo".into(),
+            jid: jid.into(),
+        };
+        let photo = cache
+            .load(backend.profiles.as_ref(), &identity, 1000)
+            .await
+            .unwrap();
+        assert!(photo.is_some(), "missing bundled photo for {jid}");
+    }
+    for (account, jid) in [
+        ("real-account", "alice@demo"),
+        ("you@demo", "unknown@demo"),
+        ("you@demo", "123@s.whatsapp.net"),
+    ] {
+        assert!(
+            backend
+                .profiles
+                .fetch(&Identity {
+                    account: account.into(),
+                    jid: jid.into()
+                })
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+    backend.control.shutdown().await.unwrap();
+}
 #[tokio::test(start_paused = true)]
 async fn draft_tick_is_250_ms() {
     let mut a = ready_app();
