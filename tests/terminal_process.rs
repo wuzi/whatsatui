@@ -19,6 +19,9 @@ struct Process {
     slave: File,
     before: Termios,
     output: Vec<u8>,
+    // Keep terminal state across reads and raw-output resets: Ratatui can
+    // reuse existing cells instead of emitting a complete sentence again.
+    screen: vt100::Parser,
     _home: tempfile::TempDir,
 }
 impl Process {
@@ -63,6 +66,7 @@ impl Process {
             slave,
             before,
             output: vec![],
+            screen: vt100::Parser::new(24, 80, 0),
             _home: home,
         }
     }
@@ -71,29 +75,41 @@ impl Process {
         loop {
             match self.master.read(&mut buf) {
                 Ok(0) => break,
-                Ok(n) => self.output.extend_from_slice(&buf[..n]),
+                Ok(n) => {
+                    self.screen.process(&buf[..n]);
+                    self.output.extend_from_slice(&buf[..n]);
+                }
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
                 Err(e) => panic!("PTY read: {e}"),
             }
         }
     }
     fn wait_for(&mut self, needle: &str) {
+        self.wait_until(needle, |p| p.screen.screen().contents().contains(needle));
+    }
+    fn wait_for_output(&mut self, needle: &str) {
+        self.wait_until(needle, |p| {
+            String::from_utf8_lossy(&p.output).contains(needle)
+        });
+    }
+    fn wait_until(&mut self, description: &str, ready: impl Fn(&Self) -> bool) {
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
             self.drain();
-            if String::from_utf8_lossy(&self.output).contains(needle) {
+            if ready(self) {
                 return;
             }
             assert!(
                 self.child.try_wait().unwrap().is_none(),
-                "child exited before {needle}: {}",
-                String::from_utf8_lossy(&self.output)
+                "child exited before {description:?}; terminal screen:\n{}",
+                self.screen.screen().contents()
             );
             std::thread::sleep(Duration::from_millis(10));
         }
         panic!(
-            "No {needle} in PTY output: {:?}",
-            String::from_utf8_lossy(&self.output)
+            "No {description:?}; terminal screen ({} PTY bytes):\n{}",
+            self.output.len(),
+            self.screen.screen().contents()
         );
     }
     fn finish(&mut self) -> std::process::ExitStatus {
@@ -136,6 +152,25 @@ fn harness(mode: &str) -> Command {
 }
 
 #[test]
+fn pty_wait_reads_cursor_positioned_text() {
+    let mut p = Process::launch(harness("positioned-text"));
+    p.wait_for("See you all Saturday");
+    assert!(!String::from_utf8_lossy(&p.output).contains("See you all Saturday"));
+    p.master.write_all(b"x").unwrap();
+    p.output.clear();
+    p.wait_for("updated screen");
+    assert!(
+        !p.screen
+            .screen()
+            .contents()
+            .contains("See you all Saturday")
+    );
+    p.master.write_all(b"x").unwrap();
+    assert!(p.finish().success());
+    p.restored();
+}
+
+#[test]
 fn demo_restores_tty_after_exit() {
     let mut c = binary();
     c.arg("--demo");
@@ -159,7 +194,7 @@ fn demo_negotiates_modified_enter_and_clears_text_without_quitting() {
     command.args(["--demo", "--config"]).arg(config);
     let mut p = Process::launch(command);
     p.wait_for("See you all Saturday");
-    p.wait_for("\x1b[>5u");
+    p.wait_for_output("\x1b[>5u");
     p.master
         .write_all(b"i\x1b[200~composer-first\x1b[201~\x1b[13;2u\x1b[200~composer-second\x1b[201~")
         .unwrap();
@@ -182,6 +217,9 @@ fn demo_negotiates_modified_enter_and_clears_text_without_quitting() {
         p.master.write_all(key).unwrap();
         p.wait_for("Help · Messages");
         p.master.write_all(b"\x1b[27u").unwrap();
+        p.wait_until("help closed", |p| {
+            !p.screen.screen().contents().contains("Help · Messages")
+        });
     }
     p.master.write_all(b"\x11").unwrap();
     assert!(p.finish().success());
@@ -195,7 +233,7 @@ fn demo_mouse_opens_help_and_restores_capture() {
     c.arg("--demo");
     let mut p = Process::launch(c);
     p.wait_for("Alice");
-    p.wait_for("\u{1b}[?1006h");
+    p.wait_for_output("\u{1b}[?1006h");
     p.master.write_all(b"\x1b[<0;76;1M").unwrap();
     p.wait_for("Mouse:"); // Spaces can be skipped by the terminal diff renderer.
     p.master.write_all(b"\x1b[<0;74;2M").unwrap();
@@ -350,7 +388,7 @@ fn demo_attaches_images_picks_emoji_renders_kitty_and_restores_tty() {
         .write_all(format!("\x1b[200~{}\x1b[201~\r", source.display()).as_bytes())
         .unwrap();
     p.wait_for("terminal sticker.webp");
-    p.wait_for("\x1b_G");
+    p.wait_for_output("\x1b_G");
     p.master
         .write_all(b"\x1b[200~PTY image caption \x1b[201~\x05")
         .unwrap();
@@ -558,6 +596,21 @@ fn terminal_child() {
         return;
     }
     let _guard = whatsapp_tui::terminal::TerminalGuard::enter().unwrap();
+    if mode == "positioned-text" {
+        // The real CI failure emitted this sentence as cursor-positioned runs,
+        // leaving the spaces already present on the terminal untouched.
+        std::io::stdout()
+            .write_all(b"\x1b[2J\x1b[17;34HSee\x1b[17;38Hyou\x1b[17;42Hall\x1b[17;46HSaturday")
+            .unwrap();
+        std::io::stdout().flush().unwrap();
+        std::io::stdin().read_exact(&mut [0]).unwrap();
+        std::io::stdout()
+            .write_all(b"\x1b[17;1H\x1b[2K\x1b[1;1Hupdated screen")
+            .unwrap();
+        std::io::stdout().flush().unwrap();
+        std::io::stdin().read_exact(&mut [0]).unwrap();
+        return;
+    }
     if mode == "panic" {
         panic!("PRIVATE_SENTINEL");
     }

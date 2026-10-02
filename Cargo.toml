@@ -37,6 +37,7 @@ zbus = { version = "=5.19.0", default-features = false, features = ["tokio"] }
 
 [dev-dependencies]
 nix = { version = "0.30", features = ["term", "process", "poll", "fs"] }
+vt100 = "=0.16.2"
 
 [profile.release]
 lto = "thin"

@@ -2,6 +2,8 @@
 
 A personal WhatsApp terminal client in Rust and Ratatui, with pane-based keyboard navigation.
 
+For local validation and the pre-push hook, see [development checks](docs/conventions.md#development-checks).
+
 <img width="1767" height="1123" alt="demo2" src="https://github.com/user-attachments/assets/503bd6d4-bd16-423b-bfb4-fd3718ad7de8" />
 
 ## What v0.1 includes

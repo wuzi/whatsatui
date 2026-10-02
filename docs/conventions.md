@@ -20,3 +20,19 @@ Follow [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html). Treat d
 - Start the first word in lowercase unless its correct spelling requires capitalization, such as a proper name or acronym.
 - Preserve correct capitalization elsewhere, including WhatsApp, GIF, GNOME, Rust, and API. Do not force the entire subject to lowercase.
 - Keep subjects concise and describe the change. Examples: `add inline GIF playback`, `fix muted group notifications`, `document versioning conventions`.
+
+## Development checks
+
+Enable the checked-in pre-push hook once per clone:
+
+```sh
+git config --local core.hooksPath .githooks
+```
+
+Before each push, it checks formatting, runs Clippy with warnings denied, runs all test targets, and builds the release binary. A failure stops the push. The shared runner is also used by CI, with the toolchain from `rust-toolchain.toml` and locked dependencies. Build jobs and test threads default to two; `CARGO_BUILD_JOBS` and `RUST_TEST_THREADS` can override those limits.
+
+Run the same checks manually with `./scripts/check.sh`. Use `./scripts/check.sh checks` for formatting/lint/tests only, or `./scripts/check.sh release` for just the optimized build. CI retains its artifact cleanup before the release build to stay within the runner's disk budget; local checks reuse the Cargo cache.
+
+The hook requires a clean checkout of the commit being pushed, so a passing result covers that code. Commit or stash changes first. Branches and annotated tags pointing to the checked-out commit are checked once; pushing another revision requires checking it out first. Deletion-only and empty pushes skip validation. Hook configuration is local to the clone and is not installed automatically by Git.
+
+PTY tests match text on a virtual terminal screen so cursor movements, retained spaces, and partial redraws do not cause false failures. Graphics and terminal-restoration checks continue to inspect the raw control sequences.

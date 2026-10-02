@@ -1,0 +1,37 @@
+#!/bin/sh
+set -eu
+
+cd -- "$(git rev-parse --show-toplevel)"
+head=$(git rev-parse HEAD)
+needs_checks=false
+
+# Git supplies the actual outgoing refs. Never validate a different checkout
+# and claim it covers the pushed commit. Deletions need no build.
+while read -r local_ref local_oid remote_ref remote_oid; do
+    case "$local_oid" in
+        *[!0]*) ;;
+        *) continue ;;
+    esac
+    pushed_commit=$(git rev-parse --verify "$local_oid^{commit}")
+    if [ "$pushed_commit" != "$head" ]; then
+        printf 'pre-push: check out %s before pushing it so its code can be tested.\n' "$local_ref" >&2
+        exit 1
+    fi
+    needs_checks=true
+done
+
+if [ "$needs_checks" = false ]; then
+    exit 0
+fi
+
+check_checkout() {
+    if [ "$(git rev-parse HEAD)" != "$head" ] || [ -n "$(git status --porcelain --untracked-files=all)" ]; then
+        printf 'pre-push: commit or stash working-tree changes before pushing; checks must match the pushed commit.\n' >&2
+        exit 1
+    fi
+}
+
+check_checkout
+printf 'pre-push: running formatting, Clippy, tests and the release build.\n' >&2
+./scripts/check.sh
+check_checkout
