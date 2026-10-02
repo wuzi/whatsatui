@@ -1,31 +1,8 @@
-# whatsapp-tui
+# whatsatui
 
-A personal WhatsApp terminal client in Rust and Ratatui, with a cyan interface inspired by spotatui and pane-based keyboard navigation.
+A personal WhatsApp terminal client in Rust and Ratatui, with pane-based keyboard navigation.
 
-**Status: v0.1 candidate.** The offline demo and automated checks run locally. Real WhatsApp pairing, session restoration, and messaging still require user-operated acceptance; see [the validation record](docs/backend-validation.md). The native adapter uses the unofficial `whatsapp-rust` library, pinned to 0.7.0. This project is not affiliated with WhatsApp.
-
-## Try it
-
-Linux, Rust **1.98.0** (selected by `rust-toolchain.toml`), and a C compiler are required. On Debian/Ubuntu install `build-essential` and `pkg-config`. The backend dependency bundles SQLite. Rustup installs the pinned compiler when you run Cargo. No Go sidecar or nightly compiler is needed.
-
-```sh
-cargo run --locked -- --demo
-```
-
-The demo opens a busy fictional group conversation, with 22 English chats, generated profile photos, a café photo, replies, and reactions. It is ready for public screenshots: all images are bundled, it never connects to WhatsApp or reads your live session, and its temporary messages, drafts, and caches disappear on exit. Desktop notifications are disabled. If you already built the app, run `./target/release/whatsapp-tui --demo`. See [demo screenshots](docs/usage.md#demo-screenshots) for tips.
-
-For your account:
-
-```sh
-cargo run --locked --release
-```
-
-Scan the QR using WhatsApp on your phone: **Settings → Linked devices → Link a device**. Keep the terminal large enough for the entire code. After linking, use the same data directory to restore the session.
-
-```sh
-cargo install --locked --path .
-whatsapp-tui
-```
+<img width="1767" height="1123" alt="demo2" src="https://github.com/user-attachments/assets/503bd6d4-bd16-423b-bfb4-fd3718ad7de8" />
 
 ## What v0.1 includes
 
@@ -85,14 +62,6 @@ Images and stickers load previews within the conversation; animated WebP plays w
 | ? in lists, F1 | Show help |
 | Ctrl-Q | Save drafts and quit |
 
-Printable keys remain ordinary text in the composer. Bracketed paste never submits a message. Shortcuts live in Help (F1 or the header button) and use your configured bindings. The footer is reserved for status and notices.
-
-Desktop notifications are enabled by default while the app runs. They connect directly to your desktop's notification service, stay silent, and combine rapid arrivals. A shared connection lets GNOME group alerts from the running TUI under **whatsapp-tui**. The conversation you are actively reading does not alert. Set `[notifications] previews = false` to hide names and message text, or `enabled = false` to turn them off. See [notifications](docs/usage.md#notifications) for details.
-
-For voice messages and audio files, install **mpv** (`sudo dnf install mpv` on Fedora, `sudo apt install mpv` on Debian/Ubuntu). Click the audio row or select it and press `p`; the first play downloads and verifies it. Playback controls also appear in the header and remain available while changing chats. See [listening to audio](docs/usage.md#listening-to-audio), including the limitation for old `[audio]` placeholders.
-
-The message finder searches downloaded history, including older cached pages, while offline. Type a literal phrase and press Enter; use arrows and Enter to jump to a match. It shows the newest 50 matches and asks you to refine broader searches. Esc returns to your previous pane with your draft intact. See [finding conversations and messages](docs/usage.md#finding-conversations-and-messages) for details.
-
 ## Local configuration and data
 
 Defaults:
@@ -102,24 +71,3 @@ Defaults:
 - Linked-device credentials: `~/.local/share/whatsapp-tui/session.sqlite3`
 - Downloaded attachments: `~/.local/share/whatsapp-tui/media/`
 - Prepared image snapshots: `~/.local/share/whatsapp-tui/outgoing/`
-
-Absolute `XDG_CONFIG_HOME` and `XDG_DATA_HOME` override those bases. `--config PATH` and `--data-dir PATH` select explicit locations. Copy [examples/config.toml](examples/config.toml) to customize the palette and keys.
-
-The cache and credentials are **plaintext local files** in a private directory; database files are mode 0600 and the directory is 0700. One instance may own a data directory at a time. Do not share these files or include them in bug reports. Known disappearing-message deadlines remove bodies and cached quote previews from application records; this is not forensic erasure from SQLite pages, WAL files, backups, or the upstream session store.
-
-See [usage and recovery](docs/usage.md), [design](docs/superpowers/specs/2026-09-29-whatsapp-tui-design.md), and [backend validation](docs/backend-validation.md).
-
-## Next iterations
-
-The [navigation plan](docs/superpowers/plans/2026-09-29-navigation.md) applies ideas from [Concord's fuzzy switcher, search, and unread inbox](https://github.com/chojs23/concord#features) to this app's pane controls. The [message reading and actions plan](docs/superpowers/plans/2026-09-29-message-actions.md) adds formatting, clipboard support, and a link picker. The [received-media plan](docs/superpowers/plans/2026-09-29-received-media.md) adds downloads and external viewers. The [inline media and emoji plan](docs/superpowers/plans/2026-09-29-inline-media.md) adds previews, image sending, and emoji search. Real-account media acceptance and visual checks in your Ghostty session remain the next validation step.
-
-## Development
-
-```sh
-cargo fmt --all -- --check
-cargo clippy --locked --all-targets -- -D warnings
-cargo test --locked --all-targets
-cargo build --locked --release
-```
-
-Tests use synthetic fixtures, SQLite, and Linux pseudo-terminals. CI requires no account and never sends WhatsApp messages.
