@@ -2,7 +2,7 @@
 [ui]
 mouse = true
 
-# Silent desktop popups while the app is running (requires notify-send).
+# Silent desktop popups while the app is running (requires a desktop session).
 [notifications]
 enabled = true
 previews = true # false hides contact/group names and message content

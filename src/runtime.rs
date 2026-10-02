@@ -240,6 +240,7 @@ pub async fn execute(
         commands,
         &crate::media::NativeDownloader,
         cancel,
+        &crate::notifications::NativeNotifier::default(),
     )
     .await
 }
@@ -249,18 +250,12 @@ async fn execute_with_media(
     commands: mpsc::Sender<BackendCommand>,
     downloader: &dyn crate::media::Downloader,
     cancel: tokio::sync::watch::Receiver<bool>,
+    notifier: &crate::notifications::NativeNotifier,
 ) -> Option<Input> {
     let event = match effect {
         Effect::Notify(request, context) => {
             return Some(Input::NotificationResult(
-                notification_scoped(
-                    request,
-                    &store,
-                    cancel,
-                    &crate::notifications::NativeNotifier,
-                    context,
-                )
-                .await,
+                notification_scoped(request, &store, cancel, notifier, context).await,
             ));
         }
         Effect::LoadOriginal { request, key } => StoreCompletion::Original {
@@ -624,7 +619,7 @@ async fn notification_scoped(
             return Ok(());
         };
         // Submission may already have reached the desktop. Cancel a stale
-        // helper, but never resubmit the same popup after a context change.
+        // request, but never resubmit the same popup after a context change.
         return tokio::select! {
             biased;
             _ = cancel.changed() => Ok(()),
@@ -662,6 +657,8 @@ where
     let mut control = Some(control);
     let mut pending = VecDeque::new();
     let mut jobs = JoinSet::new();
+    // Keep the desktop connection alive between effects so GNOME sees one source.
+    let notifier = crate::notifications::NativeNotifier::default();
     let mut command_jobs = 0usize;
     let mut closing = false;
     let mut input_closed = false;
@@ -709,10 +706,19 @@ where
             let commands = commands.clone();
             let media = media.clone();
             let cancelled = media_cancelled.clone();
+            let notifier = notifier.clone();
             jobs.spawn(async move {
                 (
                     command,
-                    execute_with_media(effect, store, commands, media.as_ref(), cancelled).await,
+                    execute_with_media(
+                        effect,
+                        store,
+                        commands,
+                        media.as_ref(),
+                        cancelled,
+                        &notifier,
+                    )
+                    .await,
                 )
             });
         }

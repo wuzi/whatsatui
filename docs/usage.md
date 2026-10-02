@@ -22,7 +22,9 @@ Messages/Composer at the bottom mark the conversation read; selecting a chat whi
 
 ## Notifications
 
-While the TUI is running, new incoming messages show silent desktop popups through `notify-send`. Install `libnotify` on Fedora or `libnotify-bin` on Debian/Ubuntu if it is missing. Your desktop session's notification settings and Do Not Disturb control presentation; the app uses normal urgency and asks the daemon to suppress sounds.
+While the TUI is running, new incoming messages show silent desktop popups through the session's D-Bus notification service. Your desktop session's notification settings and Do Not Disturb control presentation; the app uses normal urgency and asks the daemon to suppress sounds.
+
+The TUI keeps one notification connection alive so GNOME groups its alerts under **whatsapp-tui**. After upgrading from the version that used `notify-send`, restart the TUI and dismiss its old separate notifications; new alerts use the shared source. Grouping applies to the running instance; notifications retained from earlier launches may remain in separate groups.
 
 A popup shows the chat name and a short preview, including the sender in groups. Audio, images, stickers and other attachments use text labels. Arrivals within two seconds are combined; multiple chats get a compact summary. Very large bursts use a generic new-message alert; this fallback may include already-notified messages still unread within the same timestamp window. Old history, startup backlog, replayed records, your own messages, reactions and edits do not produce alerts.
 
@@ -38,7 +40,7 @@ enabled = true
 previews = false # hide names and message content; show only a new-message count
 ```
 
-Set `enabled = false` to disable popups. With previews enabled, the desktop notification center may retain the displayed names/text. Deleted, expired and locally read messages are checked before delivery, but an already displayed popup is not retracted. Missing or failing helpers produce one notice in the TUI and a 60-second retry cooldown. Notification problems do not block messaging.
+Set `enabled = false` to disable popups. With previews enabled, the desktop notification center may retain the displayed names/text. Deleted, expired and locally read messages are checked before delivery, but an already displayed popup is not retracted. An unavailable or unresponsive desktop service produces one notice in the TUI and a 60-second retry cooldown. Each request is bounded to three seconds, and a disconnected session reconnects for later messages. Notification problems do not block messaging.
 
 This version does not navigate to chats when clicking a popup or provide mute controls inside the TUI. It cannot notify after you close the app. Demo mode always disables desktop notifications.
 
