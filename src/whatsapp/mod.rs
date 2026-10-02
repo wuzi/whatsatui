@@ -1,5 +1,8 @@
 mod avatars;
 mod bridge;
+mod business;
+#[cfg(test)]
+mod business_tests;
 pub mod demo;
 mod durability;
 pub mod encode;

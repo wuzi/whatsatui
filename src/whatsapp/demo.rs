@@ -3,6 +3,7 @@ use super::*;
 use crate::app::model::*;
 use crate::media::{Attachment, AttachmentKind};
 use sha2::{Digest, Sha256};
+mod announcements;
 mod scene;
 const STICKER: &[u8] = include_bytes!("../../tests/fixtures/send-sticker.webp");
 const IMAGE: &[u8] = include_bytes!("../../assets/demo/cafe.jpg");
@@ -172,6 +173,9 @@ impl crate::media::Downloader for DemoDownloader {
             && attachment != &audio_attachment()
             && attachment != &video_attachment()
             && attachment != &gif_attachment()
+            && !announcements::messages().iter().any(|change| {
+                matches!(change, MessageChange::Upsert(MessageRecord { body: MessageBody::Media(a), .. }) if a.as_ref() == attachment)
+            })
         {
             return Err("Attachment is not an offline demo fixture".into());
         }

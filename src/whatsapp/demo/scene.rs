@@ -33,6 +33,7 @@ pub(super) async fn initialize(store: &Store) -> Result<StoreChange, BackendErro
     // A stable timeline keeps screenshots reproducible. Only the interactive
     // demo's newly sent messages use the current clock.
     let chats = [
+        ("aster@demo", "Aster Market", 0, "aster@demo", "", 4),
         ("weekend@g.us", "Weekend plans ☕", 4, "maya@demo", "", 47),
         ("alice@demo", "Alice Morgan", 0, "alice@demo", "", 25),
         (
@@ -284,6 +285,7 @@ pub(super) async fn initialize(store: &Store) -> Result<StoreChange, BackendErro
         messages.push(media);
     }
     let mut changes: Vec<_> = messages.into_iter().map(MessageChange::Upsert).collect();
+    changes.extend(super::announcements::messages());
     for (chat, sender, id, reactor, emoji, minute) in [
         ("alice@demo", "alice@demo", "a3", ACCOUNT, "👍", 26),
         ("alice@demo", "alice@demo", "a3", "alice@demo", "👍", 26),

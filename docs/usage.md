@@ -88,6 +88,16 @@ Clipboard support uses `wl-copy` from wl-clipboard on Wayland, or `xclip`/`xsel`
 
 Bindings live in `[bindings.messages]`, `[bindings.message_actions]`, and `[bindings.message_links]`; the complete example includes the defaults. The menu and link picker require an Open and Back binding. In the demo, open Alice, Shift-Tab from the composer to Messages, then Enter to explore the actions. Its newest message includes formatting and an example.org link. Copying and opening from an interactive demo use your real desktop helpers when you select those actions.
 
+## Business announcements
+
+Company messages using hydrated templates, interactive messages, legacy buttons, and selection lists show their readable title, text, footer, and choices. Complete image headers use the usual inline preview and download actions; video/document headers also retain their normal media actions. The text remains searchable and copyable, and quoted announcements have readable previews.
+
+URL buttons appear with their label and destination. Select the message in Messages and press `o` to open the existing link picker. Quick-reply buttons and list choices are display-only in this version; submitting a business response, payment, or form still needs WhatsApp on your phone. Phone numbers and copy codes are readable text. No button is activated just by viewing the announcement.
+
+Missing media references or malformed button data leave the readable announcement available. View-once media stays excluded. Unhydrated templates that contain only localization identifiers, and specialized cards/forms without readable text, may still show `[business message]`. Text, list sizes, and button JSON are bounded; machine IDs and opaque callback payloads are not displayed.
+
+Existing `[unsupported message]` records contain only the placeholder saved by the older client. A new receive or history replay can populate the content; restarting alone cannot reconstruct it. To explore the supported formats offline, run `--demo`, press Ctrl-P, and open **Aster Market**.
+
 ## Reactions, edits, and replies
 
 Select a message and press `a`, or choose **React / change reaction** in its action menu. Search the usual emoji picker and press Enter. Choosing your current emoji removes it; choosing another replaces it. Counts appear beneath messages, with **You** beside your reaction. Click the reaction row or press `I` (Shift-i) for the participant list. In that popup, `a` changes your reaction and `x` removes it. Group participants use their known contact names.

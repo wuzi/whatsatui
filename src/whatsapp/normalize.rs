@@ -117,6 +117,7 @@ fn context(message: &wa::Message) -> Option<&wa::ContextInfo> {
                 .as_option()
                 .and_then(|m| m.context_info.as_option())
         })
+        .or_else(|| super::business::context(message))
 }
 pub(super) fn normalize(
     key: MessageKey,
@@ -213,6 +214,8 @@ pub(super) fn normalize(
         MessageBody::Text(text.into())
     } else if let Some(attachment) = super::media::attachment(payload) {
         MessageBody::Media(Box::new(attachment))
+    } else if let Some(body) = super::business::body(payload) {
+        body
     } else {
         let kind = if message.image_message.is_set() {
             "image"
@@ -801,6 +804,18 @@ fn quoted_summary(payload: &wa::Message) -> Option<(String, Option<crate::media:
     let base = payload.get_base_message();
     if let Some(text) = base.text_content() {
         return Some((text.into(), None));
+    }
+    match super::business::body(payload) {
+        Some(MessageBody::Text(text)) => return Some((text, None)),
+        Some(MessageBody::Media(attachment)) => {
+            let text = format!(
+                "[{}] {}",
+                attachment.kind.label(),
+                attachment.caption.as_deref().unwrap_or_default()
+            );
+            return Some((text.trim_end().into(), Some(attachment.kind)));
+        }
+        _ => {}
     }
     let (kind, caption) = if let Some(image) = base.image_message.as_option() {
         (K::Image, image.caption.as_deref())
