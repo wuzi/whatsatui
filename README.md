@@ -24,8 +24,6 @@ A personal WhatsApp terminal client in Rust and Ratatui, with pane-based keyboar
 - Phone-number/LID reconciliation, edits, deletion/expiry placeholders, and bounded message pages.
 - Configurable colors and scoped bindings; layouts for ordinary and narrow terminals.
 
-Images and stickers load previews within the conversation; animated WebP plays while visible. Documents retain download/open actions. Sending documents/videos, sticker-pack management, calls, group management, statuses, and newsletters remain outside this iteration. History is limited to what WhatsApp syncs and what this client has cached.
-
 ## Main controls
 
 | Key | Action |
