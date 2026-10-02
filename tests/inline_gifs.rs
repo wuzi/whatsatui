@@ -148,16 +148,24 @@ fn gifs_reserve_preview_rows_and_do_not_launch_playback_on_a_click() {
 #[ignore = "requires ffmpeg and ffprobe; synthetic fixtures only"]
 async fn native_gif_previews_verify_reuse_animate_and_stop_when_hidden() {
     use ratatui::{Terminal, backend::TestBackend};
-    for (kind, mime, bytes) in [
+    for (kind, mime, bytes, expected_duration) in [
         (
             AttachmentKind::Gif,
             "video/mp4",
             include_bytes!("fixtures/loop.mp4").as_slice(),
+            1200,
         ),
         (
             AttachmentKind::Document,
             "image/gif",
             include_bytes!("fixtures/loop.gif").as_slice(),
+            1200,
+        ),
+        (
+            AttachmentKind::Image,
+            "image/gif",
+            include_bytes!("fixtures/short-loop.gif").as_slice(),
+            100,
         ),
     ] {
         let root = tempfile::tempdir().unwrap();
@@ -184,7 +192,7 @@ async fn native_gif_previews_verify_reuse_animate_and_stop_when_hidden() {
         assert_eq!(animation.loops, None);
         assert_eq!(
             animation.frames.iter().map(|f| f.duration_ms).sum::<u64>(),
-            1200
+            expected_duration
         );
         assert_ne!(
             animation.frames.first().unwrap().image,

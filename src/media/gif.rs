@@ -67,6 +67,8 @@ impl Plan {
         if count == 0 || count > MAX_FRAMES || !bytes.len().is_multiple_of(size) {
             return Err(UNAVAILABLE.into());
         }
+        // Keep every retained frame visible, including sub-tick source loops.
+        let duration_ms = self.duration_ms.max(count as u64 * 50);
         let frames = bytes
             .chunks_exact(size)
             .enumerate()
@@ -75,8 +77,8 @@ impl Plan {
                     RgbaImage::from_raw(self.width, self.height, bytes.to_vec())
                         .expect("bounded RGBA frame"),
                 ),
-                duration_ms: self.duration_ms * (i as u64 + 1) / count as u64
-                    - self.duration_ms * i as u64 / count as u64,
+                duration_ms: duration_ms * (i as u64 + 1) / count as u64
+                    - duration_ms * i as u64 / count as u64,
             })
             .collect();
         Ok(Preview {
@@ -144,9 +146,17 @@ pub(super) async fn decode(
     let plan =
         Plan::from_probe(&run(probe, 16 * 1024, cancel.clone(), Duration::from_secs(3)).await?)?;
     let fps = (MAX_FRAMES as f64 * 1000.0 / plan.duration_ms as f64).min(20.0);
+    // Sampling a very short loop at 20 fps can discard all of its motion.
+    // Keep source frames in that case, still subject to the output frame cap;
+    // frames() gives each one the same minimum display time as stickers.
+    let sampling = if plan.duration_ms < 100 {
+        String::new()
+    } else {
+        format!("fps={fps:.9}:round=up,")
+    };
     let mut decoder = input("ffmpeg", file.path(), gif_file);
     decoder.args(["-nostdin", "-filter_threads", "1", "-map", "0:v:0", "-an", "-sn", "-dn", "-vf"])
-        .arg(format!("setpts=PTS-STARTPTS,fps={fps:.9}:round=up,scale={w}:{h}:force_original_aspect_ratio=decrease,format=rgba,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black@0,setsar=1", w=plan.width, h=plan.height))
+        .arg(format!("setpts=PTS-STARTPTS,{sampling}scale={w}:{h}:force_original_aspect_ratio=decrease,format=rgba,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black@0,setsar=1", w=plan.width, h=plan.height))
         .arg("-t").arg(format!("{:.3}", plan.duration_ms as f64 / 1000.0))
         .arg("-frames:v").arg(MAX_FRAMES.to_string())
         .args(["-threads", "1", "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "rgba", "pipe:1"]);

@@ -50,6 +50,21 @@ fn raw_frames_are_bounded_and_timing_keeps_the_full_loop_duration() {
     );
     assert_eq!(timeline.frame_at(700), 1);
     assert_eq!(timeline.frame_at(1251), 0);
+    // Sub-tick source animations must retain motion at a visible frame rate.
+    let short = Plan {
+        duration_ms: 40,
+        ..plan
+    }
+    .frames([vec![0; 8], vec![255; 8]].concat())
+    .unwrap();
+    assert_eq!(
+        short
+            .frames
+            .iter()
+            .map(|f| f.duration_ms)
+            .collect::<Vec<_>>(),
+        [50, 50]
+    );
 }
 
 #[tokio::test]
