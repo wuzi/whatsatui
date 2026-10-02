@@ -199,7 +199,7 @@ fn demo_negotiates_modified_enter_and_clears_text_without_quitting() {
         .write_all(b"i\x1b[200~composer-first\x1b[201~\x1b[13;2u\x1b[200~composer-second\x1b[201~")
         .unwrap();
     p.wait_for("composer-second");
-    assert!(!String::from_utf8_lossy(&p.output).contains("Message received."));
+    assert!(!p.screen.screen().contents().contains("received."));
     p.master.write_all(b"\x1b[99;5u").unwrap();
     p.output.clear();
     p.wait_for("Write a message");
@@ -235,7 +235,7 @@ fn demo_mouse_opens_help_and_restores_capture() {
     p.wait_for("Alice");
     p.wait_for_output("\u{1b}[?1006h");
     p.master.write_all(b"\x1b[<0;76;1M").unwrap();
-    p.wait_for("Mouse:"); // Spaces can be skipped by the terminal diff renderer.
+    p.wait_for("Mouse:");
     p.master.write_all(b"\x1b[<0;74;2M").unwrap();
     p.master.write_all(b"\x11").unwrap();
     assert!(p.finish().success());
@@ -327,13 +327,14 @@ fn demo_sends_received_and_pasted_stickers_and_preserves_the_composer() {
     p.wait_for("received."); // The reply’s final word wraps at 80 columns.
     p.output.clear();
     p.master.write_all(b"\x13").unwrap();
+    p.wait_for("recent & pasted");
     p.wait_for("intact.");
     p.master.write_all(b"\x16").unwrap();
     p.wait_for("Prepared sticker");
     p.master.write_all(b"\r").unwrap();
-    p.wait_for("Keep"); // Ratatui may emit separate cursor moves between words.
+    p.wait_for("Keep");
     p.wait_for("received."); // The reply’s final word wraps at 80 columns.
-    assert!(!String::from_utf8_lossy(&p.output).contains("Attach image"));
+    assert!(!p.screen.screen().contents().contains("Attach image"));
     p.master.write_all(b"\x11").unwrap();
     assert!(p.finish().success());
     p.restored();
@@ -360,8 +361,8 @@ fn demo_pastes_clipboard_image_without_a_path_and_keeps_the_caption() {
         .write_all(b"\r\x1b[200~Caption stays here\x1b[201~\x16")
         .unwrap();
     p.wait_for("clipboard.webp");
-    assert!(String::from_utf8_lossy(&p.output).contains("Caption stays here"));
-    assert!(!String::from_utf8_lossy(&p.output).contains("Attach image"));
+    assert!(p.screen.screen().contents().contains("Caption stays here"));
+    assert!(!p.screen.screen().contents().contains("Attach image"));
     p.master.write_all(b"\r").unwrap();
     p.wait_for("received."); // The reply’s final word wraps at 80 columns.
     p.master.write_all(b"\x11").unwrap();
