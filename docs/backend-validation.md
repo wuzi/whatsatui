@@ -244,4 +244,4 @@ The private service observed eight synthetic calls covering distinct conversatio
 
 Physical GNOME appearance remains user-operated acceptance. Restart the TUI and dismiss the old separate notifications after upgrading. Grouping is per running instance; notifications retained from earlier launches may remain separate. Clicking notifications still does not navigate to a conversation.
 
-Formatting, whitespace checks and Clippy with warnings denied pass. The final portable private-bus harness also passes, including its existing-service ownership guard. Final independent review and release evidence are recorded below when completed.
+Formatting, whitespace checks and Clippy with warnings denied pass. The final portable private-bus harness also passes, including its existing-service ownership guard. The single independent review found no issues. The optimized release was built from reviewed source 26bc6cb and reports whatsapp-tui 0.1.0; SHA256 is `f53ac833427dbfb5f59eaaa61b0bfbc19a3f08801431e8a1b2be0258588630db`. Evidence is preserved under `.superpowers/sdd/2026-10-01-notification-grouping/` during local integration; nothing is pushed.
