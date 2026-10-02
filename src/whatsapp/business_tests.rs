@@ -273,6 +273,45 @@ fn legacy_buttons_and_lists_keep_visible_choices_without_ids() {
 }
 
 #[test]
+fn legacy_button_labels_survive_unusable_or_label_less_native_flow() {
+    use wa::message::buttons_message::{
+        Button,
+        button::{ButtonText, NativeFlowInfo},
+    };
+    for json in [
+        None,
+        Some("{broken"),
+        Some("{}"),
+        Some(r#"{"display_text":" ","url":"https://example.org/offers"}"#),
+    ] {
+        let payload = wa::Message {
+            buttons_message: F::some(wa::message::ButtonsMessage {
+                content_text: Some("Weekend offers".into()),
+                buttons: vec![Button {
+                    button_id: Some("hidden-callback".into()),
+                    button_text: F::some(ButtonText {
+                        display_text: Some("Browse offers".into()),
+                    }),
+                    native_flow_info: F::some(NativeFlowInfo {
+                        name: Some("cta_url".into()),
+                        params_json: json.map(str::to_owned),
+                    }),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let message = record(&payload);
+        assert!(text(&message).contains("• Browse offers"), "{json:?}");
+        assert!(!text(&message).contains("hidden-callback"));
+        if json.is_some_and(|s| s.contains("https://")) {
+            assert!(text(&message).contains("• Browse offers: https://example.org/offers"));
+        }
+    }
+}
+
+#[test]
 fn replies_to_business_templates_have_a_readable_original_preview() {
     let payload = wa::Message {
         extended_text_message: F::some(wa::message::ExtendedTextMessage {
@@ -291,6 +330,91 @@ fn replies_to_business_templates_have_a_readable_original_preview() {
     assert_eq!(quote.availability, QuoteAvailability::Available);
     assert!(quote.preview.contains("Fresh coffee is back ☕"));
     assert_eq!(quote.key.id.0, "offer");
+}
+
+#[test]
+fn business_media_quotes_keep_header_kind_without_download_keys() {
+    use crate::media::AttachmentKind as K;
+    use tm::hydrated_four_row_template::Title;
+    let quoted = |payload| {
+        record(&wa::Message::text_with_context(
+            "About this offer",
+            wa::ContextInfo {
+                stanza_id: Some("offer".into()),
+                participant: Some("shop@s.whatsapp.net".into()),
+                quoted_message: F::some(payload),
+                ..Default::default()
+            },
+        ))
+        .quote
+        .unwrap()
+    };
+    for kind in [K::Image, K::Video, K::Gif, K::Document] {
+        for caption in [None, Some("Weekend offers")] {
+            let payload = match kind {
+                K::Image => template(tm::HydratedFourRowTemplate {
+                    title: Some(Title::ImageMessage(Box::default())),
+                    hydrated_content_text: caption.map(str::to_owned),
+                    ..Default::default()
+                }),
+                K::Video | K::Gif => wa::Message {
+                    interactive_message: F::some(wa::message::InteractiveMessage {
+                        header: F::some(im::Header {
+                            media: Some(im::header::Media::VideoMessage(Box::new(
+                                wa::message::VideoMessage {
+                                    gif_playback: Some(kind == K::Gif),
+                                    ..Default::default()
+                                },
+                            ))),
+                            ..Default::default()
+                        }),
+                        body: F::some(im::Body {
+                            text: caption.map(str::to_owned),
+                        }),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                K::Document => wa::Message {
+                    buttons_message: F::some(wa::message::ButtonsMessage {
+                        header: Some(wa::message::buttons_message::Header::DocumentMessage(
+                            Box::default(),
+                        )),
+                        content_text: caption.map(str::to_owned),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                _ => unreachable!(),
+            };
+            assert!(!matches!(record(&payload).body, MessageBody::Media(_)));
+            let quote = quoted(payload.clone());
+            assert_eq!(quote.availability, QuoteAvailability::Available);
+            assert_eq!(quote.media_kind, Some(kind));
+            assert_eq!(
+                quote.preview,
+                format!("[{}] {}", kind.label(), caption.unwrap_or_default()).trim_end()
+            );
+            let once = wa::Message {
+                view_once_message_v2: F::some(wa::message::FutureProofMessage {
+                    message: F::some(payload),
+                }),
+                ..Default::default()
+            };
+            let quote = quoted(once);
+            assert_eq!(quote.availability, QuoteAvailability::Unsupported);
+            assert_eq!(quote.media_kind, None);
+        }
+    }
+    let quote = quoted(template(tm::HydratedFourRowTemplate {
+        title: Some(Title::ImageMessage(Box::new(wa::message::ImageMessage {
+            view_once: Some(true),
+            ..Default::default()
+        }))),
+        ..Default::default()
+    }));
+    assert_eq!(quote.availability, QuoteAvailability::Unsupported);
+    assert_eq!(quote.media_kind, None);
 }
 
 #[test]

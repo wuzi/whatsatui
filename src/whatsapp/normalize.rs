@@ -805,17 +805,8 @@ fn quoted_summary(payload: &wa::Message) -> Option<(String, Option<crate::media:
     if let Some(text) = base.text_content() {
         return Some((text.into(), None));
     }
-    match super::business::body(payload) {
-        Some(MessageBody::Text(text)) => return Some((text, None)),
-        Some(MessageBody::Media(attachment)) => {
-            let text = format!(
-                "[{}] {}",
-                attachment.kind.label(),
-                attachment.caption.as_deref().unwrap_or_default()
-            );
-            return Some((text.trim_end().into(), Some(attachment.kind)));
-        }
-        _ => {}
+    if let Some(summary) = super::business::quoted_summary(payload) {
+        return Some(summary);
     }
     let (kind, caption) = if let Some(image) = base.image_message.as_option() {
         (K::Image, image.caption.as_deref())

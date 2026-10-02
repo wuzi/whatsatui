@@ -1,6 +1,10 @@
 //! Readable business announcements projected onto the existing text/media UI.
 //! Callback IDs and native-flow payloads are never treated as message text.
-use crate::{app::model::MessageBody, media::Attachment, message_actions::valid_web_link};
+use crate::{
+    app::model::MessageBody,
+    media::{Attachment, AttachmentKind},
+    message_actions::valid_web_link,
+};
 use wa::message::{interactive_message as im, template_message as tm};
 use whatsapp_rust::prelude::{MessageExt, MessageField as F, wa};
 
@@ -49,11 +53,44 @@ pub(super) fn context(message: &wa::Message) -> Option<&wa::ContextInfo> {
 }
 
 pub(super) fn body(payload: &wa::Message) -> Option<MessageBody> {
+    let content = content(payload)?;
+    Some(if let Some(mut attachment) = content.media {
+        attachment.caption = (!content.text.is_empty()).then_some(content.text);
+        MessageBody::Media(Box::new(attachment))
+    } else if !content.text.is_empty() {
+        MessageBody::Text(content.text)
+    } else {
+        MessageBody::Unsupported {
+            kind: "business message".into(),
+            caption: None,
+        }
+    })
+}
+
+pub(super) fn quoted_summary(payload: &wa::Message) -> Option<(String, Option<AttachmentKind>)> {
+    if payload.is_view_once() {
+        return None;
+    }
+    let content = content(payload)?;
+    if let Some(kind) = content.media_kind {
+        Some((
+            format!("[{}] {}", kind.label(), content.text)
+                .trim_end()
+                .into(),
+            Some(kind),
+        ))
+    } else {
+        (!content.text.is_empty()).then_some((content.text, None))
+    }
+}
+
+fn content(payload: &wa::Message) -> Option<Content> {
     let message = payload.get_base_message();
     let mut content = Content {
         text: String::new(),
         full: false,
         media: None,
+        media_kind: None,
         allow_media: !payload.is_view_once(),
     };
     if let Some(template) = template(message) {
@@ -70,23 +107,15 @@ pub(super) fn body(payload: &wa::Message) -> Option<MessageBody> {
     } else {
         return None;
     }
-    Some(if let Some(mut attachment) = content.media {
-        attachment.caption = (!content.text.is_empty()).then_some(content.text);
-        MessageBody::Media(Box::new(attachment))
-    } else if !content.text.is_empty() {
-        MessageBody::Text(content.text)
-    } else {
-        MessageBody::Unsupported {
-            kind: "business message".into(),
-            caption: None,
-        }
-    })
+    Some(content)
 }
 
 struct Content {
     text: String,
     full: bool,
     media: Option<Attachment>,
+    // Quotes can describe media even when their abbreviated payload has no keys.
+    media_kind: Option<AttachmentKind>,
     allow_media: bool,
 }
 impl Content {
@@ -129,29 +158,43 @@ impl Content {
             target.unwrap_or_default(),
         ]);
     }
-    fn media(&mut self, payload: wa::Message) {
-        if self.allow_media && self.media.is_none() {
+    fn media(&mut self, payload: wa::Message, kind: AttachmentKind) {
+        if self.allow_media && self.media_kind.is_none() && !payload.is_view_once() {
             self.push(payload.get_caption());
+            self.media_kind = Some(kind);
             self.media = super::media::attachment(&payload);
         }
     }
     fn image(&mut self, image: &wa::message::ImageMessage) {
-        self.media(wa::Message {
-            image_message: F::some(image.clone()),
-            ..Default::default()
-        });
+        self.media(
+            wa::Message {
+                image_message: F::some(image.clone()),
+                ..Default::default()
+            },
+            AttachmentKind::Image,
+        );
     }
     fn video(&mut self, video: &wa::message::VideoMessage) {
-        self.media(wa::Message {
-            video_message: F::some(video.clone()),
-            ..Default::default()
-        });
+        self.media(
+            wa::Message {
+                video_message: F::some(video.clone()),
+                ..Default::default()
+            },
+            if video.gif_playback == Some(true) {
+                AttachmentKind::Gif
+            } else {
+                AttachmentKind::Video
+            },
+        );
     }
     fn document(&mut self, document: &wa::message::DocumentMessage) {
-        self.media(wa::Message {
-            document_message: F::some(document.clone()),
-            ..Default::default()
-        });
+        self.media(
+            wa::Message {
+                document_message: F::some(document.clone()),
+                ..Default::default()
+            },
+            AttachmentKind::Document,
+        );
     }
     fn template(&mut self, template: &wa::message::TemplateMessage) {
         if let Some(hydrated) = template.hydrated_template.as_option() {
@@ -204,7 +247,11 @@ impl Content {
         self.push(value.footer.as_option().and_then(|f| f.text.as_deref()));
         if let Some(im::InteractiveMessage::NativeFlowMessage(flow)) = &value.interactive_message {
             for button in flow.buttons.iter().take(MAX_ITEMS) {
-                self.native_button(button.name.as_deref(), button.button_params_json.as_deref());
+                self.native_button(
+                    button.name.as_deref(),
+                    button.button_params_json.as_deref(),
+                    None,
+                );
             }
         }
     }
@@ -220,16 +267,14 @@ impl Content {
         self.push(value.content_text.as_deref());
         self.push(value.footer_text.as_deref());
         for button in value.buttons.iter().take(MAX_ITEMS) {
+            let label = button
+                .button_text
+                .as_option()
+                .and_then(|b| b.display_text.as_deref());
             if let Some(flow) = button.native_flow_info.as_option() {
-                self.native_button(flow.name.as_deref(), flow.params_json.as_deref());
+                self.native_button(flow.name.as_deref(), flow.params_json.as_deref(), label);
             } else {
-                self.button(
-                    button
-                        .button_text
-                        .as_option()
-                        .and_then(|b| b.display_text.as_deref()),
-                    None,
-                );
+                self.button(label, None);
             }
         }
     }
@@ -246,14 +291,24 @@ impl Content {
             }
         }
     }
-    fn native_button(&mut self, name: Option<&str>, json: Option<&str>) {
-        let Some(json) = json.filter(|s| s.len() <= MAX_JSON) else {
+    fn native_button(
+        &mut self,
+        name: Option<&str>,
+        json: Option<&str>,
+        fallback_label: Option<&str>,
+    ) {
+        let Some(value) = json
+            .filter(|s| s.len() <= MAX_JSON)
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+        else {
+            self.button(fallback_label, None);
             return;
         };
-        let Ok(value) = serde_json::from_str::<serde_json::Value>(json) else {
-            return;
-        };
-        let label = value["display_text"].as_str().or(value["title"].as_str());
+        let label = value["display_text"]
+            .as_str()
+            .filter(|s| !s.trim().is_empty())
+            .or_else(|| value["title"].as_str().filter(|s| !s.trim().is_empty()))
+            .or(fallback_label);
         let target = match name {
             Some("cta_url") => value["url"].as_str().filter(|s| valid_web_link(s)),
             Some("cta_call") => value["phone_number"].as_str(),
