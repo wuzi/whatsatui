@@ -1,5 +1,5 @@
 mod support;
-use crossterm::event::Event;
+use crossterm::event::{Event, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::{Terminal, backend::TestBackend};
 use support::*;
 use tokio::time::Instant;
@@ -7,7 +7,7 @@ use whatsapp_tui::{
     app::{model::*, *},
     config::Config,
     message_actions::DesktopAction,
-    ui,
+    ui::{self, interaction::Target},
     whatsapp::BackendEvent,
 };
 
@@ -293,4 +293,79 @@ fn captions_offer_copy_and_printable_keys_stay_text_in_the_composer() {
         press(&mut app, key);
     }
     assert_eq!(app.view().draft.text, "yoarR");
+}
+
+fn rendered_map(app: &App, width: u16) -> ui::interaction::InteractionMap {
+    let mut terminal =
+        ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, 24)).unwrap();
+    let mut map = None;
+    terminal
+        .draw(|f| {
+            map = Some(ui::render_interactive(
+                f,
+                &app.view(),
+                &app.config,
+                &mut ui::Images::default(),
+                &mut ui::Avatars::default(),
+            ))
+        })
+        .unwrap();
+    map.unwrap()
+}
+
+fn coordinate(
+    map: &ui::interaction::InteractionMap,
+    target: impl Fn(&Target) -> bool,
+) -> (u16, u16) {
+    (0..map.area.height)
+        .flat_map(|y| (0..map.area.width).map(move |x| (x, y)))
+        .find(|&(x, y)| map.hit(x, y).is_some_and(&target))
+        .unwrap()
+}
+
+fn click_point(app: &mut App, point: (u16, u16), button: MouseButton) -> Vec<Effect> {
+    app.update(
+        Input::Terminal(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(button),
+            column: point.0,
+            row: point.1,
+            modifiers: KeyModifiers::NONE,
+        })),
+        Instant::now(),
+    )
+}
+
+#[test]
+fn double_clicking_message_with_single_url_opens_in_browser() {
+    let mut app = text_app("Check https://example.com/site for details");
+    let map = rendered_map(&app, 120);
+    let point = coordinate(&map, |t| matches!(t, Target::Message(_)));
+    app.update(Input::Rendered(map.clone()), Instant::now());
+    let first = click_point(&mut app, point, MouseButton::Left);
+    assert!(first.is_empty());
+    assert!(app.view().overlay.is_none());
+
+    app.update(Input::Rendered(map), Instant::now());
+    let second = click_point(&mut app, point, MouseButton::Left);
+    let effect = desktop(second);
+    let Effect::DesktopAction { action, .. } = &effect else {
+        panic!()
+    };
+    assert_eq!(
+        *action,
+        DesktopAction::OpenLink("https://example.com/site".into())
+    );
+}
+
+#[test]
+fn double_clicking_message_with_multiple_urls_opens_link_picker() {
+    let mut app = text_app("Visit https://example.com or https://rust-lang.org");
+    let map = rendered_map(&app, 120);
+    let point = coordinate(&map, |t| matches!(t, Target::Message(_)));
+    app.update(Input::Rendered(map.clone()), Instant::now());
+    click_point(&mut app, point, MouseButton::Left);
+
+    app.update(Input::Rendered(map), Instant::now());
+    click_point(&mut app, point, MouseButton::Left);
+    assert!(matches!(app.view().overlay, Some(Overlay::MessageLinks(_))));
 }

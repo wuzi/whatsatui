@@ -108,7 +108,31 @@ impl App {
                 self.view.selected_message = Some(key);
                 self.reading_position();
                 if button == MouseButton::Right || double {
-                    self.action(ActionId::MessageActions, effects);
+                    if double
+                        && self.selected().is_some_and(|m| {
+                            crate::message_actions::text(m, chrono::Utc::now().timestamp_millis())
+                                .is_some_and(|t| !crate::message_actions::web_links(t).is_empty())
+                        })
+                    {
+                        let message = self.selected().cloned().unwrap();
+                        let text = crate::message_actions::text(
+                            &message,
+                            chrono::Utc::now().timestamp_millis(),
+                        )
+                        .unwrap_or_default();
+                        let links = crate::message_actions::web_links(text);
+                        if links.len() == 1 {
+                            self.start_desktop_action(
+                                message,
+                                crate::message_actions::DesktopAction::OpenLink(links[0].clone()),
+                                effects,
+                            );
+                        } else {
+                            self.open_message_links();
+                        }
+                    } else {
+                        self.action(ActionId::MessageActions, effects);
+                    }
                 }
             }
             Target::Quote(key)

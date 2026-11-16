@@ -186,7 +186,7 @@ impl App {
             action,
         });
     }
-    fn start_desktop_action(
+    pub(super) fn start_desktop_action(
         &mut self,
         message: MessageRecord,
         action: DesktopAction,

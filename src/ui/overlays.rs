@@ -144,7 +144,7 @@ pub(super) fn render(
                 .collect::<Vec<_>>();
             lines.extend([
                 Line::from(""),
-                Line::from("Mouse: click selects · double-click opens"),
+                Line::from("Mouse: click selects · double-click opens media or URL in browser"),
                 Line::from("Right-click: message actions · wheel: scroll"),
                 Line::from("↑/↓ or Page Up/Down scroll this help"),
                 Line::from(""),
