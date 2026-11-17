@@ -10,6 +10,7 @@ pub(crate) enum Format {
     Code,
 }
 
+#[derive(Clone, Copy)]
 pub(crate) struct Mark {
     pub length: usize,
     pub format: Format,
@@ -19,7 +20,31 @@ pub(crate) struct Mark {
 // The renderer and link discovery must agree about which bytes are markup.
 // Only complete graphemes can be delimiters; a star keycap is ordinary text.
 // A stack of three distinct emphasis kinds bounds nesting without recursion.
+//
+// Results are cached per exact text: marks are width-independent and pure,
+// so repeated timeline layouts reuse them instead of re-running LinkFinder.
 pub(crate) fn marks(text: &str) -> BTreeMap<usize, Mark> {
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    thread_local! {
+        static CACHE: RefCell<HashMap<String, BTreeMap<usize, Mark>>> =
+            RefCell::new(HashMap::new());
+    }
+    if let Some(hit) = CACHE.with(|c| c.borrow().get(text).cloned()) {
+        return hit;
+    }
+    let computed = marks_inner(text);
+    CACHE.with(|c| {
+        let mut cache = c.borrow_mut();
+        if cache.len() > 256 {
+            cache.clear();
+        }
+        cache.insert(text.to_owned(), computed.clone());
+    });
+    computed
+}
+
+fn marks_inner(text: &str) -> BTreeMap<usize, Mark> {
     let graphemes: Vec<_> = text.grapheme_indices(true).collect();
     let ticks: Vec<_> = graphemes
         .iter()

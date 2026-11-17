@@ -105,10 +105,60 @@ impl App {
                 if self.view.timeline_anchor.is_none() {
                     self.view.timeline_anchor = self.view.messages.last().map(|m| m.key.clone());
                 }
-                self.view.selected_message = Some(key);
+                self.view.selected_message = Some(key.clone());
                 self.reading_position();
                 if button == MouseButton::Right || double {
-                    self.action(ActionId::MessageActions, effects);
+                    // Double-clicking a photo or file opens it in the
+                    // viewer; everything else shows the message actions menu.
+                    // Received files download when needed; your own attached
+                    // photos and files open straight from their snapshot.
+                    if double
+                        && self.selected().is_some_and(|m| {
+                            crate::message_actions::viewable_file(m)
+                                || matches!(
+                                    m.body,
+                                    MessageBody::LocalImage { .. }
+                                        | MessageBody::LocalDocument { .. }
+                                )
+                        })
+                    {
+                        if self
+                            .selected()
+                            .is_some_and(crate::message_actions::viewable_file)
+                        {
+                            self.view_selected_image(effects);
+                        } else if let Some(message) = self.selected().cloned() {
+                            self.start_desktop_action(
+                                message,
+                                crate::message_actions::DesktopAction::OpenLocal,
+                                effects,
+                            );
+                        }
+                    } else if double
+                        && self.selected().is_some_and(|m| {
+                            crate::message_actions::text(m, chrono::Utc::now().timestamp_millis())
+                                .is_some_and(|t| !crate::message_actions::web_links(t).is_empty())
+                        })
+                    {
+                        let message = self.selected().cloned().unwrap();
+                        let text = crate::message_actions::text(
+                            &message,
+                            chrono::Utc::now().timestamp_millis(),
+                        )
+                        .unwrap_or_default();
+                        let links = crate::message_actions::web_links(text);
+                        if links.len() == 1 {
+                            self.start_desktop_action(
+                                message,
+                                crate::message_actions::DesktopAction::OpenLink(links[0].clone()),
+                                effects,
+                            );
+                        } else {
+                            self.open_message_links();
+                        }
+                    } else {
+                        self.action(ActionId::MessageActions, effects);
+                    }
                 }
             }
             Target::Quote(key)
@@ -135,6 +185,7 @@ impl App {
             Target::Query(byte) if button == MouseButton::Left => match &mut self.view.overlay {
                 Some(
                     Overlay::Search { editor, .. }
+                    | Overlay::Forward { editor, .. }
                     | Overlay::Emoji { editor, .. }
                     | Overlay::Attachment { editor, .. },
                 ) => editor.set_cursor(byte),
@@ -142,11 +193,17 @@ impl App {
                 _ => {}
             },
             Target::Menu(index) if button == MouseButton::Left => {
+                if matches!(self.view.overlay, Some(Overlay::Settings { .. })) {
+                    settings::toggle(self, index, effects);
+                    return;
+                }
                 let current = match &self.view.overlay {
                     Some(
                         Overlay::Search { selected, .. }
+                        | Overlay::Forward { selected, .. }
                         | Overlay::Emoji { selected, .. }
-                        | Overlay::Attachment { selected, .. },
+                        | Overlay::Attachment { selected, .. }
+                        | Overlay::SendChoice { selected, .. },
                     ) => *selected,
                     Some(Overlay::MessageSearch(search)) => search.selected,
                     Some(Overlay::MessageActions(menu)) => menu.selected,

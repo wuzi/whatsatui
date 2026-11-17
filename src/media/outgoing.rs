@@ -114,6 +114,186 @@ pub fn import_bytes(
     persist(local, &bytes, data_dir)
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalDocument {
+    pub id: String,
+    pub filename: String,
+    pub mime: String,
+    pub size: u64,
+}
+
+impl LocalDocument {
+    pub fn label(&self) -> &'static str {
+        "file"
+    }
+
+    /// Music and other sound files go out as playable audio messages.
+    pub fn is_audio(&self) -> bool {
+        self.mime.starts_with("audio/")
+    }
+
+    /// Clips the app can send as playable video messages.
+    pub fn is_video(&self) -> bool {
+        self.mime.starts_with("video/")
+    }
+}
+
+pub const MAX_DOCUMENT_BYTES: u64 = 50 * 1024 * 1024;
+
+pub fn document_path(file: &LocalDocument, data_dir: &Path) -> Result<PathBuf, String> {
+    if file.id.len() != 64
+        || !file
+            .id
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err("Invalid attached file reference".into());
+    }
+    Ok(data_dir.join("outgoing").join(format!("{}.bin", file.id)))
+}
+
+pub fn read_document(file: &LocalDocument, data_dir: &Path) -> Result<Vec<u8>, String> {
+    let path = document_path(file, data_dir)?;
+    if !std::fs::symlink_metadata(&path).is_ok_and(|m| m.is_file()) {
+        return Err("Attached file is missing; attach it again".into());
+    }
+    let bytes = std::fs::read(&path).map_err(|_| "Attached file is unavailable")?;
+    if bytes.len() as u64 != file.size || format!("{:x}", Sha256::digest(&bytes)) != file.id {
+        return Err("Attached file changed; attach it again".into());
+    }
+    Ok(bytes)
+}
+
+pub fn guess_mime(filename: &str) -> String {
+    let ext = filename
+        .rsplit('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    match ext.as_str() {
+        "apk" => "application/vnd.android.package-archive",
+        "pdf" => "application/pdf",
+        "txt" => "text/plain",
+        "csv" => "text/csv",
+        "zip" => "application/zip",
+        "mp4" => "video/mp4",
+        "mov" => "video/quicktime",
+        "3gp" => "video/3gpp",
+        "webm" => "video/webm",
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "mp3" => "audio/mpeg",
+        "m4a" => "audio/mp4",
+        "ogg" | "oga" => "audio/ogg",
+        "opus" => "audio/opus",
+        "wav" => "audio/wav",
+        "flac" => "audio/flac",
+        "aac" => "audio/aac",
+        "doc" => "application/msword",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xls" => "application/vnd.ms-excel",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "ppt" => "application/vnd.ms-powerpoint",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "odt" => "application/vnd.oasis.opendocument.text",
+        "ods" => "application/vnd.oasis.opendocument.spreadsheet",
+        _ => "application/octet-stream",
+    }
+    .to_owned()
+}
+
+pub fn import_document(source: &Path, data_dir: &Path) -> Result<LocalDocument, String> {
+    let filename = source
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "file".into());
+    let metadata = std::fs::metadata(source).map_err(|_| "Attached file is unavailable")?;
+    if !metadata.is_file() {
+        return Err("Choose a regular file up to 50 MiB".into());
+    }
+    if metadata.len() > MAX_DOCUMENT_BYTES {
+        return Err("File exceeds the 50 MiB limit".into());
+    }
+    let bytes = std::fs::read(source).map_err(|_| "Cannot read file")?;
+    if bytes.len() as u64 > MAX_DOCUMENT_BYTES {
+        return Err("File exceeds the 50 MiB limit".into());
+    }
+    import_document_bytes(&bytes, filename, data_dir)
+}
+
+pub fn import_document_bytes(
+    bytes: &[u8],
+    filename: String,
+    data_dir: &Path,
+) -> Result<LocalDocument, String> {
+    if bytes.is_empty() {
+        return Err("Attached file is empty".into());
+    }
+    if bytes.len() as u64 > MAX_DOCUMENT_BYTES {
+        return Err("File exceeds the 50 MiB limit".into());
+    }
+    let mime = guess_mime(&filename);
+    let local = LocalDocument {
+        id: format!("{:x}", Sha256::digest(bytes)),
+        filename,
+        mime,
+        size: bytes.len() as u64,
+    };
+    persist_document(local, bytes, data_dir)
+}
+
+fn persist_document(
+    local: LocalDocument,
+    bytes: &[u8],
+    data_dir: &Path,
+) -> Result<LocalDocument, String> {
+    let root = data_dir.join("outgoing");
+    private_dir(&root).map_err(|_| "Cannot create attached file folder")?;
+    let dest = document_path(&local, data_dir)?;
+    if dest.exists() {
+        read_document(&local, data_dir)?;
+        return Ok(local);
+    }
+    let mut used = 0u64;
+    let mut count = 0usize;
+    for entry in std::fs::read_dir(&root).map_err(|_| "Cannot read attached file folder")? {
+        let entry = entry.map_err(|_| "Cannot read attached file folder")?;
+        if entry
+            .path()
+            .extension()
+            .is_some_and(|e| e == "jpg" || e == "webp" || e == "bin")
+        {
+            count += 1;
+            used += entry
+                .metadata()
+                .map_err(|_| "Cannot read attached file")?
+                .len();
+        }
+    }
+    if count >= 128 || used + local.size > 512 * 1024 * 1024 {
+        return Err("Attached file folder is full; remove unused snapshots from outgoing/".into());
+    }
+    let mut temp = tempfile::Builder::new()
+        .prefix(".file-")
+        .tempfile_in(root)
+        .map_err(|_| "Cannot save attached file")?;
+    temp.write_all(bytes)
+        .map_err(|_| "Cannot save attached file")?;
+    temp.as_file()
+        .sync_all()
+        .map_err(|_| "Cannot save attached file")?;
+    match temp.persist_noclobber(dest) {
+        Ok(_) => {}
+        Err(e) if e.error.kind() == std::io::ErrorKind::AlreadyExists => {
+            read_document(&local, data_dir)?;
+        }
+        Err(_) => return Err("Cannot save attached file".into()),
+    }
+    Ok(local)
+}
+
 fn persist(local: LocalImage, bytes: &[u8], data_dir: &Path) -> Result<LocalImage, String> {
     let root = data_dir.join("outgoing");
     private_dir(&root).map_err(|_| "Cannot create attached image folder")?;
@@ -129,7 +309,7 @@ fn persist(local: LocalImage, bytes: &[u8], data_dir: &Path) -> Result<LocalImag
         if entry
             .path()
             .extension()
-            .is_some_and(|e| e == "jpg" || e == "webp")
+            .is_some_and(|e| e == "jpg" || e == "webp" || e == "bin")
         {
             count += 1;
             used += entry

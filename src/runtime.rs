@@ -29,13 +29,12 @@ pub enum AppError {
     Terminal(#[from] std::io::Error),
     #[error("{0}")]
     Arguments(&'static str),
-    #[error("{0}")]
-    Media(String),
 }
 pub trait Screen {
     fn poll(&mut self) -> bool {
         false
     }
+    fn set_mouse(&mut self, _enabled: bool) {}
     fn stop_media(&mut self) {}
     fn draw(&mut self, view: &ViewModel, config: &Config) -> std::io::Result<()>;
     fn finish(&mut self) -> std::io::Result<()>;
@@ -88,6 +87,7 @@ where
             "--demo cannot be combined with --data-dir",
         ));
     }
+    let custom_config = options.config.clone();
     let mut config = if let Some(path) = options.config {
         Config::load(&path)?
     } else if options.demo {
@@ -99,7 +99,10 @@ where
         config.notifications.enabled = false;
     }
     // Establish the notification cutoff before starting live ingestion.
-    let app = App::new(config);
+    let mut app = App::new(config);
+    if !options.demo {
+        app.set_config_path(custom_config.unwrap_or_else(|| paths.config.clone()));
+    }
     let temporary = if options.demo {
         Some(
             tempfile::Builder::new()
@@ -116,9 +119,14 @@ where
         .unwrap_or(paths.data);
     let guard = DataDirGuard::acquire(&path)?;
     let store = Store::open(path.join("chat.sqlite3")).await?;
-    crate::media::prune(store.clone())
-        .await
-        .map_err(AppError::Media)?;
+    // Prune expired media in the background so startup paints first.
+    // Failures surface on the next periodic prune instead of blocking launch.
+    tokio::spawn({
+        let store = store.clone();
+        async move {
+            let _ = crate::media::prune(store).await;
+        }
+    });
     let backend = if options.demo {
         crate::whatsapp::demo::start(store.clone())
     } else {
@@ -133,17 +141,35 @@ where
         _temporary: temporary,
     })
 }
+/// Cache key for the timeline viewport: layout inputs only.
+type ViewportKey = (
+    u16,
+    u16,
+    usize,
+    Option<crate::app::model::MessageKey>,
+    usize,
+    Option<crate::app::model::MessageKey>,
+);
 struct TerminalScreen {
     avatars: crate::ui::Avatars,
     images: crate::ui::Images,
     terminal: ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>,
     guard: crate::terminal::TerminalGuard,
     viewport: Option<crate::app::TimelineViewport>,
+    viewport_key: Option<ViewportKey>,
     interaction: Option<crate::ui::InteractionMap>,
 }
 impl Screen for TerminalScreen {
     fn poll(&mut self) -> bool {
         self.images.poll() | self.avatars.poll()
+    }
+    fn set_mouse(&mut self, enabled: bool) {
+        use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+        if enabled {
+            let _ = crossterm::execute!(std::io::stdout(), EnableMouseCapture);
+        } else {
+            let _ = crossterm::execute!(std::io::stdout(), DisableMouseCapture);
+        }
     }
     fn stop_media(&mut self) {
         self.images.stop();
@@ -151,7 +177,22 @@ impl Screen for TerminalScreen {
     }
     fn draw(&mut self, view: &ViewModel, config: &Config) -> std::io::Result<()> {
         self.terminal.draw(|frame| {
-            self.viewport = crate::ui::timeline_viewport(frame.area(), view, config);
+            // The viewport only depends on layout inputs, not on animation
+            // frames. Reuse it while messages, anchor, scroll, and area are
+            // unchanged to skip the second timeline layout per draw.
+            let area = frame.area();
+            let key = (
+                area.width,
+                area.height,
+                view.messages.len(),
+                view.messages.last().map(|m| m.key.clone()),
+                view.message_scroll,
+                view.timeline_anchor.clone(),
+            );
+            if self.viewport_key.as_ref() != Some(&key) {
+                self.viewport = crate::ui::timeline_viewport(area, view, config);
+                self.viewport_key = Some(key);
+            }
             self.interaction = Some(crate::ui::render_interactive(
                 frame,
                 view,
@@ -205,6 +246,7 @@ pub async fn run(mut app: App, store: Store, backend: BackendHandle) -> Result<(
         store.clone(),
         backend.media.clone(),
         app.config.media.protocol,
+        app.config.media.auto_photos,
     );
     let avatars = crate::ui::Avatars::new(
         store.data_dir().to_owned(),
@@ -217,6 +259,7 @@ pub async fn run(mut app: App, store: Store, backend: BackendHandle) -> Result<(
         terminal,
         guard,
         viewport: None,
+        viewport_key: None,
         interaction: None,
     };
     run_with_screen(
@@ -352,19 +395,32 @@ async fn execute_with_media(
             };
             let result = tokio::task::spawn_blocking(move || {
                 let _permit = permit;
-                let path = if let Some(rest) = path.strip_prefix("~/") {
-                    std::path::PathBuf::from(
-                        std::env::var_os("HOME").ok_or("Home directory is unavailable")?,
-                    )
-                    .join(rest)
-                } else {
-                    std::path::PathBuf::from(path)
-                };
+                let path = expand_attachment_path(&path)?;
                 crate::media::outgoing::import(&path, &root)
             })
             .await
             .unwrap_or_else(|_| Err("Image preparation failed".into()));
             return Some(Input::ImageImported {
+                request,
+                account,
+                chat,
+                result,
+            });
+        }
+        Effect::ImportDocument {
+            request,
+            account,
+            chat,
+            path,
+        } => {
+            let root = store.data_dir().to_owned();
+            let result = tokio::task::spawn_blocking(move || {
+                let path = expand_attachment_path(&path)?;
+                crate::media::outgoing::import_document(&path, &root)
+            })
+            .await
+            .unwrap_or_else(|_| Err("File preparation failed".into()));
+            return Some(Input::DocumentImported {
                 request,
                 account,
                 chat,
@@ -391,6 +447,20 @@ async fn execute_with_media(
                 account,
                 result,
             });
+        }
+        Effect::AutoDownload { message } => {
+            // Silent by design: background fetch shares the verified media
+            // cache with explicit downloads, so a later `d` or play is instant.
+            let _ = crate::media::execute(
+                *message,
+                crate::media::MediaAction::Download,
+                store,
+                downloader,
+                &crate::desktop::NativeDesktop,
+                cancel,
+            )
+            .await;
+            return None;
         }
         Effect::DesktopAction {
             request,
@@ -583,7 +653,7 @@ async fn execute_with_media(
             }
             StoreCompletion::Changed { account, result }
         }
-        Effect::Shutdown | Effect::Audio(_) => return None,
+        Effect::Shutdown | Effect::Audio(_) | Effect::SetMouse(_) => return None,
     };
     Some(Input::Store(event))
 }
@@ -690,6 +760,16 @@ where
                 && !closing
             {
                 audio.set(request);
+            }
+        }
+        while let Some(index) = pending
+            .iter()
+            .position(|e| matches!(e, Effect::SetMouse(_)))
+        {
+            if let Some(Effect::SetMouse(enabled)) = pending.remove(index)
+                && !closing
+            {
+                screen.set_mouse(enabled);
             }
         }
         while jobs.len() < 16 {
@@ -807,6 +887,31 @@ fn uses_commands(effect: &Effect) -> bool {
             | Effect::Transmit(_)
             | Effect::MarkRead { .. }
     )
+}
+
+fn expand_attachment_path(path: &str) -> Result<std::path::PathBuf, String> {
+    let mut path = path.trim().to_owned();
+    if path.len() >= 2
+        && ((path.starts_with('\'') && path.ends_with('\''))
+            || (path.starts_with('"') && path.ends_with('"')))
+    {
+        path = path[1..path.len() - 1].trim().to_owned();
+    }
+    if path.contains("\\ ") {
+        path = path.replace("\\ ", " ");
+    }
+    if let Some(rest) = path.strip_prefix("~/") {
+        return Ok(std::path::PathBuf::from(
+            std::env::var_os("HOME").ok_or("Home directory is unavailable")?,
+        )
+        .join(rest));
+    }
+    if let Ok(url) = reqwest::Url::parse(&path)
+        && let Some(file) = url.to_file_path().ok()
+    {
+        return Ok(file);
+    }
+    Ok(std::path::PathBuf::from(path))
 }
 
 async fn clipboard_paste(

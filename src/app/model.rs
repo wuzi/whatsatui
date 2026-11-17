@@ -58,6 +58,12 @@ pub struct Draft {
     pub text: String,
     #[serde(default)]
     pub attachment: Option<Box<crate::media::outgoing::LocalImage>>,
+    #[serde(default)]
+    pub document: Option<Box<crate::media::outgoing::LocalDocument>>,
+    /// Send an attached sound or video file as a playable audio/video
+    /// message instead of a plain document. Chosen in the attach dialog.
+    #[serde(default)]
+    pub document_as_media: bool,
     pub reply: Option<Quote>,
     pub revision: u64,
     /// Original composer identity; retained through alias merges to reconcile edits.
@@ -71,6 +77,10 @@ pub struct RecoveredDraft {
     pub origin: ChatId,
     pub text: String,
     pub attachment: Option<Box<crate::media::outgoing::LocalImage>>,
+    #[serde(default)]
+    pub document: Option<Box<crate::media::outgoing::LocalDocument>>,
+    #[serde(default)]
+    pub document_as_media: bool,
     pub reply: Option<Quote>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,6 +112,10 @@ pub enum MessageBody {
     Text(String),
     LocalImage {
         image: Box<crate::media::outgoing::LocalImage>,
+        caption: String,
+    },
+    LocalDocument {
+        file: Box<crate::media::outgoing::LocalDocument>,
         caption: String,
     },
     Media(Box<crate::media::Attachment>),

@@ -1,0 +1,58 @@
+name: "whatsatui"
+arch: "amd64"
+platform: "linux"
+version: "0.2.0"
+section: "net"
+priority: "optional"
+maintainer: "9M2PJU <9m2pju@gmail.com>"
+description: |-
+  Personal WhatsApp terminal client in Rust and Ratatui.
+  Pane-based keyboard navigation, E2E via linked device.
+vendor: "whatsatui contributors"
+homepage: "https://github.com/wuzi/whatsatui"
+license: "MIT"
+
+rpm:
+  group: "Applications/Internet"
+
+overrides:
+  deb:
+    depends:
+      - libc6
+    recommends:
+      - mpv
+      - ffmpeg
+      - xdg-utils
+      - "wl-clipboard | xclip | xsel"
+  rpm:
+    depends:
+      - glibc
+    recommends:
+      - mpv
+      - ffmpeg
+      - xdg-utils
+      - wl-clipboard
+      - xclip
+      - xsel
+
+contents:
+  - src: target/release/whatsapp-tui
+    dst: /usr/bin/whatsapp-tui
+    file_info:
+      mode: 0755
+  - src: packaging/whatsapp-tui.desktop
+    dst: /usr/share/applications/whatsapp-tui.desktop
+    file_info:
+      mode: 0644
+  - src: packaging/icon.svg
+    dst: /usr/share/icons/hicolor/scalable/apps/whatsapp-tui.svg
+    file_info:
+      mode: 0644
+  - src: LICENSE
+    dst: /usr/share/doc/whatsatui/copyright
+    file_info:
+      mode: 0644
+  - src: examples/config.toml
+    dst: /usr/share/doc/whatsatui/config.toml.example
+    file_info:
+      mode: 0644

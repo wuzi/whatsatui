@@ -29,6 +29,21 @@ pub async fn execute(
     if current.key != message.key || current.body != message.body {
         return Err("Message changed; reopen its actions".into());
     }
+    if matches!(action, DesktopAction::OpenLocal) {
+        let path = match &current.body {
+            crate::app::model::MessageBody::LocalImage { image, .. } => {
+                crate::media::outgoing::read(image, store.data_dir())?;
+                crate::media::outgoing::path(image, store.data_dir())?
+            }
+            crate::app::model::MessageBody::LocalDocument { file, .. } => {
+                crate::media::outgoing::read_document(file, store.data_dir())?;
+                crate::media::outgoing::document_path(file, store.data_dir())?
+            }
+            _ => return Err("Only your own attached photos and files can be opened here".into()),
+        };
+        integration.open_file(&path).await?;
+        return Ok("Viewer request sent".into());
+    }
     let text = message_actions::text(&current, chrono::Utc::now().timestamp_millis())
         .ok_or("Message text is no longer available")?;
     let open_link = matches!(action, DesktopAction::OpenLink(_));
@@ -49,6 +64,9 @@ pub async fn execute(
                 integration.copy(&url).await?;
                 Ok("Copied link".into())
             }
+        }
+        DesktopAction::OpenLocal => {
+            unreachable!("OpenLocal is handled before text lookup")
         }
     }
 }

@@ -156,6 +156,142 @@ pub(super) fn chats(
     );
 }
 
+pub(super) fn forward(
+    frame: &mut Frame,
+    area: Rect,
+    view: &ViewModel,
+    config: &Config,
+    hits: &mut InteractionMap,
+) {
+    let Some(Overlay::Forward {
+        message,
+        editor,
+        selected,
+    }) = &view.overlay
+    else {
+        return;
+    };
+    let r = overlays::centered(area, 74, 20);
+    frame.render_widget(Clear, r);
+    let border = block(" Forward message ".into(), true, view, config);
+    let inner = border.inner(r);
+    frame.render_widget(border, r);
+    hits.popup(frame, r, view, config);
+    let body = crate::message_actions::text(message, chrono::Utc::now().timestamp_millis())
+        .map(str::to_owned)
+        .unwrap_or_else(|| match &message.body {
+            crate::app::model::MessageBody::Media(attachment) => attachment.label(),
+            crate::app::model::MessageBody::LocalImage { image, caption } => {
+                if caption.is_empty() {
+                    format!("[{}] {}", image.label(), image.filename)
+                } else {
+                    caption.clone()
+                }
+            }
+            crate::app::model::MessageBody::LocalDocument { file, caption } => {
+                if caption.is_empty() {
+                    format!("[file] {}", file.filename)
+                } else {
+                    caption.clone()
+                }
+            }
+            _ => String::new(),
+        });
+    frame.render_widget(
+        Paragraph::new(single(&body)).style(style(config, view, ThemeRole::Inactive)),
+        Rect::new(inner.x, inner.y, inner.width, 1),
+    );
+    query(
+        frame,
+        Rect::new(inner.x, inner.y + 1, inner.width, 1),
+        editor,
+        view,
+        config,
+        hits,
+    );
+    frame.render_widget(
+        Paragraph::new(format!("{} chats", view.search_results.len(),)).style(style(
+            config,
+            view,
+            ThemeRole::Inactive,
+        )),
+        Rect::new(inner.x, inner.y + 2, inner.width, 1),
+    );
+    let list = Rect::new(
+        inner.x,
+        inner.y + 4,
+        inner.width,
+        inner.height.saturating_sub(6),
+    );
+    if view.search_results.is_empty() {
+        frame.render_widget(
+            Paragraph::new("No matching chats").style(style(config, view, ThemeRole::Inactive)),
+            list,
+        );
+    } else {
+        let items = view
+            .search_results
+            .iter()
+            .map(|c| {
+                let unread = if c.unread > 0 {
+                    format!(" · {} unread", c.unread)
+                } else {
+                    String::new()
+                };
+                let draft = if c.has_draft { " · draft" } else { "" };
+                ListItem::new(vec![
+                    Line::from(single(&c.name)),
+                    Line::styled(
+                        format!(
+                            "{}{}{}{}",
+                            if c.is_group { "Group" } else { "Direct" },
+                            unread,
+                            draft,
+                            c.phone
+                                .as_deref()
+                                .map(|p| format!(" · {}", single(p)))
+                                .unwrap_or_default()
+                        ),
+                        style(config, view, ThemeRole::Inactive),
+                    ),
+                ])
+            })
+            .collect::<Vec<_>>();
+        let heights = items.iter().map(ListItem::height).collect::<Vec<_>>();
+        let mut state = ListState::default()
+            .with_offset(
+                view.list_offsets
+                    .get(&Context::Forward)
+                    .copied()
+                    .unwrap_or(0),
+            )
+            .with_selected(Some(*selected));
+        frame.render_stateful_widget(
+            List::new(items)
+                .highlight_symbol("> ")
+                .highlight_style(style(config, view, ThemeRole::Accent)),
+            list,
+            &mut state,
+        );
+        hits.list(
+            Context::Forward,
+            list,
+            state.offset(),
+            heights,
+            Target::Menu,
+        );
+    }
+    frame.render_widget(
+        Paragraph::new(format!(
+            "{} forward · {} back",
+            key(config, Context::Forward, ActionId::Open),
+            key(config, Context::Forward, ActionId::Back)
+        ))
+        .style(style(config, view, ThemeRole::Hints)),
+        Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1),
+    );
+}
+
 pub(super) fn messages(
     frame: &mut Frame,
     area: Rect,

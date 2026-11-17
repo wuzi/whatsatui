@@ -6,6 +6,46 @@ For local validation and the pre-push hook, see [development checks](docs/conven
 
 <img width="1767" height="1123" alt="demo2" src="https://github.com/user-attachments/assets/503bd6d4-bd16-423b-bfb4-fd3718ad7de8" />
 
+## Install
+
+Tagged releases (`v*`) build installers on GitHub Actions, see `.github/workflows/release.yml`:
+
+- `.deb` (Debian/Ubuntu) and `.rpm` (Fedora/openSUSE) built with `packaging/nfpm.yaml`
+- `.AppImage` (portable) built with `packaging/appimage/build.sh`
+- Portable tarball `whatsatui-<version>-x86_64.tar.gz` with the binary, license, example config, desktop file, and icon
+
+```sh
+# Debian/Ubuntu
+sudo dpkg -i whatsatui_0.2.0_amd64.deb
+sudo apt-get install -f  # pulls missing deps if any
+
+# Fedora/openSUSE
+sudo dnf install ./whatsatui-0.2.0.x86_64.rpm
+
+# Any distro (portable)
+chmod +x whatsatui-0.2.0-x86_64.AppImage
+./whatsatui-0.2.0-x86_64.AppImage --demo
+```
+
+Arch Linux (AUR):
+
+```sh
+# stable source build
+yay -S whatsatui
+# or prebuilt binary from the GitHub release
+yay -S whatsatui-bin
+# or latest git main
+yay -S whatsatui-git
+```
+
+Packaging templates live in `packaging/`: `nfpm.yaml` for deb/rpm,
+`appimage/` for the AppImage, `aur/whatsatui/`, `aur/whatsatui-bin/`, and
+`aur/whatsatui-git/` for the AUR source, binary, and git packages, plus `whatsapp-tui.desktop` and `icon.svg`.
+
+Optional runtime helpers (recommended, not required): `mpv` for voice/video
+playback, `ffmpeg`/`ffprobe` for GIF previews, `xdg-utils` for opening links
+and files, `wl-clipboard` (Wayland) or `xclip`/`xsel` (X11) for clipboard.
+
 ## What v0.1 includes
 
 - Direct and existing group text chats; fuzzy switching by name or known phone/identifier, with an unread filter.
@@ -40,6 +80,7 @@ For local validation and the pre-push hook, see [development checks](docs/conven
 | Ctrl-C in Composer | Clear the current text |
 | J/K in Messages | Scroll rows without changing the selected message |
 | Right-click a message | Open its actions |
+| Double-click a photo, file, or link | Download/open media in viewer or URL in browser |
 | Ctrl-V in Composer | Paste a clipboard image, copied image file, or text |
 | Ctrl-S in Composer | Choose a recent sticker, or paste an image to create one |
 | Ctrl-O in Composer | Attach an image by path |
@@ -61,6 +102,7 @@ For local validation and the pre-push hook, see [development checks](docs/conven
 | Alt-R in Composer | Remove the quote, keep your text |
 | PageUp / PageDown, End | Browse messages, return to newest |
 | ? in lists, F1 | Show help |
+| F2 | Open settings (also via the Settings button) |
 | Ctrl-Q | Save drafts and quit |
 
 ## Local configuration and data

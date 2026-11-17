@@ -34,6 +34,24 @@ pub(super) fn rows(
             }
             Some(caption.as_str())
         }
+        MessageBody::LocalDocument { file, caption } => {
+            let size = if file.size < 1024 {
+                format!("{} B", file.size)
+            } else if file.size < 1024 * 1024 {
+                format!("{:.1} KiB", file.size as f64 / 1024.0)
+            } else {
+                format!("{:.1} MiB", file.size as f64 / (1024.0 * 1024.0))
+            };
+            lines.extend(
+                wrap(
+                    &format!("[file] {} · {size}", single(&file.filename)),
+                    width,
+                )
+                .into_iter()
+                .map(Line::from),
+            );
+            Some(caption.as_str())
+        }
         MessageBody::Text(t) => Some(t.as_str()),
         MessageBody::Media(attachment) => {
             if matches!(

@@ -140,6 +140,7 @@ pub fn render_interactive(
     avatars: &mut Avatars,
 ) -> InteractionMap {
     let mut hits = InteractionMap::new(frame.area(), view);
+    images.set_auto_photos(config.media.auto_photos);
     images.begin_frame();
     avatars.begin_frame();
     render_content(frame, view, config, images, avatars, &mut hits);
@@ -222,6 +223,20 @@ fn render_content(
         view,
         config,
         hits,
+    );
+    let settings = Rect::new(
+        regions.header.right().saturating_sub(17),
+        regions.header.y,
+        10,
+        1,
+    );
+    frame.render_widget(
+        Paragraph::new(" Settings ").style(style(config, view, ThemeRole::Accent)),
+        settings,
+    );
+    hits.push(
+        settings,
+        Target::Action(crate::config::bindings::ActionId::Settings),
     );
     let help = Rect::new(
         regions.header.right().saturating_sub(7),

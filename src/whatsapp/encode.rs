@@ -8,7 +8,7 @@ pub struct EncodedText {
     pub options: SendOptions,
 }
 pub fn encode_text(outbound: &OutboundText) -> Result<EncodedText, BackendError> {
-    if outbound.draft.attachment.is_some() {
+    if outbound.draft.attachment.is_some() || outbound.draft.document.is_some() {
         return Err(BackendError::InvalidIdentity);
     }
     encode_base(outbound)
@@ -112,6 +112,175 @@ pub fn encode_image(
             file_enc_sha256: Some(a.encrypted_sha256.to_vec()),
             media_key_timestamp: Some(uploaded.media_key_timestamp),
             jpeg_thumbnail: Some(thumbnail),
+            context_info: context_info.into(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    Ok(encoded)
+}
+pub struct UploadedDocument {
+    pub attachment: crate::media::Attachment,
+    pub url: String,
+    pub media_key_timestamp: i64,
+}
+impl From<whatsapp_rust::upload::UploadResponse> for UploadedDocument {
+    fn from(r: whatsapp_rust::upload::UploadResponse) -> Self {
+        Self {
+            url: r.url,
+            media_key_timestamp: r.media_key_timestamp,
+            attachment: crate::media::Attachment {
+                audio: None,
+                kind: crate::media::AttachmentKind::Document,
+                filename: None,
+                caption: None,
+                mime: None,
+                size: r.file_length,
+                direct_path: r.direct_path,
+                media_key: r.media_key,
+                sha256: r.file_sha256,
+                encrypted_sha256: r.file_enc_sha256,
+            },
+        }
+    }
+}
+pub fn encode_document(
+    outbound: &OutboundText,
+    uploaded: UploadedDocument,
+) -> Result<EncodedText, BackendError> {
+    let file = outbound
+        .draft
+        .document
+        .as_ref()
+        .ok_or(BackendError::InvalidIdentity)?;
+    if outbound.draft.attachment.is_some() {
+        return Err(BackendError::InvalidIdentity);
+    }
+    if file.filename.len() > 255 || outbound.draft.text.len() > 4096 {
+        return Err(BackendError::InvalidIdentity);
+    }
+    let mut encoded = encode_base(outbound)?;
+    let context_info = encoded
+        .message
+        .extended_text_message
+        .as_option_mut()
+        .and_then(|m| m.context_info.take());
+    let a = uploaded.attachment;
+    let caption = if outbound.draft.text.is_empty() {
+        None
+    } else {
+        Some(outbound.draft.text.clone())
+    };
+    encoded.message = wa::Message {
+        document_message: MessageField::some(wa::message::DocumentMessage {
+            url: Some(uploaded.url),
+            direct_path: Some(a.direct_path),
+            mimetype: Some(file.mime.clone()),
+            title: Some(file.filename.clone()),
+            file_name: Some(file.filename.clone()),
+            file_length: Some(a.size),
+            media_key: Some(a.media_key.to_vec()),
+            file_sha256: Some(a.sha256.to_vec()),
+            file_enc_sha256: Some(a.encrypted_sha256.to_vec()),
+            media_key_timestamp: Some(uploaded.media_key_timestamp),
+            caption,
+            context_info: context_info.into(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    Ok(encoded)
+}
+/// Music and sound files without a caption go out as playable audio
+/// messages. Audio stanzas carry no caption, so a captioned sound file
+/// keeps the document form instead.
+pub fn encode_audio(
+    outbound: &OutboundText,
+    uploaded: UploadedDocument,
+) -> Result<EncodedText, BackendError> {
+    let file = outbound
+        .draft
+        .document
+        .as_ref()
+        .ok_or(BackendError::InvalidIdentity)?;
+    if outbound.draft.attachment.is_some() || !file.is_audio() {
+        return Err(BackendError::InvalidIdentity);
+    }
+    if !outbound.draft.text.is_empty() {
+        return Err(BackendError::InvalidIdentity);
+    }
+    let mut encoded = encode_base(outbound)?;
+    let context_info = encoded
+        .message
+        .extended_text_message
+        .as_option_mut()
+        .and_then(|m| m.context_info.take());
+    let a = uploaded.attachment;
+    encoded.message = wa::Message {
+        audio_message: MessageField::some(wa::message::AudioMessage {
+            url: Some(uploaded.url),
+            direct_path: Some(a.direct_path),
+            mimetype: Some(file.mime.clone()),
+            file_length: Some(a.size),
+            file_sha256: Some(a.sha256.to_vec()),
+            media_key: Some(a.media_key.to_vec()),
+            file_enc_sha256: Some(a.encrypted_sha256.to_vec()),
+            media_key_timestamp: Some(uploaded.media_key_timestamp),
+            ptt: Some(false),
+            context_info: context_info.into(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    Ok(encoded)
+}
+/// Video files chosen as playable go out as video messages, which keep
+/// their caption. Dimensions and duration come from a best-effort probe
+/// and are simply omitted when unreadable.
+pub fn encode_video(
+    outbound: &OutboundText,
+    uploaded: UploadedDocument,
+    width: Option<u32>,
+    height: Option<u32>,
+    seconds: Option<u32>,
+) -> Result<EncodedText, BackendError> {
+    let file = outbound
+        .draft
+        .document
+        .as_ref()
+        .ok_or(BackendError::InvalidIdentity)?;
+    if outbound.draft.attachment.is_some() || !file.is_video() {
+        return Err(BackendError::InvalidIdentity);
+    }
+    if file.filename.len() > 255 || outbound.draft.text.len() > 4096 {
+        return Err(BackendError::InvalidIdentity);
+    }
+    let mut encoded = encode_base(outbound)?;
+    let context_info = encoded
+        .message
+        .extended_text_message
+        .as_option_mut()
+        .and_then(|m| m.context_info.take());
+    let a = uploaded.attachment;
+    let caption = if outbound.draft.text.is_empty() {
+        None
+    } else {
+        Some(outbound.draft.text.clone())
+    };
+    encoded.message = wa::Message {
+        video_message: MessageField::some(wa::message::VideoMessage {
+            url: Some(uploaded.url),
+            direct_path: Some(a.direct_path),
+            mimetype: Some(file.mime.clone()),
+            file_length: Some(a.size),
+            file_sha256: Some(a.sha256.to_vec()),
+            media_key: Some(a.media_key.to_vec()),
+            file_enc_sha256: Some(a.encrypted_sha256.to_vec()),
+            media_key_timestamp: Some(uploaded.media_key_timestamp),
+            width,
+            height,
+            seconds,
+            caption,
             context_info: context_info.into(),
             ..Default::default()
         }),

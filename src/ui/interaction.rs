@@ -30,12 +30,14 @@ pub fn context(view: &ViewModel) -> Context {
     match &view.overlay {
         Some(Overlay::Stickers(_)) => Context::Stickers,
         Some(Overlay::Emoji { .. }) => Context::Emoji,
-        Some(Overlay::Attachment { .. }) => Context::Attachment,
+        Some(Overlay::Attachment { .. } | Overlay::SendChoice { .. }) => Context::Attachment,
         Some(Overlay::MessageActions(_)) => Context::MessageActions,
         Some(Overlay::Reactions(_)) => Context::Reactions,
         Some(Overlay::MessageLinks(_)) => Context::MessageLinks,
         Some(Overlay::MessageSearch(_)) => Context::MessageSearch,
+        Some(Overlay::Settings { .. }) => Context::Settings,
         Some(Overlay::Search { .. }) => Context::Search,
+        Some(Overlay::Forward { .. }) => Context::Forward,
         Some(Overlay::Help) => Context::Help,
         Some(Overlay::Resend { .. }) => Context::Resend,
         None => match view.focus {

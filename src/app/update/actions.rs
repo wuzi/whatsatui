@@ -49,6 +49,23 @@ impl App {
             self.view.notice = Some("Select an available message first".into());
         }
     }
+    pub(super) fn open_forward(&mut self) {
+        if let Some(message) = self
+            .selected()
+            .filter(|m| {
+                crate::message_actions::can_forward(m, chrono::Utc::now().timestamp_millis())
+            })
+            .cloned()
+        {
+            self.view.overlay = Some(Overlay::Forward {
+                message: Box::new(message),
+                editor: Editor::default(),
+                selected: 0,
+            });
+        } else {
+            self.view.notice = Some("This message cannot be forwarded".into());
+        }
+    }
     pub(super) fn open_message_links(&mut self) {
         let Some(message) = self.action_message() else {
             return;
@@ -153,6 +170,29 @@ impl App {
         };
         self.start_desktop_action(message, action, effects);
     }
+    /// Double-click on a photo or file: download when needed, then open it.
+    pub(super) fn view_selected_image(&mut self, effects: &mut Vec<Effect>) {
+        let Some(message) = self
+            .selected()
+            .filter(|m| crate::message_actions::viewable_file(m))
+            .cloned()
+        else {
+            return;
+        };
+        if self.desktop_request.is_some() {
+            self.view.notice = Some("An attachment or desktop action is still running".into());
+            return;
+        }
+        let request = self.request();
+        self.desktop_request = Some((request, message.key.account.clone()));
+        self.view.overlay = None;
+        self.view.notice = Some("Opening…".into());
+        effects.push(Effect::MediaAction {
+            request,
+            message: Box::new(message),
+            action: crate::media::MediaAction::View,
+        });
+    }
     pub(super) fn start_media_action(
         &mut self,
         action: crate::media::MediaAction,
@@ -163,7 +203,25 @@ impl App {
             return;
         };
         if !matches!(message.body, MessageBody::Media(_)) {
-            self.view.notice = Some("No downloadable attachment in this message".into());
+            if matches!(action, crate::media::MediaAction::Open)
+                && matches!(
+                    message.body,
+                    MessageBody::LocalImage { .. } | MessageBody::LocalDocument { .. }
+                )
+            {
+                self.start_desktop_action(message, DesktopAction::OpenLocal, effects);
+                return;
+            }
+            self.view.notice = Some(
+                if matches!(
+                    message.body,
+                    MessageBody::LocalImage { .. } | MessageBody::LocalDocument { .. }
+                ) {
+                    "Your file is already local; use open (v) to view it".into()
+                } else {
+                    "No downloadable attachment in this message".into()
+                },
+            );
             return;
         }
         if self.desktop_request.is_some() {
@@ -177,6 +235,7 @@ impl App {
             match action {
                 crate::media::MediaAction::Download => "Downloading attachment…",
                 crate::media::MediaAction::Open => "Opening downloaded file…",
+                crate::media::MediaAction::View => "Opening…",
             }
             .into(),
         );
@@ -186,7 +245,7 @@ impl App {
             action,
         });
     }
-    fn start_desktop_action(
+    pub(super) fn start_desktop_action(
         &mut self,
         message: MessageRecord,
         action: DesktopAction,
@@ -202,6 +261,8 @@ impl App {
         self.view.notice = Some(
             if matches!(action, DesktopAction::OpenLink(_)) {
                 "Opening link…"
+            } else if matches!(action, DesktopAction::OpenLocal) {
+                "Opening file…"
             } else {
                 "Copying…"
             }
