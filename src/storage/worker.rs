@@ -4,7 +4,10 @@ use crate::app::model::*;
 
 use diesel::{connection::SimpleConnection, prelude::*};
 
-use std::{collections::BTreeSet, path::Path};
+use std::{
+    collections::{BTreeSet, HashMap},
+    path::Path,
+};
 
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -18,7 +21,7 @@ pub(super) fn open(path: &Path) -> Result<SqliteConnection, StoreError> {
     let mut c = SqliteConnection::establish(path.to_str().ok_or(StoreError::InvalidData)?)?;
     super::search::register(&mut c)?;
 
-    c.batch_execute("PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;")?;
+    c.batch_execute("PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA cache_size=-64000; PRAGMA temp_store=MEMORY;")?;
 
     #[derive(QueryableByName)]
     struct Version {
@@ -52,6 +55,13 @@ pub(super) fn open(path: &Path) -> Result<SqliteConnection, StoreError> {
                 "../../migrations/00000000000003_interactions/up.sql"
             ))?;
         }
+        // Indexes for chat-list and unread fast paths. Safe to create on
+        // every open; IF NOT EXISTS keeps older databases compatible.
+        c.batch_execute(
+            "CREATE INDEX IF NOT EXISTS messages_unread ON messages(account,chat,unread,created_at_ms); \
+             CREATE INDEX IF NOT EXISTS messages_latest ON messages(account,chat,created_at_ms DESC,key DESC); \
+             CREATE INDEX IF NOT EXISTS receipts_chat ON receipts(account,chat);",
+        )?;
         Ok(())
     })?;
 
@@ -402,6 +412,7 @@ fn edit_body(body: &mut MessageBody, text: String) {
     match body {
         MessageBody::Media(attachment) => attachment.caption = Some(text),
         MessageBody::LocalImage { caption, .. } => *caption = text,
+        MessageBody::LocalDocument { caption, .. } => *caption = text,
         MessageBody::Unsupported { caption, .. } => *caption = Some(text),
         _ => *body = MessageBody::Text(text),
     }
@@ -422,7 +433,9 @@ pub(super) fn stage(
         }
 
         if !o.key.from_me
-            || (o.draft.text.trim().is_empty() && o.draft.attachment.is_none())
+            || (o.draft.text.trim().is_empty()
+                && o.draft.attachment.is_none()
+                && o.draft.document.is_none())
             || get(c, &o.key)?.is_some()
         {
             return Err(StoreError::InvalidData);
@@ -437,12 +450,21 @@ pub(super) fn stage(
 
         let m = MessageRecord {
             key: o.key.clone(),
-            body: match o.draft.attachment {
-                Some(image) => MessageBody::LocalImage {
+            body: match (o.draft.attachment, o.draft.document) {
+                (Some(image), None) => MessageBody::LocalImage {
                     image,
                     caption: o.draft.text,
                 },
-                None => MessageBody::Text(o.draft.text),
+                (None, Some(file)) => MessageBody::LocalDocument {
+                    file,
+                    caption: o.draft.text,
+                },
+                (None, None) => MessageBody::Text(o.draft.text),
+                // Image and document together is invalid; keep image to avoid data loss.
+                (Some(image), Some(_)) => MessageBody::LocalImage {
+                    image,
+                    caption: o.draft.text,
+                },
             },
             quote: o.draft.reply,
             created_at_ms: o.created_at_ms,
@@ -636,6 +658,9 @@ pub(super) fn preview(body: &MessageBody) -> String {
         MessageBody::LocalImage { image, caption } => {
             format!("[{}] {} {caption}", image.label(), image.filename)
         }
+        MessageBody::LocalDocument { file, caption } => {
+            format!("[{}] {} {caption}", file.label(), file.filename)
+        }
         MessageBody::Media(attachment) => format!(
             "[{}] {}",
             attachment.kind.label(),
@@ -706,20 +731,137 @@ pub(super) fn list(
     c: &mut SqliteConnection,
     a: &AccountId,
 ) -> Result<Vec<ChatSummary>, StoreError> {
-    let chats: Vec<ChatSummary> = rows(c, "SELECT data FROM chats WHERE account=?", &[&a.0])?;
+    // Batched fast path: 5 queries total instead of ~5 per chat.
+    let stored: Vec<ChatSummary> = rows(c, "SELECT data FROM chats WHERE account=?", &[&a.0])?;
+    if stored.is_empty() {
+        return Ok(vec![]);
+    }
+    // Canonicalize once per chat; aliases are rare so this stays cheap.
+    // Prefer the canonical row when an alias row exists, matching summary().
+    let by_chat: HashMap<&str, &ChatSummary> =
+        stored.iter().map(|s| (s.chat.0.as_str(), s)).collect();
+    let mut chats = Vec::with_capacity(stored.len());
+    let mut seen = BTreeSet::new();
+    for s in &stored {
+        let chat = ChatId(merge::canonical(c, a, &s.chat.0)?);
+        if !seen.insert(chat.0.clone()) {
+            continue;
+        }
+        let mut base = by_chat
+            .get(chat.0.as_str())
+            .map(|s| (*s).clone())
+            .unwrap_or_else(|| s.clone());
+        base.chat = chat;
+        chats.push(base);
+    }
 
-    let mut chats = chats
-        .into_iter()
-        .map(|s| summary(c, a, &s.chat))
-        .collect::<Result<Vec<_>, _>>()?;
+    #[derive(QueryableByName)]
+    struct Latest {
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        chat: String,
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        data: String,
+    }
+    #[derive(QueryableByName)]
+    struct UnreadRow {
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        chat: String,
+        #[diesel(sql_type = diesel::sql_types::BigInt)]
+        created_at_ms: i64,
+    }
+    #[derive(QueryableByName)]
+    struct StateRow {
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        chat: String,
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        data: String,
+    }
+    #[derive(QueryableByName)]
+    struct DraftRow {
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        chat: String,
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        data: String,
+    }
 
-    chats.sort_by(|a, b| {
+    let latest: Vec<Latest> = diesel::sql_query(
+        "SELECT chat AS chat, data AS data FROM (SELECT chat, data, ROW_NUMBER() OVER (PARTITION BY chat ORDER BY created_at_ms DESC, key DESC) AS rn FROM messages WHERE account = ?) WHERE rn = 1",
+    )
+    .bind::<diesel::sql_types::Text, _>(&a.0)
+    .load(c)?;
+    let mut latest_by_chat: HashMap<String, MessageRecord> = HashMap::with_capacity(latest.len());
+    for row in latest {
+        if let Ok(m) = serde_json::from_str::<MessageRecord>(&row.data) {
+            latest_by_chat.insert(row.chat, m);
+        }
+    }
+
+    let unread: Vec<UnreadRow> = diesel::sql_query(
+        "SELECT chat AS chat, created_at_ms AS created_at_ms FROM messages WHERE account = ? AND unread = 1",
+    )
+    .bind::<diesel::sql_types::Text, _>(&a.0)
+    .load(c)?;
+    let mut unread_by_chat: HashMap<String, Vec<i64>> =
+        HashMap::with_capacity(unread.len().min(chats.len()));
+    for row in unread {
+        unread_by_chat
+            .entry(row.chat)
+            .or_default()
+            .push(row.created_at_ms);
+    }
+
+    let states: Vec<StateRow> =
+        diesel::sql_query("SELECT chat AS chat, data AS data FROM read_state WHERE account = ?")
+            .bind::<diesel::sql_types::Text, _>(&a.0)
+            .load(c)?;
+    let mut state_by_chat: HashMap<String, merge::ReadState> = HashMap::with_capacity(states.len());
+    for row in states {
+        if let Ok(s) = serde_json::from_str(&row.data) {
+            state_by_chat.insert(row.chat, s);
+        }
+    }
+
+    let drafts: Vec<DraftRow> =
+        diesel::sql_query("SELECT chat AS chat, data AS data FROM drafts WHERE account = ?")
+            .bind::<diesel::sql_types::Text, _>(&a.0)
+            .load(c)?;
+    let mut draft_by_chat: HashMap<String, Draft> = HashMap::with_capacity(drafts.len());
+    for row in drafts {
+        if let Ok(d) = serde_json::from_str(&row.data) {
+            draft_by_chat.insert(row.chat, d);
+        }
+    }
+
+    let mut out = Vec::with_capacity(chats.len());
+    for mut s in chats {
+        if let Some(m) = latest_by_chat.remove(&s.chat.0) {
+            s.preview = preview(&m.body);
+            s.latest_at_ms = m.created_at_ms;
+        }
+        let state = state_by_chat.remove(&s.chat.0).unwrap_or_default();
+        let threshold = if state.baseline > 0 {
+            state.baseline_at_ms
+        } else {
+            i64::MIN
+        };
+        let fresh = unread_by_chat
+            .get(&s.chat.0)
+            .map(|v| v.iter().filter(|t| **t > threshold).count() as u32)
+            .unwrap_or(0);
+        s.unread = state.baseline.saturating_add(fresh);
+        s.has_draft = draft_by_chat
+            .get(&s.chat.0)
+            .is_some_and(|d| d.has_content());
+        out.push(s);
+    }
+
+    out.sort_by(|a, b| {
         b.latest_at_ms
             .cmp(&a.latest_at_ms)
             .then_with(|| a.name.cmp(&b.name))
     });
 
-    Ok(chats)
+    Ok(out)
 }
 
 pub(super) fn snapshot(
@@ -770,44 +912,49 @@ pub(super) fn snapshot(
         )?
     };
 
-    if !after {
+    if after && messages.len() < 100 {
+        messages = rows(
+            c,
+            "SELECT data FROM messages WHERE account=? AND chat=? ORDER BY created_at_ms DESC,key DESC LIMIT 100",
+            &[&a.0, &chat.0],
+        )?;
+        messages.reverse();
+    } else if !after {
         messages.reverse();
     }
 
-    let bound = |c: &mut SqliteConnection,
-                 m: &MessageRecord,
-                 older: bool|
-     -> Result<bool, StoreError> {
-        let sql = if older {
-            "SELECT CASE WHEN EXISTS(SELECT 1 FROM messages WHERE account=? AND chat=? AND (created_at_ms < ? OR (created_at_ms = ? AND key < ?))) THEN 'true' ELSE 'false' END AS data"
-        } else {
-            "SELECT CASE WHEN EXISTS(SELECT 1 FROM messages WHERE account=? AND chat=? AND (created_at_ms > ? OR (created_at_ms = ? AND key > ?))) THEN 'true' ELSE 'false' END AS data"
-        };
-
-        Ok(rows::<bool>(
-            c,
-            sql,
-            &[
-                &a.0,
-                &chat.0,
-                &m.created_at_ms.to_string(),
-                &m.created_at_ms.to_string(),
-                &json(&m.key)?,
-            ],
-        )?[0])
+    // One round trip for both bounds instead of two EXISTS queries.
+    // The flags are plain text, not JSON, so read the column directly
+    // instead of going through the JSON-parsing rows() helper.
+    #[derive(QueryableByName)]
+    struct Bounds {
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        data: String,
+    }
+    let (has_older, has_newer) = match (messages.first(), messages.last()) {
+        (Some(first), Some(last)) => {
+            let sql = "SELECT (CASE WHEN EXISTS(SELECT 1 FROM messages WHERE account=? AND chat=? AND (created_at_ms < ? OR (created_at_ms = ? AND key < ?))) THEN '1' ELSE '0' END || CASE WHEN EXISTS(SELECT 1 FROM messages WHERE account=? AND chat=? AND (created_at_ms > ? OR (created_at_ms = ? AND key > ?))) THEN '1' ELSE '0' END) AS data";
+            let first_ts = first.created_at_ms.to_string();
+            let last_ts = last.created_at_ms.to_string();
+            let first_key = json(&first.key)?;
+            let last_key = json(&last.key)?;
+            let flags: Vec<Bounds> = diesel::sql_query(sql)
+                .bind::<diesel::sql_types::Text, _>(&a.0)
+                .bind::<diesel::sql_types::Text, _>(&chat.0)
+                .bind::<diesel::sql_types::Text, _>(&first_ts)
+                .bind::<diesel::sql_types::Text, _>(&first_ts)
+                .bind::<diesel::sql_types::Text, _>(&first_key)
+                .bind::<diesel::sql_types::Text, _>(&a.0)
+                .bind::<diesel::sql_types::Text, _>(&chat.0)
+                .bind::<diesel::sql_types::Text, _>(&last_ts)
+                .bind::<diesel::sql_types::Text, _>(&last_ts)
+                .bind::<diesel::sql_types::Text, _>(&last_key)
+                .load(c)?;
+            let flags = flags.first().map(|f| f.data.as_str()).unwrap_or("00");
+            (flags.starts_with('1'), flags.ends_with('1'))
+        }
+        _ => (false, false),
     };
-
-    let has_older = messages
-        .first()
-        .map(|m| bound(c, m, true))
-        .transpose()?
-        .unwrap_or(false);
-
-    let has_newer = messages
-        .last()
-        .map(|m| bound(c, m, false))
-        .transpose()?
-        .unwrap_or(false);
 
     let receipts = if messages.is_empty() {
         vec![]

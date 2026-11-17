@@ -1,6 +1,6 @@
 use super::ConfigError;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 #[derive(Clone, Debug)]
 pub struct Bindings {
@@ -13,7 +13,7 @@ struct Binding {
     key: KeyEvent,
     label: String,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Context {
     Reactions,
@@ -24,14 +24,16 @@ pub enum Context {
     Messages,
     Composer,
     Search,
+    Forward,
     MessageSearch,
     MessageActions,
     MessageLinks,
     Help,
     Resend,
+    Settings,
     Global,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ActionId {
     FocusComposer,
@@ -57,6 +59,7 @@ pub enum ActionId {
     FocusNext,
     FocusPrevious,
     Search,
+    Forward,
     MessageSearch,
     Unread,
     ToggleUnread,
@@ -71,6 +74,7 @@ pub enum ActionId {
     Back,
     Reply,
     Resend,
+    Settings,
     PageUp,
     PageDown,
     ScrollUp,
@@ -78,7 +82,7 @@ pub enum ActionId {
     Bottom,
     Confirm,
 }
-pub(super) type Overrides = BTreeMap<Context, BTreeMap<ActionId, Vec<String>>>;
+pub(crate) type Overrides = BTreeMap<Context, BTreeMap<ActionId, Vec<String>>>;
 impl ActionId {
     pub fn label(self) -> &'static str {
         match self {
@@ -119,6 +123,8 @@ impl ActionId {
             Self::Back => "back",
             Self::Reply => "reply",
             Self::Resend => "resend",
+            Self::Forward => "forward",
+            Self::Settings => "settings",
             Self::PageUp => "older",
             Self::PageDown => "newer",
             Self::ScrollUp => "scroll up",
@@ -158,6 +164,7 @@ impl Default for Bindings {
                 (A::Search, "ctrl-p"),
                 (A::MessageSearch, "ctrl-f"),
                 (A::Help, "f1"),
+                (A::Settings, "f2"),
             ] {
                 b.add(c, a, k);
             }
@@ -220,6 +227,7 @@ impl Default for Bindings {
             (A::Back, "esc"),
             (A::Reply, "r"),
             (A::Resend, "R"),
+            (A::Forward, "f"),
             (A::PageUp, "pageup"),
             (A::PageDown, "pagedown"),
             (A::ScrollUp, "K"),
@@ -245,7 +253,19 @@ impl Default for Bindings {
             (A::Previous, "up"),
         ] {
             b.add(C::Search, a, k);
+            b.add(C::Forward, a, k);
             b.add(C::MessageSearch, a, k);
+        }
+        for (action, key) in [
+            (A::Open, "enter"),
+            (A::Open, "space"),
+            (A::Back, "esc"),
+            (A::Next, "down"),
+            (A::Next, "j"),
+            (A::Previous, "up"),
+            (A::Previous, "k"),
+        ] {
+            b.add(C::Settings, action, key);
         }
         b.add(C::Help, A::Back, "esc");
         for (action, key) in [
@@ -274,7 +294,12 @@ impl Default for Bindings {
                 b.add(c, a, k);
             }
         }
-        for (a, k) in [(A::OpenLinks, "o"), (A::Reply, "r"), (A::Resend, "R")] {
+        for (a, k) in [
+            (A::OpenLinks, "o"),
+            (A::Reply, "r"),
+            (A::Resend, "R"),
+            (A::Forward, "f"),
+        ] {
             b.add(C::MessageActions, a, k);
         }
         b
@@ -311,6 +336,7 @@ impl Bindings {
                         context,
                         Context::Composer
                             | Context::Search
+                            | Context::Forward
                             | Context::MessageSearch
                             | Context::Attachment
                             | Context::Emoji
@@ -368,6 +394,7 @@ impl Bindings {
             Context::MessageLinks,
             Context::Help,
             Context::Resend,
+            Context::Settings,
             Context::Global,
         ] {
             let entries: Vec<_> = result
@@ -394,6 +421,7 @@ impl Bindings {
                     | Context::MessageLinks
                     | Context::Attachment
                     | Context::Emoji
+                    | Context::Settings
             ) {
                 required.extend([ActionId::Open, ActionId::Back]);
             }
@@ -453,6 +481,7 @@ fn allowed(c: Context, a: ActionId) -> bool {
                 | A::MessageSearch
                 | A::Unread
                 | A::Help
+                | A::Settings
                 | A::Next
                 | A::Previous
                 | A::Open
@@ -488,6 +517,7 @@ fn allowed(c: Context, a: ActionId) -> bool {
                 | A::Search
                 | A::MessageSearch
                 | A::Help
+                | A::Settings
                 | A::Send
                 | A::Newline
                 | A::RemoveReply
@@ -497,6 +527,7 @@ fn allowed(c: Context, a: ActionId) -> bool {
             a,
             A::Back | A::Open | A::Next | A::Previous | A::ToggleUnread
         ),
+        C::Forward => matches!(a, A::Back | A::Open | A::Next | A::Previous),
         C::MessageSearch => matches!(a, A::Back | A::Open | A::Next | A::Previous),
         C::MessageActions => matches!(
             a,
@@ -515,9 +546,11 @@ fn allowed(c: Context, a: ActionId) -> bool {
                 | A::OpenMedia
                 | A::Reply
                 | A::Resend
+                | A::Forward
         ),
         C::MessageLinks => matches!(a, A::Back | A::Open | A::Next | A::Previous | A::CopyText),
         C::Help => matches!(a, A::Back | A::Next | A::Previous | A::PageUp | A::PageDown),
+        C::Settings => matches!(a, A::Back | A::Open | A::Next | A::Previous),
         C::Resend => matches!(a, A::Back | A::Confirm),
     }
 }

@@ -4,6 +4,7 @@ mod business;
 #[cfg(test)]
 mod business_tests;
 pub mod demo;
+mod documents;
 mod durability;
 pub mod encode;
 mod http;

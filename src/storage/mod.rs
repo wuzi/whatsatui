@@ -224,12 +224,14 @@ impl Store {
     ) -> Result<OutboundText, StoreError> {
         self.call(move |c| {
             let row = worker::get(c, &message.key)?.ok_or(StoreError::InvalidData)?;
-            let (text, attachment) = match row.body {
-                MessageBody::Text(text) => (text, None),
-                MessageBody::LocalImage { image, caption } => (caption, Some(image)),
+            let (text, attachment, document) = match row.body {
+                MessageBody::Text(text) => (text, None, None),
+                MessageBody::LocalImage { image, caption } => (caption, Some(image), None),
+                MessageBody::LocalDocument { file, caption } => (caption, None, Some(file)),
                 _ => return Err(StoreError::InvalidData),
             };
             message.draft.attachment = attachment;
+            message.draft.document = document;
             message.key = row.key;
             message.draft.text = text;
             message.draft.reply = row.quote;

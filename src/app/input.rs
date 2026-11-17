@@ -23,6 +23,12 @@ pub enum Input {
         chat: super::model::ChatId,
         result: Result<crate::media::outgoing::LocalImage, String>,
     },
+    DocumentImported {
+        request: super::model::RequestId,
+        account: super::model::AccountId,
+        chat: super::model::ChatId,
+        result: Result<crate::media::outgoing::LocalDocument, String>,
+    },
     DesktopAction {
         request: super::model::RequestId,
         account: super::model::AccountId,

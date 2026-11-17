@@ -118,11 +118,15 @@ pub(super) fn render(
         Some(Overlay::Attachment { .. }) => {
             super::attachments::dialog(frame, area, view, config, hits)
         }
+        Some(choice @ Overlay::SendChoice { .. }) => {
+            super::attachments::choice(frame, area, view, config, hits, choice)
+        }
         Some(Overlay::MessageActions(_)) => actions::menu(frame, area, view, config, hits),
         Some(Overlay::Reactions(_)) => reactions::popup(frame, area, view, config, hits),
         Some(Overlay::MessageLinks(_)) => actions::links(frame, area, view, config, hits),
         Some(Overlay::MessageSearch(_)) => search::messages(frame, area, view, config, hits),
         Some(Overlay::Search { .. }) => search::chats(frame, area, view, config, hits),
+        Some(Overlay::Forward { .. }) => search::forward(frame, area, view, config, hits),
         Some(Overlay::Help) => {
             let r = centered(area, 72, area.height.saturating_sub(2));
             frame.render_widget(Clear, r);
@@ -144,7 +148,7 @@ pub(super) fn render(
                 .collect::<Vec<_>>();
             lines.extend([
                 Line::from(""),
-                Line::from("Mouse: click selects · double-click opens"),
+                Line::from("Mouse: click selects · double-click opens media or URL in browser"),
                 Line::from("Right-click: message actions · wheel: scroll"),
                 Line::from("↑/↓ or Page Up/Down scroll this help"),
                 Line::from(""),
@@ -194,6 +198,48 @@ pub(super) fn render(
                 r,
             );
             hits.popup(frame, r, view, config);
+        }
+        Some(Overlay::Settings { selected }) => {
+            use crate::app::update::settings::SettingRow;
+            let r = centered(area, 56, SettingRow::ALL.len() as u16 + 6);
+            frame.render_widget(Clear, r);
+            let mut lines = vec![];
+            for (index, row) in SettingRow::ALL.iter().enumerate() {
+                let mut text = format!("{}: {}", row.label(), row.value(config),);
+                if let Some(hint) = row.hint() {
+                    text.push_str(&format!(" ({hint})"));
+                }
+                let current = index == *selected;
+                lines.push(Line::styled(
+                    format!("{} {text}", if current { ">" } else { " " }),
+                    if current {
+                        style(config, view, ThemeRole::Accent).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default()
+                    },
+                ));
+            }
+            lines.push(Line::from(""));
+            lines.push(Line::styled(
+                "enter toggles · esc closes · saves to config.toml",
+                style(config, view, ThemeRole::Hints),
+            ));
+            frame.render_widget(
+                Paragraph::new(lines).block(block(" Settings ".into(), true, view, config)),
+                r,
+            );
+            hits.popup(frame, r, view, config);
+            for index in 0..SettingRow::ALL.len() {
+                hits.push(
+                    Rect::new(
+                        r.x + 1,
+                        r.y + 1 + index as u16,
+                        r.width.saturating_sub(2),
+                        1,
+                    ),
+                    Target::Menu(index),
+                );
+            }
         }
         Some(Overlay::Resend { message }) => {
             let r = centered(area, 64, 7);

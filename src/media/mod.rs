@@ -25,6 +25,8 @@ pub const MAX_FILE_BYTES: u64 = 50 * 1024 * 1024;
 pub enum MediaAction {
     Download,
     Open,
+    /// Download when needed, then open in the viewer.
+    View,
 }
 
 #[async_trait::async_trait]
@@ -50,14 +52,14 @@ pub async fn execute(
         &message,
         &store,
         downloader,
-        matches!(action, MediaAction::Download),
+        matches!(action, MediaAction::Download | MediaAction::View),
         cancel.clone(),
     )
     .await?;
     check_cancel(&cancel)?;
     current(&message, &store).await?;
     match action {
-        MediaAction::Open => {
+        MediaAction::Open | MediaAction::View => {
             if attachment.extension().is_none() {
                 return Err("Downloaded; opening this file type is not supported".into());
             }

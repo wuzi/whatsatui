@@ -171,3 +171,33 @@ async fn second_instance_is_rejected() {
     drop(first);
     assert!(DataDirGuard::acquire(&path).is_ok());
 }
+
+#[tokio::test]
+async fn paging_after_reaches_end_retains_full_page() {
+    let d = tempfile::tempdir().unwrap();
+    let s = Store::open(d.path().join("db")).await.unwrap();
+    for i in 0..120 {
+        let mut msg = outbound(
+            key("chat", "test", &format!("msg_{i:03}")),
+            draft(&format!("message {i}"), i),
+        );
+        msg.created_at_ms = 1000 + i as i64;
+        s.stage_outgoing(msg).await.unwrap();
+    }
+    let snap = s
+        .snapshot(
+            account("test"),
+            "chat".into(),
+            Some(PageCursor {
+                direction: PageDirection::After,
+                created_at_ms: 1115,
+                key: key("chat", "test", "msg_115"),
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(snap.messages.len(), 100);
+    assert!(!snap.has_newer);
+    assert!(snap.has_older);
+    assert_eq!(snap.messages.last().unwrap().key.id.0, "msg_119");
+}

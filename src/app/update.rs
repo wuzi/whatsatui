@@ -2,13 +2,14 @@ use super::{editor::*, input::Input, model::*, view_model::*};
 use crate::{config::Config, whatsapp::BackendEvent};
 use tokio::time::Instant;
 mod actions;
-mod attachments;
+pub(crate) mod attachments;
 mod audio;
 mod interactions;
 mod mouse;
 mod navigation;
 mod notifications;
 mod search;
+pub(crate) mod settings;
 mod stickers;
 #[derive(Clone, Debug)]
 pub enum Effect {
@@ -17,6 +18,7 @@ pub enum Effect {
         tokio::sync::watch::Receiver<crate::notifications::Context>,
     ),
     Audio(Option<crate::audio::Request>),
+    SetMouse(bool),
     LoadOriginal {
         request: RequestId,
         key: MessageKey,
@@ -49,10 +51,21 @@ pub enum Effect {
         chat: ChatId,
         path: String,
     },
+    ImportDocument {
+        request: RequestId,
+        account: AccountId,
+        chat: ChatId,
+        path: String,
+    },
     MediaAction {
         request: RequestId,
         message: Box<MessageRecord>,
         action: crate::media::MediaAction,
+    },
+    /// Silent background fetch for auto-download kinds. Never shows a notice
+    /// and never occupies the explicit attachment-action slot.
+    AutoDownload {
+        message: Box<MessageRecord>,
     },
     DesktopAction {
         request: RequestId,
@@ -186,6 +199,7 @@ struct PendingSend {
 pub struct App {
     notifications: crate::notifications::Inbox,
     pub config: Config,
+    config_path: Option<std::path::PathBuf>,
     view: ViewModel,
     rendered: Option<crate::ui::InteractionMap>,
     original_request: Option<(RequestId, MessageKey, MessageKey)>,
@@ -193,6 +207,7 @@ pub struct App {
     help_max_scroll: usize,
     editor: Editor,
     visible_messages: Vec<MessageKey>,
+    auto_downloaded: std::collections::HashSet<MessageKey>,
     timeline_tail_rows: usize,
     drafts: HashMap<ChatId, LocalDraft>,
     pending: HashMap<RequestId, PendingSend>,
@@ -221,6 +236,7 @@ impl App {
         Self {
             notifications: crate::notifications::Inbox::new(chrono::Utc::now().timestamp_millis()),
             config,
+            config_path: None,
             rendered: None,
             original_request: None,
             last_click: None,
@@ -262,6 +278,7 @@ impl App {
             },
             editor: Editor::default(),
             visible_messages: vec![],
+            auto_downloaded: std::collections::HashSet::new(),
             timeline_tail_rows: 0,
             drafts: HashMap::new(),
             pending: HashMap::new(),
@@ -308,12 +325,22 @@ impl App {
                 });
             }
         }
-        view.chats = self.chat_summaries();
+        // Patch draft flags in place: view already cloned chats once,
+        // so avoid a second full clone via chat_summaries().
+        for chat in &mut view.chats {
+            if let Some(draft) = self.drafts.get(&chat.chat) {
+                chat.has_draft = draft.data.has_content();
+            }
+        }
         view.search_results = self.search_results();
         view
     }
     pub fn set_truecolor(&mut self, value: bool) {
         self.view.truecolor = value;
+    }
+    /// Where settings are persisted. None means session-only (demo mode).
+    pub fn set_config_path(&mut self, path: std::path::PathBuf) {
+        self.config_path = Some(path);
     }
     /// Under sustained backpressure keep quit, text editing, and terminal state
     /// available; defer navigation that would enqueue more storage work.
@@ -326,6 +353,7 @@ impl App {
                     self.context(),
                     Context::Composer
                         | Context::Search
+                        | Context::Forward
                         | Context::MessageSearch
                         | Context::Attachment
                         | Context::Emoji
@@ -351,12 +379,16 @@ impl App {
         match &self.view.overlay {
             Some(Overlay::Stickers(_)) => Context::Stickers,
             Some(Overlay::Emoji { .. }) => Context::Emoji,
-            Some(Overlay::Attachment { .. }) => Context::Attachment,
+            Some(Overlay::Attachment { .. }) | Some(Overlay::SendChoice { .. }) => {
+                Context::Attachment
+            }
             Some(Overlay::MessageActions(_)) => Context::MessageActions,
             Some(Overlay::Reactions(_)) => Context::Reactions,
             Some(Overlay::MessageLinks(_)) => Context::MessageLinks,
             Some(Overlay::MessageSearch(_)) => Context::MessageSearch,
+            Some(Overlay::Settings { .. }) => Context::Settings,
             Some(Overlay::Search { .. }) => Context::Search,
+            Some(Overlay::Forward { .. }) => Context::Forward,
             Some(Overlay::Help) => Context::Help,
             Some(Overlay::Resend { .. }) => Context::Resend,
             None => match self.view.focus {
@@ -456,6 +488,7 @@ impl App {
         self.view.selected_message = None;
         self.view.timeline_anchor = None;
         self.visible_messages.clear();
+        self.auto_downloaded.clear();
         self.timeline_tail_rows = 0;
         self.view.message_scroll = 0;
         self.view.message_scroll_max = 0;
@@ -490,6 +523,8 @@ impl App {
         }) = &self.view.overlay
         {
             super::search::rank_chats(&self.chat_summaries(), editor.text(), *unread_only)
+        } else if let Some(Overlay::Forward { editor, .. }) = &self.view.overlay {
+            super::search::rank_chats(&self.chat_summaries(), editor.text(), false)
         } else {
             vec![]
         }
@@ -523,6 +558,12 @@ impl App {
                 .min(self.help_max_scroll);
             return;
         }
+        if let Some(Overlay::Settings { selected }) = &mut self.view.overlay {
+            *selected = selected
+                .saturating_add_signed(delta)
+                .min(settings::SettingRow::ALL.len().saturating_sub(1));
+            return;
+        }
         if let Some(Overlay::Stickers(picker)) = &mut self.view.overlay {
             if picker.sending.is_none() {
                 picker.selected = picker
@@ -541,16 +582,30 @@ impl App {
                 .min(super::emoji::search(editor.text()).len().saturating_sub(1));
             return;
         }
+        if let Some(Overlay::SendChoice { selected, .. }) = &mut self.view.overlay {
+            *selected = selected.saturating_add_signed(delta).min(1);
+            return;
+        }
         if let Some(Overlay::Attachment {
+            editor,
             selected,
             importing,
             ..
         }) = &mut self.view.overlay
         {
             if importing.is_none() {
+                let editor_text = editor.text().to_owned();
+                let show_drafts =
+                    editor_text.trim().is_empty() && !self.view.draft.recovered.is_empty();
+                let len = attachments::browser_listed(&editor_text).1.len()
+                    + if show_drafts {
+                        self.view.draft.recovered.len()
+                    } else {
+                        0
+                    };
                 *selected = selected
                     .saturating_add_signed(delta)
-                    .min(self.view.draft.recovered.len().saturating_sub(1));
+                    .min(len.saturating_sub(1));
             }
             return;
         }
@@ -564,9 +619,14 @@ impl App {
                 .min(search.page.hits.len().saturating_sub(1));
             return;
         }
-        if matches!(self.view.overlay, Some(Overlay::Search { .. })) {
+        if matches!(
+            self.view.overlay,
+            Some(Overlay::Search { .. } | Overlay::Forward { .. })
+        ) {
             let len = self.search_results().len();
-            if let Some(Overlay::Search { selected, .. }) = &mut self.view.overlay {
+            if let Some(Overlay::Search { selected, .. } | Overlay::Forward { selected, .. }) =
+                &mut self.view.overlay
+            {
                 *selected = selected
                     .saturating_add_signed(delta)
                     .min(len.saturating_sub(1));
@@ -646,6 +706,38 @@ impl App {
             Focus::Composer => {}
         }
     }
+    fn queue_auto_downloads(&mut self, effects: &mut Vec<Effect>) {
+        if self.view.loading || self.view.messages.is_empty() {
+            return;
+        }
+        for key in self.visible_messages.clone() {
+            if !self.auto_downloaded.insert(key.clone()) {
+                continue;
+            }
+            let Some(message) = self.view.messages.iter().find(|m| m.key == key).cloned() else {
+                continue;
+            };
+            let MessageBody::Media(attachment) = &message.body else {
+                continue;
+            };
+            // Photos ride along with the inline preview fetch; only full
+            // files for the remaining kinds need a background download.
+            if matches!(
+                attachment.kind,
+                crate::media::AttachmentKind::Image
+                    | crate::media::AttachmentKind::Sticker
+                    | crate::media::AttachmentKind::Gif
+            ) {
+                continue;
+            }
+            if !self.config.media.auto_download(attachment.kind) {
+                continue;
+            }
+            effects.push(Effect::AutoDownload {
+                message: Box::new(message),
+            });
+        }
+    }
     fn reading_position(&mut self) {
         self.view.at_bottom = self.view.message_scroll == 0
             && !self.view.has_newer
@@ -689,7 +781,7 @@ impl App {
                 Some("Finish or cancel the edit before attaching or replying".into());
             return;
         }
-        if matches!(action, A::Reply | A::Resend)
+        if matches!(action, A::Reply | A::Resend | A::Forward)
             && matches!(self.view.overlay, Some(Overlay::MessageActions(_)))
             && !self.activate_menu_target(action)
         {
@@ -725,7 +817,14 @@ impl App {
             A::AttachImage => self.open_attachment(),
             A::RemoveAttachment => {
                 self.clipboard_request = None;
+                let mut changed = false;
                 if self.view.draft.attachment.take().is_some() {
+                    changed = true;
+                }
+                if self.view.draft.document.take().is_some() {
+                    changed = true;
+                }
+                if changed {
                     self.remember();
                 }
             }
@@ -749,6 +848,10 @@ impl App {
                 self.focus(next, effects);
             }
             A::Back => {
+                if matches!(self.view.overlay, Some(Overlay::SendChoice { .. })) {
+                    self.choose_send_as(false);
+                    return;
+                }
                 if self.view.overlay.is_none() && self.view.editing.is_some() {
                     if self
                         .view
@@ -813,6 +916,9 @@ impl App {
                 self.view.help_scroll = 0;
                 self.view.overlay = Some(Overlay::Help);
             }
+            A::Settings => {
+                self.view.overlay = Some(Overlay::Settings { selected: 0 });
+            }
             A::Next => self.move_selection(1, effects),
             A::Previous => self.move_selection(-1, effects),
             A::ScrollUp => self.scroll_timeline(-1, effects),
@@ -864,6 +970,10 @@ impl App {
                     }
                     return;
                 }
+                if matches!(self.view.overlay, Some(Overlay::SendChoice { .. })) {
+                    self.choose_send_as(self.send_choice_selected() == 0);
+                    return;
+                }
                 if matches!(self.view.overlay, Some(Overlay::Attachment { .. })) {
                     self.import_attachment(effects);
                     return;
@@ -877,6 +987,26 @@ impl App {
                 }
                 if matches!(self.view.overlay, Some(Overlay::MessageSearch(_))) {
                     self.submit_or_open_message(effects);
+                    return;
+                }
+                let settings_selected = match &self.view.overlay {
+                    Some(Overlay::Settings { selected }) => Some(*selected),
+                    _ => None,
+                };
+                if let Some(selected) = settings_selected {
+                    settings::toggle(self, selected, effects);
+                    return;
+                }
+                if let Some(Overlay::Forward {
+                    message, selected, ..
+                }) = &self.view.overlay
+                {
+                    if let Some(chat) = self.search_results().get(*selected) {
+                        let dest_chat = chat.chat.clone();
+                        let message = *message.clone();
+                        self.view.overlay = None;
+                        self.forward_message(dest_chat, message, effects);
+                    }
                     return;
                 }
                 if let Some(Overlay::Search { selected, .. }) = &self.view.overlay {
@@ -922,25 +1052,33 @@ impl App {
                     });
                 }
             }
+            A::Forward => self.open_forward(),
             A::Confirm => {
                 if self.view.connection != ConnectionState::Connected {
                     self.view.notice = Some("Not sent: wait for the connection".into());
                     return;
                 }
                 if let Some(Overlay::Resend { message }) = self.view.overlay.take() {
-                    let (text, attachment) = match message.body {
-                        MessageBody::Text(text) => (text, None),
-                        MessageBody::LocalImage { image, caption } => (caption, Some(image)),
+                    let (text, attachment, document) = match message.body {
+                        MessageBody::Text(text) => (text, None, None),
+                        MessageBody::LocalImage { image, caption } => (caption, Some(image), None),
+                        MessageBody::LocalDocument { file, caption } => (caption, None, Some(file)),
                         _ => {
                             self.view.notice = Some("This message cannot be resent".into());
                             return;
                         }
                     };
+                    // A music file resent without a caption goes back out as
+                    // playable audio, matching the original send choice.
+                    let document_as_media =
+                        document.as_ref().is_some_and(|f| f.is_audio()) && text.trim().is_empty();
                     self.prepare(
                         message.key.chat,
                         Draft {
                             text,
                             attachment,
+                            document,
+                            document_as_media,
                             reply: message.quote,
                             revision: 0,
                             ..Default::default()
@@ -959,7 +1097,10 @@ impl App {
                     self.view.notice = Some("Wait for the clipboard image before sending".into());
                     return;
                 }
-                if self.view.draft.text.trim().is_empty() && self.view.draft.attachment.is_none() {
+                if self.view.draft.text.trim().is_empty()
+                    && self.view.draft.attachment.is_none()
+                    && self.view.draft.document.is_none()
+                {
                     return;
                 }
                 if let Some(chat) = self.view.chat.clone() {
@@ -972,6 +1113,26 @@ impl App {
                 }
             }
         }
+    }
+    fn forward_message(
+        &mut self,
+        dest_chat: ChatId,
+        message: MessageRecord,
+        effects: &mut Vec<Effect>,
+    ) {
+        if self.view.connection != ConnectionState::Connected {
+            self.view.notice = Some("Cannot forward: wait for the connection".into());
+            return;
+        }
+        let Some(draft) = crate::message_actions::forward_draft(&message) else {
+            self.view.notice = Some("This message cannot be forwarded".into());
+            return;
+        };
+        if self.view.chat.as_ref() != Some(&dest_chat) {
+            self.select_chat(dest_chat.clone(), effects);
+        }
+        self.prepare(dest_chat, draft, true, effects);
+        self.focus(Focus::Messages, effects);
     }
     fn prepare(
         &mut self,
@@ -1066,7 +1227,42 @@ impl App {
                 self.foreground = Some(true);
                 return;
             }
-            Event::Paste(text) => Some(EditAction::Insert(text)),
+            Event::Paste(text) => {
+                // Terminal drag-and-drop bracket-pastes a quoted path. Attach the
+                // file directly instead of inserting its path as message text.
+                if self.view.overlay.is_none()
+                    && self.view.focus == Focus::Composer
+                    && self.view.chat.is_some()
+                    && !text.contains('\n')
+                {
+                    let cleaned = attachments::clean_attachment_path(&text);
+                    if !cleaned.is_empty() {
+                        let expanded = if let Some(rest) = cleaned.strip_prefix("~/") {
+                            std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(rest))
+                        } else if let Ok(url) = reqwest::Url::parse(&cleaned)
+                            && let Some(file) = url.to_file_path().ok()
+                        {
+                            Some(file)
+                        } else {
+                            Some(std::path::PathBuf::from(&cleaned))
+                        };
+                        if expanded
+                            .as_ref()
+                            .is_some_and(|p| std::fs::metadata(p).is_ok_and(|m| m.is_file()))
+                        {
+                            self.view.overlay = Some(Overlay::Attachment {
+                                editor: Editor::new(cleaned),
+                                selected: 0,
+                                importing: None,
+                                error: None,
+                            });
+                            self.import_attachment(effects);
+                            return;
+                        }
+                    }
+                }
+                Some(EditAction::Insert(text))
+            }
             Event::Key(key) => {
                 if key.kind == KeyEventKind::Release {
                     return;
@@ -1127,22 +1323,30 @@ impl App {
                 }
             } else if let Some(Overlay::Attachment {
                 editor,
+                selected,
                 importing,
                 error,
                 ..
             }) = &mut self.view.overlay
             {
                 if importing.is_none() {
-                    super::search::edit_query(editor, edit);
+                    if super::search::edit_query(editor, edit) {
+                        *selected = 0;
+                    }
                     *error = None;
                 }
             } else if let Some(Overlay::MessageSearch(search)) = &mut self.view.overlay {
                 if super::search::edit_query(&mut search.editor, edit) {
                     search.invalidate(None);
                 }
-            } else if let Some(Overlay::Search {
-                editor, selected, ..
-            }) = &mut self.view.overlay
+            } else if let Some(
+                Overlay::Search {
+                    editor, selected, ..
+                }
+                | Overlay::Forward {
+                    editor, selected, ..
+                },
+            ) = &mut self.view.overlay
             {
                 if super::search::edit_query(editor, edit) {
                     *selected = 0;
@@ -1212,6 +1416,7 @@ impl App {
                     self.view.selected_message = None;
                     self.view.timeline_anchor = None;
                     self.visible_messages.clear();
+                    self.auto_downloaded.clear();
                     self.timeline_tail_rows = 0;
                     self.list_request = None;
                     self.chat_request = None;
@@ -1482,10 +1687,16 @@ impl App {
                         self.view.interactions = snapshot.interactions;
                         self.view.has_older = snapshot.has_older;
                         self.view.has_newer = snapshot.has_newer;
+                        if !snapshot.has_newer {
+                            self.view.at_bottom = true;
+                            self.page_cursor = None;
+                        }
                         if !self.view.at_bottom {
                             self.view.new_messages = u32::from(snapshot.has_newer);
+                        } else {
+                            self.view.new_messages = 0;
                         }
-                        self.view.selected_message = if self.view.at_bottom {
+                        self.view.selected_message = if self.view.at_bottom && cursor.is_none() {
                             self.view.messages.last().map(|m| m.key.clone())
                         } else {
                             old.clone()
@@ -1515,6 +1726,7 @@ impl App {
                                 self.view.selected_message.clone()
                             };
                             self.visible_messages.clear();
+                            self.auto_downloaded.clear();
                             self.timeline_tail_rows = 0;
                             self.view.message_scroll = 0;
                             self.view.message_scroll_max = 0;
@@ -1588,6 +1800,7 @@ impl App {
                             }
                             self.view.draft.reply = local.data.reply.clone();
                             self.view.draft.attachment = local.data.attachment.clone();
+                            self.view.draft.document = local.data.document.clone();
                             self.view.draft.origin = local.data.origin.clone();
                             self.view.draft.recovered = local.data.recovered.clone();
                             self.view.draft.revision = local.data.revision;
@@ -1688,6 +1901,10 @@ impl App {
                                 if self.view.chat.as_ref() == Some(&message.key.chat) {
                                     self.view.draft = local.data.clone();
                                     self.editor = Editor::default();
+                                    self.view.at_bottom = true;
+                                    self.view.message_scroll = 0;
+                                    self.view.timeline_anchor = None;
+                                    self.page_cursor = None;
                                 }
                             }
                             if !self.quitting && self.view.connection == ConnectionState::Connected
@@ -1854,6 +2071,12 @@ impl App {
                 chat,
                 result,
             } => self.image_imported(request, account, chat, result),
+            Input::DocumentImported {
+                request,
+                account,
+                chat,
+                result,
+            } => self.document_imported(request, account, chat, result),
             Input::DesktopAction {
                 request,
                 account,
@@ -1876,6 +2099,7 @@ impl App {
                     self.view.message_page_rows = metrics.page_rows;
                     self.view.message_scroll = self.view.message_scroll.min(metrics.max_scroll);
                     self.reading_position();
+                    self.queue_auto_downloads(&mut effects);
                 }
             }
             Input::Terminal(event) => self.terminal(event, &mut effects),

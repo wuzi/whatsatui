@@ -6,6 +6,7 @@ pub enum DesktopAction {
     CopyText,
     OpenLink(String),
     CopyLink(String),
+    OpenLocal,
 }
 pub fn available(message: &MessageRecord, now_ms: i64) -> Vec<crate::config::bindings::ActionId> {
     use crate::{app::model::SendState, config::bindings::ActionId as A};
@@ -24,6 +25,12 @@ pub fn available(message: &MessageRecord, now_ms: i64) -> Vec<crate::config::bin
             actions.push(A::OpenMedia);
         }
     }
+    if matches!(
+        message.body,
+        MessageBody::LocalImage { .. } | MessageBody::LocalDocument { .. }
+    ) {
+        actions.push(A::OpenMedia);
+    }
     if let Some(text) = text(message, now_ms) {
         actions.push(A::CopyText);
         if !web_links(text).is_empty() {
@@ -32,6 +39,9 @@ pub fn available(message: &MessageRecord, now_ms: i64) -> Vec<crate::config::bin
     }
     if quote(message, now_ms).is_some() {
         actions.push(A::Reply);
+    }
+    if can_forward(message, now_ms) {
+        actions.push(A::Forward);
     }
     if matches!(message.body, MessageBody::Text(_))
         && !actions.is_empty()
@@ -43,8 +53,10 @@ pub fn available(message: &MessageRecord, now_ms: i64) -> Vec<crate::config::bin
     {
         actions.push(A::Resend);
     }
-    if matches!(message.body, MessageBody::LocalImage { .. })
-        && message.key.from_me
+    if matches!(
+        message.body,
+        MessageBody::LocalImage { .. } | MessageBody::LocalDocument { .. }
+    ) && message.key.from_me
         && matches!(
             message.send_state,
             Some(SendState::Failed | SendState::Unconfirmed)
@@ -75,6 +87,7 @@ pub fn text(message: &MessageRecord, now_ms: i64) -> Option<&str> {
         MessageBody::Media(attachment) => attachment.caption.as_deref().filter(|s| !s.is_empty()),
         MessageBody::Text(text)
         | MessageBody::LocalImage { caption: text, .. }
+        | MessageBody::LocalDocument { caption: text, .. }
         | MessageBody::Unsupported {
             caption: Some(text),
             ..
@@ -113,7 +126,10 @@ pub fn can_react(message: &MessageRecord, now_ms: i64) -> bool {
     !message.expires_at_ms.is_some_and(|at| at <= now_ms)
         && matches!(
             message.body,
-            MessageBody::Text(_) | MessageBody::Media(_) | MessageBody::LocalImage { .. }
+            MessageBody::Text(_)
+                | MessageBody::Media(_)
+                | MessageBody::LocalImage { .. }
+                | MessageBody::LocalDocument { .. }
         )
         && (!message.key.from_me
             || matches!(
@@ -125,6 +141,21 @@ pub fn can_react(message: &MessageRecord, now_ms: i64) -> bool {
                 )
             ))
 }
+/// A file attachment the viewer can open directly (photos, documents, …).
+/// Audio and video stay on the actions menu: they play in-app with controls.
+pub fn viewable_file(message: &MessageRecord) -> bool {
+    matches!(
+        &message.body,
+        MessageBody::Media(a)
+            if a.validate().is_ok()
+                && a.extension().is_some()
+                && !matches!(
+                    a.kind,
+                    crate::media::AttachmentKind::Audio | crate::media::AttachmentKind::Video
+                )
+    )
+}
+
 pub fn can_play(message: &MessageRecord, now_ms: i64) -> bool {
     !message.expires_at_ms.is_some_and(|at| at <= now_ms)
         && matches!(&message.body,MessageBody::Media(a) if (matches!(a.kind, crate::media::AttachmentKind::Audio | crate::media::AttachmentKind::Video) || a.is_gif()) && a.validate().is_ok())
@@ -179,6 +210,17 @@ pub fn quote(message: &MessageRecord, now_ms: i64) -> Option<crate::app::model::
                 Some(kind),
             )
         }
+        MessageBody::LocalDocument { file, caption } => (
+            format!(
+                "[document]{}",
+                if caption.is_empty() {
+                    format!(" {}", file.filename)
+                } else {
+                    format!(" {caption}")
+                }
+            ),
+            Some(AttachmentKind::Document),
+        ),
         _ => return None,
     };
     Some(Quote {
@@ -187,4 +229,60 @@ pub fn quote(message: &MessageRecord, now_ms: i64) -> Option<crate::app::model::
         availability: QuoteAvailability::Available,
         media_kind,
     })
+}
+pub fn can_forward(message: &MessageRecord, now_ms: i64) -> bool {
+    if message.expires_at_ms.is_some_and(|at| at <= now_ms) {
+        return false;
+    }
+    match &message.body {
+        MessageBody::Text(text) => !text.is_empty(),
+        MessageBody::LocalImage { .. } | MessageBody::LocalDocument { .. } => true,
+        MessageBody::Media(attachment) => {
+            attachment.caption.as_deref().is_some_and(|c| !c.is_empty())
+        }
+        MessageBody::Unsupported {
+            caption: Some(caption),
+            ..
+        } => !caption.is_empty(),
+        _ => false,
+    }
+}
+pub fn forward_draft(message: &MessageRecord) -> Option<crate::app::model::Draft> {
+    use crate::app::model::Draft;
+    match &message.body {
+        MessageBody::Text(text) if !text.is_empty() => Some(Draft {
+            text: text.clone(),
+            ..Default::default()
+        }),
+        MessageBody::LocalImage { image, caption } => Some(Draft {
+            text: caption.clone(),
+            attachment: Some(image.clone()),
+            ..Default::default()
+        }),
+        MessageBody::LocalDocument { file, caption } => {
+            let document_as_media = file.is_audio() && caption.trim().is_empty();
+            Some(Draft {
+                text: caption.clone(),
+                document: Some(file.clone()),
+                document_as_media,
+                ..Default::default()
+            })
+        }
+        MessageBody::Media(attachment) => attachment
+            .caption
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(|caption| Draft {
+                text: caption.to_owned(),
+                ..Default::default()
+            }),
+        MessageBody::Unsupported {
+            caption: Some(caption),
+            ..
+        } if !caption.is_empty() => Some(Draft {
+            text: caption.clone(),
+            ..Default::default()
+        }),
+        _ => None,
+    }
 }

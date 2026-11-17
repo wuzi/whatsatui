@@ -98,6 +98,7 @@ async fn visible_stickers_animate_and_stop_when_hidden() {
         store,
         Arc::new(Source),
         whatsapp_tui::config::ImageProtocol::Halfblocks,
+        true,
     );
     let mut terminal = Terminal::new(TestBackend::new(20, 8)).unwrap();
     let mut colors = std::collections::HashSet::new();
@@ -180,6 +181,7 @@ async fn loaded_previews_clip_clear_on_delete_and_survive_resize() {
         store.clone(),
         source.clone(),
         whatsapp_tui::config::ImageProtocol::Halfblocks,
+        true,
     );
     let config = Config::default();
     view.focus = whatsapp_tui::app::Focus::Messages;

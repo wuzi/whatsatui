@@ -16,7 +16,6 @@ use ratatui_image::{
     protocol::kitty::Kitty,
     sliced::{SlicedImage, SlicedProtocol},
 };
-use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     sync::Arc,
@@ -26,10 +25,12 @@ use tokio::sync::{oneshot, watch};
 
 pub const PREVIEW_ROWS: u16 = 8;
 const CAPACITY: usize = 8;
+const MAX_JOBS: usize = 3;
 
 #[derive(Clone)]
 struct Request {
     draft: bool,
+    auto_fetch: bool,
     id: String,
     message: MessageRecord,
     size: Size,
@@ -67,9 +68,10 @@ pub struct Images {
     service: Option<(Store, Arc<dyn Downloader>)>,
     kitty: bool,
     font: FontSize,
+    auto_photos: bool,
     wanted: Vec<Request>,
     cache: HashMap<String, Ready>,
-    active: Option<Job>,
+    active: Vec<Job>,
     serial: u32,
     cleanup: String,
     stopped: bool,
@@ -83,9 +85,10 @@ impl Default for Images {
                 width: 10,
                 height: 20,
             },
+            auto_photos: true,
             wanted: vec![],
             cache: HashMap::new(),
-            active: None,
+            active: Vec::new(),
             serial: 0,
             cleanup: String::new(),
             stopped: false,
@@ -110,9 +113,20 @@ impl Images {
     pub(super) fn settings(&self) -> (bool, FontSize) {
         (self.kitty, self.font)
     }
-    pub fn new(store: Store, downloader: Arc<dyn Downloader>, protocol: ImageProtocol) -> Self {
+    /// Refresh the construction-time auto-download flag from live config so
+    /// settings-overlay toggles apply without a restart.
+    pub fn set_auto_photos(&mut self, auto_photos: bool) {
+        self.auto_photos = auto_photos;
+    }
+    pub fn new(
+        store: Store,
+        downloader: Arc<dyn Downloader>,
+        protocol: ImageProtocol,
+        auto_photos: bool,
+    ) -> Self {
         let mut result = Self::default();
         result.service = Some((store, downloader));
+        result.auto_photos = auto_photos;
         result.kitty = use_kitty(
             protocol,
             &std::env::var("TERM_PROGRAM").unwrap_or_default(),
@@ -186,17 +200,38 @@ impl Images {
             return;
         }
         let size = Size::new(full_size.width.clamp(1, 40), full_size.height.max(1));
-        let id = format!(
-            "{:x}-{}x{}",
-            Sha256::digest(
-                serde_json::to_vec(&(&message.key, &message.body)).expect("media identity")
+        // Key-based identity avoids hashing the serialized body on every
+        // frame. Captions do not change the pixels, so edits reuse the same
+        // preview; the byte fingerprint covers replaced attachments.
+        let id = match &message.body {
+            MessageBody::LocalImage { image, .. } => {
+                format!("local-{}-{}x{}", image.id, size.width, size.height)
+            }
+            MessageBody::Media(attachment) => {
+                let mut fingerprint = String::with_capacity(16);
+                for byte in attachment.sha256.iter().take(8) {
+                    use std::fmt::Write as _;
+                    let _ = write!(fingerprint, "{byte:02x}");
+                }
+                format!(
+                    "media-{}-{}x{}-{fingerprint}",
+                    message.key.id.0, size.width, size.height
+                )
+            }
+            _ => format!(
+                "msg-{}-{}x{}-{}",
+                message.key.id.0,
+                size.width,
+                size.height,
+                u8::from(draft)
             ),
-            size.width,
-            size.height
-        );
+        };
         if self.wanted.len() < CAPACITY && !self.wanted.iter().any(|r| r.id == id) {
+            let auto_fetch =
+                draft || !matches!(&message.body, MessageBody::Media(_)) || self.auto_photos;
             self.wanted.push(Request {
                 draft,
+                auto_fetch,
                 id: id.clone(),
                 message: message.clone(),
                 size,
@@ -230,10 +265,10 @@ impl Images {
         for id in removed {
             self.remove(&id);
         }
-        if let Some(job) = &self.active
-            && !self.wanted.iter().any(|r| r.id == job.id)
-        {
-            let _ = job.stop.send(true);
+        for job in &self.active {
+            if !self.wanted.iter().any(|r| r.id == job.id) {
+                let _ = job.stop.send(true);
+            }
         }
         self.start_next();
     }
@@ -252,28 +287,30 @@ impl Images {
         std::mem::take(&mut self.cleanup)
     }
     pub fn poll(&mut self) -> bool {
-        let result = self
-            .active
-            .as_mut()
-            .and_then(|j| match j.receive.try_recv() {
+        let mut changed = false;
+        let mut index = 0;
+        while index < self.active.len() {
+            let result = match self.active[index].receive.try_recv() {
                 Ok(ready) => Some(Some(ready)),
                 Err(oneshot::error::TryRecvError::Closed) => Some(None),
                 Err(oneshot::error::TryRecvError::Empty) => None,
-            });
-        let mut changed = false;
-        if let Some(result) = result {
-            let job = self.active.take().expect("completed preview");
-            if let Some(mut ready) = result
-                && self.wanted.iter().any(|r| r.id == job.id)
-                && !self.stopped
-                && !*job.stop.borrow()
-            {
-                if let Ok(prepared) = &mut ready.protocol {
-                    prepared.started = Instant::now();
+            };
+            if let Some(result) = result {
+                let job = self.active.remove(index);
+                if let Some(mut ready) = result
+                    && self.wanted.iter().any(|r| r.id == job.id)
+                    && !self.stopped
+                    && !*job.stop.borrow()
+                {
+                    if let Ok(prepared) = &mut ready.protocol {
+                        prepared.started = Instant::now();
+                    }
+                    self.cache.insert(job.id, ready);
                 }
-                self.cache.insert(job.id, ready);
+                changed = true;
+            } else {
+                index += 1;
             }
-            changed = true;
         }
         let retry: Vec<_> = self
             .cache
@@ -295,75 +332,89 @@ impl Images {
         changed
     }
     fn start_next(&mut self) {
-        if self.active.is_some() || self.stopped {
+        if self.stopped {
             return;
         }
         let Some((store, downloader)) = &self.service else {
             return;
         };
-        let Some(request) = self
-            .wanted
-            .iter()
-            .find(|r| !self.cache.contains_key(&r.id))
-            .cloned()
-        else {
-            return;
-        };
-        let store = store.clone();
-        let downloader = downloader.clone();
-        let kitty = self.kitty;
-        let font = self.font;
-        // Reserve 128 IDs per preview; at most 96 prepared animation frames.
-        self.serial = self.serial.wrapping_add(128) & 0x00ff_ff80;
-        let kitty_id = 0x7700_0000 | self.serial;
-        let (stop, cancel) = watch::channel(false);
-        let (send, receive) = oneshot::channel();
-        self.active = Some(Job {
-            id: request.id,
-            stop,
-            receive,
-        });
-        tokio::spawn(async move {
-            let result = if request.draft {
-                if let MessageBody::LocalImage { image, .. } = request.message.body {
-                    media::preview::load_local(*image, store.data_dir().to_owned(), cancel.clone())
-                        .await
-                } else {
-                    Err("No attached image".into())
-                }
-            } else {
-                media::preview::load(request.message, store, downloader.as_ref(), cancel.clone())
-                    .await
-            };
-            let protocol = match result {
-                Ok(image) => tokio::task::spawn_blocking(move || {
-                    prepare_preview(
-                        image,
-                        request.size,
-                        font,
-                        kitty.then_some(kitty_id),
-                        &cancel,
-                    )
+        while self.active.len() < MAX_JOBS {
+            let Some(request) = self
+                .wanted
+                .iter()
+                .find(|r| {
+                    !self.cache.contains_key(&r.id) && !self.active.iter().any(|j| j.id == r.id)
                 })
-                .await
-                .unwrap_or_else(|_| Err("Preview preparation failed".into())),
-                Err(error) => Err(error),
+                .cloned()
+            else {
+                return;
             };
-            let delay = if protocol.as_ref().is_err_and(|e| e.contains("busy")) {
-                1
-            } else {
-                60
-            };
-            let _ = send.send(Ready {
-                protocol,
-                retry_at: Instant::now() + Duration::from_secs(delay),
+            let store = store.clone();
+            let downloader = downloader.clone();
+            let kitty = self.kitty;
+            let font = self.font;
+            // Reserve 128 IDs per preview; at most 96 prepared animation frames.
+            self.serial = self.serial.wrapping_add(128) & 0x00ff_ff80;
+            let kitty_id = 0x7700_0000 | self.serial;
+            let (stop, cancel) = watch::channel(false);
+            let (send, receive) = oneshot::channel();
+            self.active.push(Job {
+                id: request.id,
+                stop,
+                receive,
             });
-        });
+            tokio::spawn(async move {
+                let result = if request.draft {
+                    if let MessageBody::LocalImage { image, .. } = request.message.body {
+                        media::preview::load_local(
+                            *image,
+                            store.data_dir().to_owned(),
+                            cancel.clone(),
+                        )
+                        .await
+                    } else {
+                        Err("No attached image".into())
+                    }
+                } else {
+                    media::preview::load(
+                        request.message,
+                        store,
+                        downloader.as_ref(),
+                        cancel.clone(),
+                        request.auto_fetch,
+                    )
+                    .await
+                };
+                let protocol = match result {
+                    Ok(image) => tokio::task::spawn_blocking(move || {
+                        prepare_preview(
+                            image,
+                            request.size,
+                            font,
+                            kitty.then_some(kitty_id),
+                            &cancel,
+                        )
+                    })
+                    .await
+                    .unwrap_or_else(|_| Err("Preview preparation failed".into())),
+                    Err(error) => Err(error),
+                };
+                let delay = if protocol.as_ref().is_err_and(|e| e.contains("busy")) {
+                    1
+                } else {
+                    60
+                };
+                let _ = send.send(Ready {
+                    protocol,
+                    retry_at: Instant::now() + Duration::from_secs(delay),
+                });
+            });
+        }
     }
     pub fn stop(&mut self) {
         self.stopped = true;
         self.wanted.clear();
-        if let Some(job) = &self.active {
+        for job in &self.active {
             let _ = job.stop.send(true);
         }
         let ids: Vec<_> = self.cache.keys().cloned().collect();

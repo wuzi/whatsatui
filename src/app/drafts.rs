@@ -7,7 +7,10 @@ impl Draft {
     }
 
     fn has_active_content(&self) -> bool {
-        !self.text.is_empty() || self.attachment.is_some() || self.reply.is_some()
+        !self.text.is_empty()
+            || self.attachment.is_some()
+            || self.document.is_some()
+            || self.reply.is_some()
     }
 
     fn active(&self, fallback: &ChatId) -> RecoveredDraft {
@@ -15,6 +18,8 @@ impl Draft {
             origin: self.origin.clone().unwrap_or_else(|| fallback.clone()),
             text: self.text.clone(),
             attachment: self.attachment.clone(),
+            document: self.document.clone(),
+            document_as_media: self.document_as_media,
             reply: self.reply.clone(),
         }
     }
@@ -23,6 +28,8 @@ impl Draft {
         self.origin = Some(draft.origin);
         self.text = draft.text;
         self.attachment = draft.attachment;
+        self.document = draft.document;
+        self.document_as_media = draft.document_as_media;
         self.reply = draft.reply;
     }
 
@@ -52,8 +59,10 @@ impl Draft {
     }
 
     fn merge_content(&mut self, other: RecoveredDraft, edited: bool) {
-        let other_has_content =
-            !other.text.is_empty() || other.attachment.is_some() || other.reply.is_some();
+        let other_has_content = !other.text.is_empty()
+            || other.attachment.is_some()
+            || other.document.is_some()
+            || other.reply.is_some();
         if let Some(index) = self.recovered.iter().position(|d| d.origin == other.origin) {
             if edited {
                 if other_has_content {
@@ -66,7 +75,12 @@ impl Draft {
         }
         // Keep the previous text-only merge behavior. Images must keep their own
         // captions and quotes instead of acquiring another composer's text.
-        if self.attachment.is_none() && other.attachment.is_none() && self.recovered.is_empty() {
+        if self.attachment.is_none()
+            && self.document.is_none()
+            && other.attachment.is_none()
+            && other.document.is_none()
+            && self.recovered.is_empty()
+        {
             retain_text(&mut self.text, &other.text);
             if self.reply.is_none() || (edited && self.origin.as_ref() == Some(&other.origin)) {
                 self.reply = other.reply;

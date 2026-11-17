@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Whatsatui
+GenericName=WhatsApp TUI
+Comment=Personal WhatsApp terminal client with a cyan Ratatui interface
+Exec=whatsapp-tui
+Terminal=true
+Categories=Network;InstantMessaging;ConsoleOnly;
+Keywords=whatsapp;chat;tui;terminal;
+StartupNotify=false

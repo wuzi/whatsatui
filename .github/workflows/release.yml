@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config
+
+      - name: Install pinned Rust
+        run: rustup toolchain install 1.98.0 --profile minimal --component rustfmt --component clippy
+
+      - name: Build release
+        run: ./scripts/check.sh release
+
+      - name: Install nfpm and appimagetool
+        run: |
+          curl -sL https://github.com/goreleaser/nfpm/releases/download/v2.43.1/nfpm_2.43.1_Linux_x86_64.tar.gz | tar xz nfpm
+          sudo mv nfpm /usr/local/bin/
+          curl -sL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+          sudo mv appimagetool /usr/local/bin/appimagetool
+
+      - name: Build .deb and .rpm
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p dist
+          sed -i "s/^version: .*/version: \"$VERSION\"/" packaging/nfpm.yaml
+          nfpm package --config packaging/nfpm.yaml --packager deb --target dist/
+          nfpm package --config packaging/nfpm.yaml --packager rpm --target dist/
+
+      - name: Build AppImage and portable tarball
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          chmod +x packaging/appimage/build.sh
+          packaging/appimage/build.sh "$VERSION"
+          tar czf "dist/whatsatui-${VERSION}-x86_64.tar.gz" -C target/release whatsapp-tui \
+            -C "$GITHUB_WORKSPACE" LICENSE \
+            -C "$GITHUB_WORKSPACE/examples" config.toml \
+            -C "$GITHUB_WORKSPACE/packaging" whatsapp-tui.desktop icon.svg
+          (cd dist && sha256sum -- *.deb *.rpm *.AppImage *.tar.gz > SHA256SUMS && cat SHA256SUMS)
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

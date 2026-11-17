@@ -21,19 +21,37 @@ pub enum Overlay {
         importing: Option<RequestId>,
         error: Option<String>,
     },
+    SendChoice {
+        kind: SendChoiceKind,
+        filename: String,
+        selected: usize,
+    },
     MessageActions(Box<MessageMenu>),
     Reactions(Box<MessageMenu>),
     MessageLinks(Box<MessageLinks>),
     MessageSearch(Box<super::search::MessageSearch>),
+    Settings {
+        selected: usize,
+    },
     Search {
         editor: Editor,
         selected: usize,
         unread_only: bool,
     },
+    Forward {
+        message: Box<MessageRecord>,
+        editor: Editor,
+        selected: usize,
+    },
     Help,
     Resend {
         message: Box<MessageRecord>,
     },
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SendChoiceKind {
+    Audio,
+    Video,
 }
 #[derive(Clone, Debug)]
 pub struct MessageMenu {
@@ -110,6 +128,7 @@ impl StickerChoice {
                     Some(a.sha256.iter().map(|b| format!("{b:02x}")).collect())
                 }
                 MessageBody::LocalImage { image, .. } => Some(image.id.clone()),
+                MessageBody::LocalDocument { .. } => None,
                 _ => None,
             },
         }

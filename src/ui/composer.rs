@@ -74,6 +74,34 @@ pub(super) fn render(
             images.draw_local(frame, account, chat, image, preview);
             inner.width = inner.width.saturating_sub(14);
         }
+    } else if let Some(file) = view
+        .draft
+        .document
+        .as_ref()
+        .filter(|_| view.editing.is_none())
+    {
+        let remove = search::key(
+            config,
+            Context::Composer,
+            crate::config::bindings::ActionId::RemoveAttachment,
+        );
+        let size = if file.size < 1024 {
+            format!("{} B", file.size)
+        } else if file.size < 1024 * 1024 {
+            format!("{:.1} KiB", file.size as f64 / 1024.0)
+        } else {
+            format!("{:.1} MiB", file.size as f64 / (1024.0 * 1024.0))
+        };
+        frame.render_widget(
+            Paragraph::new(format!(
+                "[file] {} · {size} · {remove} remove",
+                single(&file.filename)
+            ))
+            .style(style(config, view, ThemeRole::Accent)),
+            Rect::new(inner.x, inner.y, inner.width, inner.height.min(1)),
+        );
+        inner.y += 1;
+        inner.height = inner.height.saturating_sub(1);
     }
     if let Some(quote) = view.draft.reply.as_ref().filter(|_| view.editing.is_none()) {
         let preview = if quote.availability == QuoteAvailability::Available {

@@ -31,8 +31,26 @@ pub(super) fn render(
     let inner = border.inner(area);
     let photo_padding = if config.media.avatars { "     " } else { "" };
     let text_width = (inner.width as usize).saturating_sub(2 + photo_padding.len());
-    let items = view
+    let offset = view.list_offsets.get(&Context::Chats).copied().unwrap_or(0);
+    let selected = view
         .chats
+        .iter()
+        .position(|c| Some(&c.chat) == view.chat.as_ref());
+    // Virtualize: format only the visible window plus overscan. Each chat is
+    // two rows, so the slice covers every scrolled position List can choose
+    // (it keeps the selection visible, which may move the offset).
+    let visible_rows = (inner.height as usize / 2).max(1);
+    let anchor = selected.unwrap_or(offset);
+    let start = anchor
+        .min(offset)
+        .saturating_sub(visible_rows + 2)
+        .min(view.chats.len());
+    let end = anchor
+        .max(offset)
+        .saturating_add(visible_rows + 2)
+        .min(view.chats.len())
+        .max(start);
+    let items = view.chats[start..end]
         .iter()
         .map(|chat| {
             let unread = if chat.unread > 0 {
@@ -64,12 +82,8 @@ pub(super) fn render(
         })
         .collect::<Vec<_>>();
     let mut state = ListState::default()
-        .with_offset(view.list_offsets.get(&Context::Chats).copied().unwrap_or(0))
-        .with_selected(
-            view.chats
-                .iter()
-                .position(|c| Some(&c.chat) == view.chat.as_ref()),
-        );
+        .with_offset(offset.saturating_sub(start))
+        .with_selected(selected.map(|s| s.saturating_sub(start)));
     frame.render_stateful_widget(
         List::new(items)
             .block(border)
@@ -79,10 +93,13 @@ pub(super) fn render(
         area,
         &mut state,
     );
+    // List may scroll to keep the selection visible; the post-render
+    // offset is absolute again after adding the slice start.
+    let rendered_offset = state.offset().saturating_add(start);
     hits.list(
         Context::Chats,
         inner,
-        state.offset(),
+        rendered_offset,
         view.chats.iter().map(|_| 2),
         |i| Target::Chat(view.chats[i].chat.clone()),
     );
@@ -94,7 +111,7 @@ pub(super) fn render(
         for (row, chat) in view
             .chats
             .iter()
-            .skip(state.offset())
+            .skip(rendered_offset)
             .take(inner.height as usize / 2)
             .enumerate()
         {

@@ -211,6 +211,31 @@ fn attach_cancel_stale_import_and_attachment_only_send() {
     assert!(app.view().draft.attachment.is_none());
 }
 
+#[test]
+fn enter_attaches_the_highlighted_file_after_browsing_into_a_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("picture.webp");
+    std::fs::write(&source, include_bytes!("fixtures/sticker.webp")).unwrap();
+    let expected = source.to_string_lossy().into_owned();
+    let mut app = ready_app();
+    press(&mut app, "enter");
+    press(&mut app, "ctrl-o");
+    app.update(
+        Input::Terminal(crossterm::event::Event::Paste(
+            dir.path().to_string_lossy().into_owned(),
+        )),
+        tokio::time::Instant::now(),
+    );
+    // The first Enter turns the typed folder into the browse location and
+    // highlights its first file.
+    assert!(press(&mut app, "enter").is_empty());
+    let effects = press(&mut app, "enter");
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        Effect::ImportImage { path, .. } if path == &expected
+    )));
+}
+
 #[tokio::test]
 async fn staging_an_image_preserves_newer_caption_and_attachment_draft() {
     let dir = tempfile::tempdir().unwrap();
@@ -671,4 +696,185 @@ async fn alias_merge_preserves_recovery_while_canonical_composer_has_unsaved_edi
             .len(),
         1
     );
+}
+
+#[test]
+fn enter_attaches_selected_file_via_arrow_or_mouse_click() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("picture.webp");
+    std::fs::write(&source, include_bytes!("fixtures/sticker.webp")).unwrap();
+    let expected = source.to_string_lossy().into_owned();
+
+    // 1. Arrow selection + Enter
+    let mut app = ready_app();
+    press(&mut app, "enter");
+    press(&mut app, "ctrl-o");
+    app.update(
+        Input::Terminal(crossterm::event::Event::Paste(format!(
+            "{}/",
+            dir.path().to_string_lossy()
+        ))),
+        tokio::time::Instant::now(),
+    );
+    // Move selection from `..` (0) to `picture.webp` (1)
+    press(&mut app, "down");
+    let effects = press(&mut app, "enter");
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        Effect::ImportImage { path, .. } if path == &expected
+    )));
+
+    // 2. Mouse click selection + Enter
+    let mut app = ready_app();
+    press(&mut app, "enter");
+    press(&mut app, "ctrl-o");
+    app.update(
+        Input::Terminal(crossterm::event::Event::Paste(format!(
+            "{}/",
+            dir.path().to_string_lossy()
+        ))),
+        tokio::time::Instant::now(),
+    );
+
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 40)).unwrap();
+    let mut map = None;
+    terminal
+        .draw(|f| {
+            map = Some(whatsapp_tui::ui::render_interactive(
+                f,
+                &app.view(),
+                &app.config,
+                &mut whatsapp_tui::ui::Images::default(),
+                &mut whatsapp_tui::ui::Avatars::default(),
+            ));
+        })
+        .unwrap();
+    app.update(Input::Rendered(map.unwrap()), tokio::time::Instant::now());
+
+    let buffer = terminal.backend().buffer().clone();
+    let mut pt = None;
+    for y in 0..buffer.area.height {
+        let line: String = (0..buffer.area.width)
+            .map(|x| buffer[(x, y)].symbol())
+            .collect();
+        if line.contains("picture.webp") {
+            pt = Some((30, y));
+            break;
+        }
+    }
+    let pt = pt.expect("rendered row for picture.webp");
+
+    // Single click selects the row
+    app.update(
+        Input::Terminal(crossterm::event::Event::Mouse(
+            crossterm::event::MouseEvent {
+                kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                column: pt.0,
+                row: pt.1,
+                modifiers: crossterm::event::KeyModifiers::NONE,
+            },
+        )),
+        tokio::time::Instant::now(),
+    );
+    // Pressing Enter must attach the selected file
+    let effects = press(&mut app, "enter");
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        Effect::ImportImage { path, .. } if path == &expected
+    )));
+
+    // 3. Double click on the file directly attaches it
+    let mut app = ready_app();
+    press(&mut app, "enter");
+    press(&mut app, "ctrl-o");
+    app.update(
+        Input::Terminal(crossterm::event::Event::Paste(format!(
+            "{}/",
+            dir.path().to_string_lossy()
+        ))),
+        tokio::time::Instant::now(),
+    );
+    let mut map = None;
+    terminal
+        .draw(|f| {
+            map = Some(whatsapp_tui::ui::render_interactive(
+                f,
+                &app.view(),
+                &app.config,
+                &mut whatsapp_tui::ui::Images::default(),
+                &mut whatsapp_tui::ui::Avatars::default(),
+            ));
+        })
+        .unwrap();
+    app.update(
+        Input::Rendered(map.clone().unwrap()),
+        tokio::time::Instant::now(),
+    );
+
+    let t0 = tokio::time::Instant::now();
+    app.update(
+        Input::Terminal(crossterm::event::Event::Mouse(
+            crossterm::event::MouseEvent {
+                kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                column: pt.0,
+                row: pt.1,
+                modifiers: crossterm::event::KeyModifiers::NONE,
+            },
+        )),
+        t0,
+    );
+    terminal
+        .draw(|f| {
+            map = Some(whatsapp_tui::ui::render_interactive(
+                f,
+                &app.view(),
+                &app.config,
+                &mut whatsapp_tui::ui::Images::default(),
+                &mut whatsapp_tui::ui::Avatars::default(),
+            ));
+        })
+        .unwrap();
+    app.update(
+        Input::Rendered(map.unwrap()),
+        t0 + std::time::Duration::from_millis(10),
+    );
+    let effects = app.update(
+        Input::Terminal(crossterm::event::Event::Mouse(
+            crossterm::event::MouseEvent {
+                kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                column: pt.0,
+                row: pt.1,
+                modifiers: crossterm::event::KeyModifiers::NONE,
+            },
+        )),
+        t0 + std::time::Duration::from_millis(50),
+    );
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        Effect::ImportImage { path, .. } if path == &expected
+    )));
+
+    // 4. Typing a filter prefix and selecting the matching file attaches it
+    let mut app = ready_app();
+    press(&mut app, "enter");
+    press(&mut app, "ctrl-o");
+    app.update(
+        Input::Terminal(crossterm::event::Event::Paste(format!(
+            "{}/",
+            dir.path().to_string_lossy()
+        ))),
+        tokio::time::Instant::now(),
+    );
+    // Type "pic" filter
+    app.update(
+        Input::Terminal(crossterm::event::Event::Paste("pic".into())),
+        tokio::time::Instant::now(),
+    );
+    // Highlight the filtered file
+    press(&mut app, "down");
+    let effects = press(&mut app, "enter");
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        Effect::ImportImage { path, .. } if path == &expected
+    )));
 }

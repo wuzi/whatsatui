@@ -277,6 +277,8 @@ async fn command_once(
                 SendState::Failed
             } else if message.draft.attachment.is_some() {
                 super::images::send(client, message.clone(), store.data_dir().to_owned()).await
+            } else if message.draft.document.is_some() {
+                super::documents::send(client, message.clone(), store.data_dir().to_owned()).await
             } else {
                 match encode::encode_text(&message) {
                     Err(_) => SendState::Failed,

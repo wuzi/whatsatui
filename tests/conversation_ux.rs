@@ -400,6 +400,64 @@ fn selecting_past_the_cached_page_requests_next_history_page() {
 }
 
 #[test]
+fn reaching_end_of_chat_clears_page_cursor_and_staged_send_stays_at_bottom() {
+    let mut app = ready_app();
+    let effects = app.update(
+        Input::Backend(BackendEvent::StoreChanged(StoreChange {
+            account: account("test"),
+            chats: vec!["chat".into()],
+        })),
+        Instant::now(),
+    );
+    let request = effects
+        .iter()
+        .find_map(|e| {
+            if let Effect::LoadChat { request, .. } = e {
+                Some(*request)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    app.update(
+        Input::Store(StoreCompletion::Chat {
+            request,
+            account: account("test"),
+            chat: "chat".into(),
+            cursor: Some(PageCursor {
+                direction: PageDirection::After,
+                created_at_ms: 100,
+                key: key("chat", "alice", "older"),
+            }),
+            result: Ok(Box::new(ChatSnapshot {
+                interactions: Default::default(),
+                summary: app.view().chats[0].clone(),
+                messages: vec![message(key("chat", "alice", "latest"), "Latest message")],
+                receipts: vec![],
+                draft: Draft::default(),
+                has_older: true,
+                has_newer: false,
+            })),
+        }),
+        Instant::now(),
+    );
+    assert!(app.view().at_bottom);
+    assert_eq!(app.view().new_messages, 0);
+
+    let mut msg = outbound(key("chat", "test", "sent"), draft("hello", 1));
+    msg.created_at_ms = 200;
+    app.update(
+        Input::Store(StoreCompletion::Staged {
+            request: RequestId(99),
+            message: Box::new(msg),
+            result: Ok(()),
+        }),
+        Instant::now(),
+    );
+    assert!(app.view().at_bottom);
+}
+
+#[test]
 fn clicking_a_scrolled_popup_item_keeps_it_under_the_pointer() {
     use crossterm::event::{MouseButton, MouseEventKind::Down};
     let mut app = many_chats();

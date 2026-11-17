@@ -1,7 +1,7 @@
 use super::ConfigError;
 use ratatui::style::Color;
-use serde::Deserialize;
-#[derive(Clone, Debug, Deserialize)]
+use serde::{Deserialize, Serialize};
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Theme {
     pub background: String,

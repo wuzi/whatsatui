@@ -3,7 +3,9 @@ use crate::app::search::MessageSearch;
 
 impl App {
     pub(super) fn highlighted_chat(&self) -> Option<ChatId> {
-        if let Some(Overlay::Search { selected, .. }) = &self.view.overlay {
+        if let Some(Overlay::Search { selected, .. } | Overlay::Forward { selected, .. }) =
+            &self.view.overlay
+        {
             self.search_results().get(*selected).map(|c| c.chat.clone())
         } else {
             None
@@ -12,7 +14,9 @@ impl App {
 
     pub(super) fn restore_highlighted_chat(&mut self, highlighted: Option<ChatId>) {
         let results = self.search_results();
-        if let Some(Overlay::Search { selected, .. }) = &mut self.view.overlay {
+        if let Some(Overlay::Search { selected, .. } | Overlay::Forward { selected, .. }) =
+            &mut self.view.overlay
+        {
             *selected = highlighted
                 .and_then(|id| results.iter().position(|c| c.chat == id))
                 .unwrap_or_else(|| (*selected).min(results.len().saturating_sub(1)));
